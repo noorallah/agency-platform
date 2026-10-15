@@ -1668,6 +1668,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       barrierDismissible: false,
       builder: (_) => ReorderDialog(
         api: widget.api,
+        boxes: ShowBoxesChoice(
+          preferences: widget.preferences,
+          userId: widget.permissions.userId,
+        ),
         canRaiseRequisition:
             widget.permissions.hasPermission('PURCHASE_REQUISITION_CREATE'),
       ),

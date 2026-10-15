@@ -8,6 +8,7 @@ import '../../core/design/design_tokens.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/physical_count.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/desktop_framework.dart';
 import 'stock_evidence_dialog.dart';
 
@@ -176,11 +177,16 @@ class PhysicalCountSheetDialog extends StatefulWidget {
     required this.api,
     required this.sheet,
     required this.canCount,
+    this.boxes,
   });
 
   final ApiClient api;
   final PhysicalCountSheet sheet;
   final bool canCount;
+
+  /// The person's *Show boxes* choice (L5 step 11); null keeps it for the
+  /// dialog only.
+  final ShowBoxesChoice? boxes;
 
   @override
   State<PhysicalCountSheetDialog> createState() =>
@@ -193,6 +199,22 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
   bool _busy = false;
   bool _changed = false;
   String? _error;
+
+  late final ShowBoxesChoice _boxes = widget.boxes ?? ShowBoxesChoice();
+
+  /// Offered where a line carries the item's pack, which the server sends
+  /// only where a box switch is on. A way of showing the expected stock and
+  /// the difference; the count is still typed in pieces.
+  bool get _offersBoxes =>
+      offersShowBoxes(_sheet.lines.map((line) => line.packSize));
+
+  /// [figure] of [line] as boxes and pieces with *Show boxes* on, its sign
+  /// kept: "+1 x 12 + 2 (+14.0000)".
+  String _boxed(String figure, PhysicalCountLine line) {
+    if (!_boxes.on || !_offersBoxes) return figure;
+    final String shown = stockInBoxes(figure, line.packSize, beside: figure);
+    return figure.startsWith('+') && shown != figure ? '+$shown' : shown;
+  }
 
   @override
   void initState() {
@@ -459,6 +481,13 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
+              if (_offersBoxes && !_sheet.hidesExpected) ...[
+                const SizedBox(width: AppSpacing.md),
+                ShowBoxesToggle(
+                  value: _boxes.on,
+                  onChanged: (value) => setState(() => _boxes.choose(value)),
+                ),
+              ],
               const SizedBox(width: AppSpacing.md),
               TextButton.icon(
                 key: const ValueKey<String>('count-evidence'),
@@ -515,7 +544,8 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
                       ),
                     ),
                   ),
-                  if (!blind) DataCell(Text(line.expectedQuantity)),
+                  if (!blind)
+                    DataCell(Text(_boxed(line.expectedQuantity, line))),
                   DataCell(
                     SizedBox(
                       width: 120,
@@ -532,11 +562,12 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
                   // Shown while the sheet is filled in, so a fat-fingered
                   // digit is visible before it posts rather than after.
                   if (!blind)
-                    DataCell(Text(
+                    DataCell(Text(_boxed(
                       _sheet.isPosted
                           ? line.varianceQuantity
                           : _draftDifference(line),
-                    )),
+                      line,
+                    ))),
                 ]),
             ],
           ),

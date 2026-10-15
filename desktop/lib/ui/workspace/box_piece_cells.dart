@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../phase2/document_page.dart';
 
 /// Boxes and loose pieces on one line (L5, `BOX_AND_PIECE_LINE_DESIGN` 3.4
@@ -418,6 +421,152 @@ class _BoxPieceCellState extends State<_BoxPieceCell> {
         validator: widget.validator,
         onChanged: (_) => widget.onTyped(),
       );
+}
+
+// -- Show boxes (L5 step 11, `BOX_AND_PIECE_LINE_DESIGN` 4, "Stock, shown
+// as boxes and pieces") ------------------------------------------------------
+//
+// A way of showing stock and nothing more: every figure stays the one the
+// screen read, in pieces, and the split is worked out here from the item's
+// pack size today, which the server puts on each stock row only where the
+// firm has a box switch on. No call is added and nothing is stored but the
+// person's choice, on this PC.
+
+/// Whether a screen offers *Show boxes*: where at least one row it read
+/// carries a pack, which is how it knows one of the firm's switches is on.
+bool offersShowBoxes(Iterable<String> packSizes) =>
+    packSizes.any((size) => packOf(size) != null);
+
+/// A stock quantity in pieces read as boxes with the pieces kept beside it:
+/// "7 x 12 + 5 (89)", "-1 x 12 + 2 (-14)". [beside] is the figure as the
+/// screen shows it without boxes; it defaults to the plain figure. A
+/// quantity under one box, or of an item with no pack, reads as [beside]
+/// (or the quantity as given) does today.
+String stockInBoxes(String quantity, String packSize, {String? beside}) {
+  final double? value = double.tryParse(quantity.trim());
+  final double? pack = packOf(packSize);
+  final String plain = beside ?? quantity;
+  if (value == null || pack == null) return plain;
+  final ({int boxes, double pieces}) split = splitPieces(value.abs(), pack);
+  if (split.boxes == 0) return plain;
+  final String head = '${value < 0 ? '-' : ''}${split.boxes} x '
+      '${boxPieceFigure(pack)}';
+  final String boxes = split.pieces == 0
+      ? head
+      : '$head + ${boxPieceFigure(split.pieces)}';
+  return '$boxes (${beside ?? boxPieceFigure(value)})';
+}
+
+/// A stock quantity as the three number columns a download writes with
+/// *Show boxes* on: boxes, pieces, total. An item with no pack has no box
+/// figure and its pieces are the whole; text that is not a figure goes in
+/// the total as it stands.
+List<Object?> stockBoxColumns(String quantity, String packSize) {
+  final double? value = double.tryParse(quantity.trim());
+  if (value == null) {
+    return <Object?>[null, null, quantity.trim().isEmpty ? null : quantity];
+  }
+  final double? pack = packOf(packSize);
+  if (pack == null) return <Object?>[null, value, value];
+  final ({int boxes, double pieces}) split = splitPieces(value.abs(), pack);
+  final int sign = value < 0 ? -1 : 1;
+  return <Object?>[sign * split.boxes, sign * split.pieces, value];
+}
+
+/// The three headings [stockBoxColumns] fills, after [label].
+List<String> stockBoxHeadings(String label) =>
+    <String>['$label boxes', '$label pieces', '$label total'];
+
+/// The person's *Show boxes* choice, kept on this PC per signed-in user in
+/// the desktop preferences' workspace state (the local file is per Windows
+/// account, not per user). One choice serves every stock screen. Nothing
+/// is asked of the server.
+class ShowBoxesChoice {
+  ShowBoxesChoice({this.preferences, String? userId})
+      : userId = userId ?? '',
+        on = _read(preferences, userId ?? '');
+
+  final DesktopPreferencesService? preferences;
+  final String userId;
+
+  /// Whether the person last turned it on. Off to start.
+  bool on;
+
+  /// The workspace-state key the choice is kept under for [userId].
+  static String keyFor(String userId) => 'show_boxes.$userId';
+
+  static bool _read(DesktopPreferencesService? preferences, String userId) =>
+      preferences?.workspaceState(keyFor(userId))['on'] == true;
+
+  /// Turn it on or off, and remember that for next time.
+  void choose(bool value) {
+    on = value;
+    final DesktopPreferencesService? store = preferences;
+    if (store == null) return;
+    unawaited(store.saveWorkspaceState(
+        keyFor(userId), <String, dynamic>{'on': value}));
+  }
+}
+
+/// The *Show boxes* switch on a stock screen's line. Changes how quantities
+/// read, never a quantity.
+class ShowBoxesToggle extends StatelessWidget {
+  const ShowBoxesToggle({
+    super.key = const ValueKey<String>('show-boxes'),
+    required this.value,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    // A tick box and two words, about 110 px: inside the room a toolbar
+    // keeps for a tool it cannot measure (120), on and off alike.
+    return Tooltip(
+      message: 'Read quantities of an item with a box as boxes and pieces, '
+          'with the pieces beside them',
+      child: Semantics(
+        button: true,
+        toggled: value,
+        child: InkWell(
+          onTap: () => onChanged(!value),
+          borderRadius: BorderRadius.circular(5),
+          child: Container(
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: value ? scheme.secondaryContainer : null,
+              border: Border.all(color: scheme.outlineVariant),
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  value ? Icons.check_box : Icons.check_box_outline_blank,
+                  size: 16,
+                  color: value ? scheme.onSecondaryContainer : null,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Show boxes',
+                  maxLines: 1,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontSize: 13,
+                    color: value ? scheme.onSecondaryContainer : null,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// A box cell for an item with no pack: drawn, closed, and never focused.

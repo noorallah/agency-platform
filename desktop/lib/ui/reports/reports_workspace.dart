@@ -7,12 +7,14 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/finance.dart';
 import '../../models/report.dart';
 import '../../models/vendor.dart';
 import '../finance/journal_entry_view_dialog.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
 import '../workspace/party_place.dart';
@@ -41,7 +43,12 @@ class ReportsWorkspace extends StatefulWidget {
     required this.hasActiveFirm,
     required this.tabId,
     this.saveFile,
+    this.preferences,
   });
+
+  /// Where the person's *Show boxes* choice is kept (L5 step 11); null keeps
+  /// it for the session only.
+  final DesktopPreferencesService? preferences;
 
   final ApiClient api;
   final PermissionService permissions;
@@ -65,6 +72,34 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace>
 
   ReportDefinition? _selected;
   List<Json> _rows = const [];
+
+  /// L5 step 11: the stock reports whose quantities *Show boxes* reads as
+  /// boxes and pieces. Each of their rows carries the item's `pack_size`
+  /// where the firm has a box switch on.
+  static const Set<String> _boxReports = {
+    'stock-valuation',
+    'stock-valuation-lots',
+    'stock-statement',
+  };
+
+  late final ShowBoxesChoice _boxes = ShowBoxesChoice(
+    preferences: widget.preferences,
+    userId: widget.permissions.userId,
+  );
+
+  /// Offered on a stock report where a row read carries a pack: no call is
+  /// added to find out whether a switch is on.
+  bool _offersBoxes(ReportDefinition report) =>
+      _boxReports.contains(report.id) &&
+      offersShowBoxes(_rows.map((row) => stringValue(row['pack_size'])));
+
+  bool _showBoxes(ReportDefinition report) =>
+      _boxes.on && _offersBoxes(report);
+
+  /// A column holding a quantity of stock, which *Show boxes* splits.
+  static bool _isQuantity(ReportColumn column) =>
+      column.numeric &&
+      (column.key == 'quantity' || column.key.endsWith('_quantity'));
 
   /// A dated report is paged a hundred rows at a time (D-RPT-18): the page
   /// on screen, and how many rows the window holds in all.
@@ -318,6 +353,22 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace>
       }
     }
     final List<ReportColumn> columns = columnsFor(report, rows);
+    // With *Show boxes* on, each quantity is three number columns: boxes,
+    // pieces, total.
+    final bool boxes = _showBoxes(report);
+    bool split(ReportColumn column) => boxes && _isQuantity(column);
+    final List<String> headers = <String>[];
+    final Set<int> numeric = <int>{};
+    for (final ReportColumn column in columns) {
+      if (split(column)) {
+        final List<String> three = stockBoxHeadings(column.label);
+        numeric.addAll([for (int i = 0; i < 3; i++) headers.length + i]);
+        headers.addAll(three);
+      } else {
+        if (column.numeric) numeric.add(headers.length);
+        headers.add(column.label);
+      }
+    }
     Object? cell(Json row, ReportColumn column) {
       final dynamic value = row[column.key];
       if (value is bool || value is num) return value;
@@ -351,14 +402,18 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace>
           'The first ${rows.length} of $total rows; narrow the dates for '
               'the rest.',
       ],
-      headers: [for (final ReportColumn column in columns) column.label],
-      numeric: {
-        for (int i = 0; i < columns.length; i++)
-          if (columns[i].numeric) i,
-      },
+      headers: headers,
+      numeric: numeric,
       rows: [
         for (final Json row in rows)
-          [for (final ReportColumn column in columns) cell(row, column)],
+          [
+            for (final ReportColumn column in columns)
+              if (split(column))
+                ...stockBoxColumns(stringValue(row[column.key]),
+                    stringValue(row['pack_size']))
+              else
+                cell(row, column),
+          ],
       ],
     );
   }
@@ -690,10 +745,15 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace>
             onSubmitted: (_) => unawaited(_load()),
           ),
         );
+    final bool boxes = _showBoxes(report);
     String shown(Json row, ReportColumn column) {
       final dynamic value = row[column.key];
       if (value is bool) return value ? 'Yes' : 'No';
-      return cellValue(row, column.key, bandsKey: report.bandsKey);
+      final String text =
+          cellValue(row, column.key, bandsKey: report.bandsKey);
+      return boxes && _isQuantity(column)
+          ? stockInBoxes(stringValue(value), stringValue(row['pack_size']))
+          : text;
     }
 
     final int rowsPerPage = _paged(report)
@@ -800,6 +860,20 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace>
             child: const SizedBox.shrink(),
           ),
         ]),
+        // L5 step 11: above the grid rather than on the line, which is one
+        // row a report's dates and downloads already fill at 800 px.
+        if (_offersBoxes(report))
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: ShowBoxesToggle(
+                value: _boxes.on,
+                onChanged: (value) => setState(() => _boxes.choose(value)),
+              ),
+            ),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.all(AppSpacing.md),
@@ -821,7 +895,9 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace>
                   message: 'This firm has nothing matching it yet.',
                 )
               : EnterpriseDataGrid<Json>(
-                  key: ValueKey<String>('report-grid-${report.id}'),
+                  // Measured afresh when *Show boxes* turns.
+                  key: ValueKey<String>(
+                      'report-grid-${report.id}${boxes ? '-boxes' : ''}'),
                   items: _rows,
                   total: _paged(report) ? _total : _rows.length,
                   pageOffset: _paged(report) ? (_page - 1) * _pageSize : 0,

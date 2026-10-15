@@ -10,6 +10,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/physical_count.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/desktop_framework.dart';
 import 'count_plans_dialog.dart';
 import 'physical_count_sheet_dialog.dart';
@@ -190,6 +191,10 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
         api: widget.api,
         sheet: current,
         canCount: _canCount,
+        boxes: ShowBoxesChoice(
+          preferences: widget.preferences,
+          userId: widget.permissions.userId,
+        ),
       ),
     );
     if (changed == true) await _load();

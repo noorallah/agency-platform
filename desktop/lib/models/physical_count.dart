@@ -17,7 +17,15 @@ class PhysicalCountLine {
     required this.varianceQuantity,
     required this.transactionId,
     required this.remarks,
+    this.packSize = '',
+    this.packUnitCode = '',
   });
+
+  /// L5 step 11: how many pieces the item's box holds today, and the box's
+  /// unit, where the firm types boxes and pieces; empty otherwise. What
+  /// *Show boxes* splits the quantities by; never sent back.
+  final String packSize;
+  final String packUnitCode;
 
   final String id;
   final int lineNumber;
@@ -99,6 +107,8 @@ class PhysicalCountLine {
         varianceQuantity: stringValue(json['variance_quantity']),
         transactionId: stringValue(json['transaction_id']),
         remarks: stringValue(json['remarks']),
+        packSize: stringValue(json['pack_size']),
+        packUnitCode: stringValue(json['pack_unit_code']),
       );
 }
 
