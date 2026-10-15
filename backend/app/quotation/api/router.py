@@ -210,6 +210,11 @@ def quotation_conversion(
     )
 
 
+def _may_choose(scope: ResolvedFirmScope) -> bool:
+    """Return whether the caller may choose what a line takes (L7 step 5)."""
+    return scope.principal.has_permission("SALES_OFFER_CHOOSE")
+
+
 @router.post(
     "",
     response_model=ApiResponse[QuotationResponse],
@@ -223,7 +228,10 @@ def create_quotation(
     """Create one quotation in draft."""
     service = QuotationService(db)
     row = service.create_quotation(
-        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+        payload,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        may_choose=_may_choose(scope),
     )
     return ApiResponse(data=service.quotation_response(row))
 
@@ -241,7 +249,10 @@ def preview_quotation(
     """
     return ApiResponse(
         data=QuotationService(db).preview_quotation(
-            payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+            payload,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            may_choose=_may_choose(scope),
         )
     )
 
@@ -378,7 +389,11 @@ def update_quotation(
         expected_version,
     )
     row = service.update_quotation(
-        quotation_id, payload, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        quotation_id,
+        payload,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        may_choose=_may_choose(scope),
     )
     set_etag(response, row)
     return ApiResponse(data=service.quotation_response(row))

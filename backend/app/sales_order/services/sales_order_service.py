@@ -82,6 +82,7 @@ from app.products.services.stockless import is_stockless, stockless_products
 from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
     OfferCandidate,
+    OfferChoice,
     PromotionApplication,
     PromotionEvaluationRequest,
     PromotionEvaluationResponse,
@@ -89,7 +90,7 @@ from app.promotions.schemas import (
     PromotionLineRequest,
     PromotionLineShare,
 )
-from app.promotions.services import PromotionService, RedemptionService
+from app.promotions.services import RedemptionService
 from app.promotions.services.line_offers import (
     OfferRow,
     bill_offer_rows,
@@ -99,6 +100,13 @@ from app.promotions.services.line_offers import (
     offers_by_line,
     rewrite_offer_rows,
     standing_arrangement,
+)
+from app.promotions.services.offer_choice import (
+    LineTerms,
+    SettledChoices,
+    chosen_line_discount,
+    settle_choices,
+    stored_choices,
 )
 from app.promotions.services.offer_use import offer_took_off
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
@@ -302,6 +310,13 @@ class SalesOrderService(TransactionalDocumentService):
         #: whole bill, for its preview (L7 step 3). Nothing here is stored.
         self._line_candidates: dict[int, list[OfferCandidate]] = {}
         self._bill_candidates: list[OfferCandidate] = []
+        #: Whether the person saving holds ``SALES_OFFER_CHOOSE``, told by the
+        #: router; and whether this is a preview, where a choice refused is
+        #: reported rather than raised (L7 step 5).
+        self._may_choose = False
+        self._lenient_choice = False
+        #: Why a previewed line's choice was not taken, by line number.
+        self._choice_refusals: dict[int, str] = {}
 
     def offer_candidates(
         self,
@@ -431,9 +446,19 @@ class SalesOrderService(TransactionalDocumentService):
         )
 
     def create_order(
-        self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: SalesOrderCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_choose: bool = False,
     ) -> SalesOrder:
-        """Create one sales order and commit it."""
+        """Create one sales order and commit it.
+
+        ``may_choose`` is whether the person holds ``SALES_OFFER_CHOOSE``:
+        without it a line's choice of offers is refused (L7 step 5).
+        """
+        self._may_choose = may_choose
         row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
         if data.attributes:
             document_attributes.store(
@@ -448,7 +473,12 @@ class SalesOrderService(TransactionalDocumentService):
         return row
 
     def preview_order(
-        self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: SalesOrderCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_choose: bool = False,
     ) -> SalesOrderPreview:
         """Price an order exactly as saving it would, then save nothing.
 
@@ -456,7 +486,12 @@ class SalesOrderService(TransactionalDocumentService):
         bill discount, freight, tax -- read back, and the unit of work rolled
         back: no order, no number used up, no audit row. The request's session
         is its own, so there is nothing else in it to lose.
+
+        A choice on a line that a save would refuse is reported on the line
+        and dropped, and the line priced from the start (L7 step 5).
         """
+        self._may_choose = may_choose
+        self._lenient_choice = True
         try:
             row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
             response = self.order_response(row)
@@ -485,11 +520,12 @@ class SalesOrderService(TransactionalDocumentService):
             )
         finally:
             self._session.rollback()
+            self._lenient_choice = False
         by_line, on_bill = self.offer_candidates()
         return SalesOrderPreview(
             order=response,
             interstate=interstate,
-            lines=with_candidates(lines, by_line),
+            lines=with_candidates(lines, by_line, self._choice_refusals),
             bill_candidates=on_bill,
         )
 
@@ -673,8 +709,14 @@ class SalesOrderService(TransactionalDocumentService):
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        may_choose: bool = False,
     ) -> SalesOrder:
-        """Replace one sales order."""
+        """Replace one sales order.
+
+        A line sent without ``offer_choice`` keeps the choice it was saved
+        with; an explicit null clears it (L7 step 5).
+        """
+        self._may_choose = may_choose
         assert_feature_fields(
             self._session,
             firm_scope,
@@ -2512,15 +2554,20 @@ class SalesOrderService(TransactionalDocumentService):
         bill_priced: bool = False,
         freight_amount: Decimal | None = None,
         factors: Sequence[Decimal] | None = None,
-    ) -> PromotionBenefits:
+        terms: Sequence[LineTerms] = (),
+    ) -> tuple[PromotionBenefits, SettledChoices]:
         """Ask the firm's promotions what this document earns.
 
         Evaluated once per document rather than per line, because a minimum
         order value is a condition on the whole of it. Never commits: this runs
-        mid-write, exactly as the tax simulation does.
+        mid-write, exactly as the tax simulation does. A line's choice of
+        offers (``terms``) is weighed against the start and honoured, refused
+        or found to be no choice at all (L7 step 5).
         """
-        outcome = PromotionService(self._session).evaluate(
-            PromotionEvaluationRequest(
+
+        def build(limits: Mapping[int, list[UUID]]) -> PromotionEvaluationRequest:
+            """Return the engine's request, each line's offers as limited."""
+            return PromotionEvaluationRequest(
                 transaction_type="SALES_ORDER",
                 transaction_date=row.order_date,
                 # Its own creation time, so a later save keeps it in or
@@ -2554,12 +2601,21 @@ class SalesOrderService(TransactionalDocumentService):
                         # (D-SELL-41), so the offer's is not given on this
                         # line and must not be counted as given.
                         free_typed=item.free_quantity is not None,
+                        offers=limits.get(index),
                     )
                     for index, item in enumerate(lines)
                 ],
-            ),
-            firm_scope=row.firm_id,
+            )
+
+        settled = settle_choices(
+            self._session,
+            firm_id=row.firm_id,
+            terms=terms,
+            build_request=build,
+            may_choose=self._may_choose,
+            lenient=self._lenient_choice,
         )
+        outcome = settled.outcome
         # What the offers gave is recorded now, while the engine still knows
         # it -- but as a pending claim, counting against no limit. A draft
         # somebody edits five times and never approves has claimed nothing.
@@ -2573,7 +2629,7 @@ class SalesOrderService(TransactionalDocumentService):
             on=row.order_date,
             actor_id=actor_id,
         )
-        return PromotionBenefits(outcome)
+        return PromotionBenefits(outcome), settled
 
     def _freight_shares(
         self,
@@ -2706,8 +2762,10 @@ class SalesOrderService(TransactionalDocumentService):
             ).all()
         }
         lines = self._without_what_the_engine_gave(lines, existing)
+        kept = self._kept_choices(row, existing)
         self._line_candidates = {}
         self._bill_candidates = []
+        self._choice_refusals = {}
         seen: set[int] = set()
         subtotal = ZERO
         tax_total = ZERO
@@ -2782,7 +2840,29 @@ class SalesOrderService(TransactionalDocumentService):
         # discounted, because a minimum-order-value offer is a condition on the
         # whole document. Whatever they earn is offered to the shared rule as
         # one more tier: still below anything typed, still above the price list.
-        benefits = self._promotions(
+        terms = [
+            LineTerms(
+                line_number=item.line_number,
+                gross=grosses[index],
+                choice=self._choice_of(item, existing, kept)[0],
+                kept=self._choice_of(item, existing, kept)[1],
+                typed=(
+                    item.discount_percent is not None
+                    or item.discount_amount is not None
+                ),
+                engine_free=item.free_quantity is None,
+                price_list=prices.list_for(
+                    item.product_id, item.quantity * factors[index]
+                ),
+                price_list_percent=prices.rate_for(
+                    item.product_id, item.quantity * factors[index]
+                ),
+                customer_percent=customer_discount,
+                group_percent=group_discount,
+            )
+            for index, item in enumerate(lines)
+        ]
+        benefits, settled = self._promotions(
             row,
             lines=lines,
             grosses=grosses,
@@ -2791,7 +2871,9 @@ class SalesOrderService(TransactionalDocumentService):
             bill_priced=bill_amount is not None or bill_percent is not None,
             freight_amount=freight_amount,
             factors=factors,
+            terms=terms,
         )
+        self._choice_refusals = dict(settled.refused)
 
         # A gift is a **line**, not a field: nothing on the document mentions
         # the product, so there is nothing to adjust. Appended here, after the
@@ -2817,18 +2899,30 @@ class SalesOrderService(TransactionalDocumentService):
         )
 
         priced: list[LineDiscount] = [
-            resolve_line_discount(
-                gross=grosses[index],
-                percent=item.discount_percent,
-                amount=item.discount_amount,
-                promotion_amount=benefits.line_discount(index),
-                # At the stock quantity, as the list's fixed rate is asked
-                # (D-PRC-25): 2 BOX of 12 take the break "from 20".
-                price_list_percent=prices.rate_for(
-                    item.product_id, item.quantity * factors[index]
-                ),
-                customer_default=customer_discount,
-                customer_group_default=group_discount,
+            (
+                # With the tiers a person did not choose blanked, so the
+                # rate recorded is the branch taken (L7 step 5).
+                chosen_line_discount(
+                    terms[index],
+                    percent=item.discount_percent,
+                    amount=item.discount_amount,
+                    promotion_amount=benefits.line_discount(index),
+                    discount_from=settled.discount_from(index),
+                )
+                if index < asked
+                else resolve_line_discount(
+                    gross=grosses[index],
+                    percent=item.discount_percent,
+                    amount=item.discount_amount,
+                    promotion_amount=benefits.line_discount(index),
+                    # At the stock quantity, as the list's fixed rate is asked
+                    # (D-PRC-25): 2 BOX of 12 take the break "from 20".
+                    price_list_percent=prices.rate_for(
+                        item.product_id, item.quantity * factors[index]
+                    ),
+                    customer_default=customer_discount,
+                    customer_group_default=group_discount,
+                )
             )
             for index, item in enumerate(lines)
         ]
@@ -3010,6 +3104,9 @@ class SalesOrderService(TransactionalDocumentService):
             )
             line.remarks = item.remarks
             line.updated_by = actor_id
+            choice = settled.choices.get(index)
+            # A choice equal to the start is not one (design 3.3).
+            line.offer_choice_made = choice is not None
             at_stock = item.quantity * factors[index]
             found = (
                 gift_offer_rows(
@@ -3031,10 +3128,12 @@ class SalesOrderService(TransactionalDocumentService):
                     standing=standing,
                 )
             )
+            if choice is not None:
+                found = choice.mark_rows(found)
             offer_rows.append((line, found))
             if index < asked:
                 # What else the line could take, for the preview (L7 step 3).
-                self._line_candidates[item.line_number] = line_candidates(
+                listed = line_candidates(
                     offered=benefits.line_candidates(index),
                     rows=found,
                     priced=line_discount,
@@ -3048,6 +3147,9 @@ class SalesOrderService(TransactionalDocumentService):
                     quantity=item.quantity,
                     stock_factor=factors[index],
                     next_break=prices.next_break(item.product_id, at_stock),
+                )
+                self._line_candidates[item.line_number] = (
+                    listed if choice is None else choice.mark_candidates(listed)
                 )
             seen.add(item.line_number)
             subtotal += taxable
@@ -3077,11 +3179,75 @@ class SalesOrderService(TransactionalDocumentService):
                 ),
             ],
         )
+        # Each real choice to the trail: the line, the start, what was taken
+        # and by whom (design 3.8, decision 4). Inside the save's own unit of
+        # work, so a preview leaves none.
+        for index, choice in settled.choices.items():
+            chosen_line, _ = offer_rows[index]
+            record_audit(
+                self._session,
+                action="sales_order.offer_chosen",
+                entity_type="sales_order",
+                entity_id=row.id,
+                actor_id=actor_id,
+                firm_id=row.firm_id,
+                after_data={
+                    "order_number": row.order_number,
+                    "line_id": str(chosen_line.id),
+                    **choice.audit(chosen_line.line_number),
+                },
+            )
         return {
             "subtotal": self._q(subtotal),
             "tax_total": self._q(tax_total),
             "line_discount_total": self._q(line_discount_total),
         }
+
+    def _kept_choices(
+        self, row: SalesOrder, existing: Mapping[int, SalesOrderLine]
+    ) -> dict[int, OfferChoice]:
+        """Read back, by line number, the choices the saved lines carry (L7).
+
+        One statement, and only where a saved line was chosen on: the rows
+        marked chosen are the record of each choice.
+        """
+        chosen = {
+            line.id: number
+            for number, line in existing.items()
+            if line.offer_choice_made
+        }
+        if not chosen:
+            return {}
+        rows = self._session.scalars(
+            select(SalesOrderOffer).where(
+                SalesOrderOffer.sales_order_id == row.id,
+                SalesOrderOffer.chosen.is_(True),
+            )
+        ).all()
+        found = stored_choices(rows, line_of=lambda item: item.sales_order_line_id)
+        return {
+            number: found.get(line_id, OfferChoice(offers=[]))
+            for line_id, number in chosen.items()
+        }
+
+    @staticmethod
+    def _choice_of(
+        item: SalesOrderLineWrite,
+        existing: Mapping[int, SalesOrderLine],
+        kept: Mapping[int, OfferChoice],
+    ) -> tuple[OfferChoice | None, bool]:
+        """Return the choice a line is priced with, and whether it was kept.
+
+        Sent, it is the line's; left out, a line saved with a choice keeps
+        it while it still sells the same product (L7 step 5).
+        """
+        if "offer_choice" in item.model_fields_set:
+            return item.offer_choice, False
+        saved = existing.get(item.line_number)
+        if saved is None or saved.product_id != item.product_id:
+            return None, False
+        choice = kept.get(item.line_number)
+        return choice, choice is not None
 
     def _replace_attachments(
         self,

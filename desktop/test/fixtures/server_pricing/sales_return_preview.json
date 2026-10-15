@@ -4,6 +4,7 @@
     {
       "available_quantity": "95.0000",
       "candidates": [],
+      "choice_refused": null,
       "incoming_quantity": "0",
       "last_discount_percent": "10.0000",
       "last_invoice_date": "2026-08-04",

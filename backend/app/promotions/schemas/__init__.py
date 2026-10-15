@@ -5,6 +5,7 @@ from app.promotions.schemas.promotion import (
     CouponBatchResponse,
     LineOfferResponse,
     OfferCandidate,
+    OfferChoice,
     OfferGives,
     OfferPartShare,
     PromotionActionResponse,
@@ -36,6 +37,7 @@ from app.promotions.schemas.promotion import (
 __all__ = [
     "LineOfferResponse",
     "OfferCandidate",
+    "OfferChoice",
     "OfferGives",
     "OfferPartShare",
     "PromotionActionResponse",

@@ -62,10 +62,10 @@ from app.products.services.free_issue import assert_not_sold_at_a_price
 from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
     OfferCandidate,
+    OfferChoice,
     PromotionEvaluationRequest,
     PromotionLineRequest,
 )
-from app.promotions.services import PromotionService
 from app.promotions.services.line_offers import (
     OfferRow,
     bill_offer_rows,
@@ -75,6 +75,13 @@ from app.promotions.services.line_offers import (
     offers_by_line,
     rewrite_offer_rows,
     standing_arrangement,
+)
+from app.promotions.services.offer_choice import (
+    LineTerms,
+    SettledChoices,
+    chosen_line_discount,
+    settle_choices,
+    stored_choices,
 )
 from app.quotation.models import (
     SalesQuotation,
@@ -167,6 +174,13 @@ class QuotationService(TransactionalDocumentService):
         #: What the last quotation priced could take, by line number and on
         #: the whole bill, for its preview (L7 step 3). Nothing here is stored.
         self._line_candidates: dict[int, list[OfferCandidate]] = {}
+        #: Whether the person saving holds ``SALES_OFFER_CHOOSE``, told by the
+        #: router; whether this is a preview, where a choice refused is
+        #: reported rather than raised; and why a previewed line's choice was
+        #: not taken, by line number (L7 step 5).
+        self._may_choose = False
+        self._lenient_choice = False
+        self._choice_refusals: dict[int, str] = {}
         self._bill_candidates: list[OfferCandidate] = []
 
     # ---- reads ---------------------------------------------------------
@@ -343,9 +357,19 @@ class QuotationService(TransactionalDocumentService):
     # ---- writes --------------------------------------------------------
 
     def create_quotation(
-        self, data: QuotationCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: QuotationCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_choose: bool = False,
     ) -> SalesQuotation:
-        """Create one quotation in draft."""
+        """Create one quotation in draft.
+
+        ``may_choose`` is whether the person holds ``SALES_OFFER_CHOOSE``:
+        without it a line's choice of offers is refused (L7 step 5).
+        """
+        self._may_choose = may_choose
         row = self._stage_quotation(data, firm_id=firm_id, actor_id=actor_id)
         if data.attributes:
             document_attributes.store(
@@ -360,7 +384,12 @@ class QuotationService(TransactionalDocumentService):
         return row
 
     def preview_quotation(
-        self, data: QuotationCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: QuotationCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_choose: bool = False,
     ) -> QuotationPreview:
         """Price an offer exactly as saving it would, then save nothing.
 
@@ -370,7 +399,12 @@ class QuotationService(TransactionalDocumentService):
         the whole unit of work rolled back: no quotation, no number used up,
         no audit row, no tax log. The request's session is its own, so there
         is nothing else in it to lose.
+
+        A choice on a line that a save would refuse is reported on the line
+        and dropped, and the line priced from the start (L7 step 5).
         """
+        self._may_choose = may_choose
+        self._lenient_choice = True
         try:
             row = self._stage_quotation(data, firm_id=firm_id, actor_id=actor_id)
             response = self.quotation_response(row)
@@ -391,10 +425,11 @@ class QuotationService(TransactionalDocumentService):
             )
         finally:
             self._session.rollback()
+            self._lenient_choice = False
         return QuotationPreview(
             quotation=response,
             interstate=interstate,
-            lines=with_candidates(lines, self._line_candidates),
+            lines=with_candidates(lines, self._line_candidates, self._choice_refusals),
             bill_candidates=list(self._bill_candidates),
         )
 
@@ -533,14 +568,19 @@ class QuotationService(TransactionalDocumentService):
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        may_choose: bool = False,
     ) -> SalesQuotation:
         """Replace one quotation that has not been decided on.
+
+        A line sent without ``offer_choice`` keeps the choice it was saved
+        with; an explicit null clears it (L7 step 5).
 
         A sent quotation can still be edited -- a customer asking for a revised
         price is the ordinary case, and forcing a new document for it would
         lose the thread. Once accepted, declined or converted it is a record of
         what was agreed and stops being editable.
         """
+        self._may_choose = may_choose
         row = self.get_quotation(quotation_id, firm_scope=firm_scope)
         if row.status not in {
             QuotationStatus.DRAFT.value,
@@ -1067,7 +1107,8 @@ class QuotationService(TransactionalDocumentService):
         bill_priced: bool = False,
         freight_amount: Decimal | None = None,
         factors: Sequence[Decimal] | None = None,
-    ) -> PromotionBenefits:
+        terms: Sequence[LineTerms] = (),
+    ) -> tuple[PromotionBenefits, SettledChoices]:
         """Ask the firm's promotions what this offer would earn.
 
         Evaluated once per document, never committing, exactly as the sales
@@ -1079,9 +1120,14 @@ class QuotationService(TransactionalDocumentService):
         it, so an offer on the whole bill, a gift and free shipping reach the
         quotation too. Only the line discounts used to, and a quotation read
         higher than the order it became (D-SELL-32, 2026-09-19).
+
+        A line's choice of offers (``terms``) is weighed against the start
+        exactly as the order weighs it (L7 step 5).
         """
-        outcome = PromotionService(self._session).evaluate(
-            PromotionEvaluationRequest(
+
+        def build(limits: Mapping[int, list[UUID]]) -> PromotionEvaluationRequest:
+            """Return the engine's request, each line's offers as limited."""
+            return PromotionEvaluationRequest(
                 transaction_type="SALES_QUOTATION",
                 transaction_date=row.quotation_date,
                 # Its own creation time, so a later save keeps it in or
@@ -1118,13 +1164,21 @@ class QuotationService(TransactionalDocumentService):
                         # back as a line of their own, were still added: 2
                         # BOX typed "0 free" quoted "0 + 2 free" (D-PRC-78).
                         free_typed=item.free_quantity is not None,
+                        offers=limits.get(index),
                     )
                     for index, item in enumerate(lines)
                 ],
-            ),
-            firm_scope=row.firm_id,
+            )
+
+        settled = settle_choices(
+            self._session,
+            firm_id=row.firm_id,
+            terms=terms,
+            build_request=build,
+            may_choose=self._may_choose,
+            lenient=self._lenient_choice,
         )
-        return PromotionBenefits(outcome)
+        return PromotionBenefits(settled.outcome), settled
 
     @staticmethod
     def _offer_factor(
@@ -1359,8 +1413,10 @@ class QuotationService(TransactionalDocumentService):
                 number: rate for number, rate in entered.items() if number in numbers
             }
         asked = len(lines)
+        kept = self._kept_choices(row, existing)
         self._line_candidates = {}
         self._bill_candidates = []
+        self._choice_refusals = {}
         seen: set[int] = set()
         subtotal = ZERO
         tax_total = ZERO
@@ -1428,7 +1484,39 @@ class QuotationService(TransactionalDocumentService):
             self._offer_factor(units, row, product, item)
             for product, item in zip(products, lines, strict=True)
         ]
-        benefits = self._promotions(
+        # A price list's quantity breaks count stock units, so a line quoted
+        # by the box is asked about at the pieces it stands for, as the
+        # order it becomes is. Only a line a list mentions needs its unit
+        # converted: a quotation moves no stock and converts nothing else.
+        stock_quantities = [
+            self._stock_quantity(units, row, products[index], item, prices)
+            for index, item in enumerate(lines)
+        ]
+        terms = []
+        for index, item in enumerate(lines):
+            sent, was_kept = self._choice_of(item, existing, kept)
+            terms.append(
+                LineTerms(
+                    line_number=item.line_number,
+                    gross=grosses[index],
+                    choice=sent,
+                    kept=was_kept,
+                    typed=(
+                        item.discount_percent is not None
+                        or item.discount_amount is not None
+                    ),
+                    engine_free=item.free_quantity is None,
+                    price_list=prices.list_for(
+                        item.product_id, stock_quantities[index]
+                    ),
+                    price_list_percent=prices.rate_for(
+                        item.product_id, stock_quantities[index]
+                    ),
+                    customer_percent=customer_discount,
+                    group_percent=group_discount,
+                )
+            )
+        benefits, settled = self._promotions(
             row,
             lines=lines,
             grosses=grosses,
@@ -1436,7 +1524,9 @@ class QuotationService(TransactionalDocumentService):
             bill_priced=bill_typed,
             freight_amount=freight_amount,
             factors=offer_factors,
+            terms=terms,
         )
+        self._choice_refusals = dict(settled.refused)
         # A gift is a line, appended after the engine has answered and before
         # anything is priced, exactly as the order does it.
         gifts = self._gift_lines(
@@ -1465,36 +1555,34 @@ class QuotationService(TransactionalDocumentService):
             on_date=row.quotation_date,
             kept=held_packs(existing.values()),
         )
-        # A price list's quantity breaks count stock units, so a line quoted
-        # by the box is asked about at the pieces it stands for, as the
-        # order it becomes is. Only a line a list mentions needs its unit
-        # converted: a quotation moves no stock and converts nothing else.
-        stock_quantities = [
-            (
-                item.quantity
-                * units.stock_factor(
-                    products[index],
-                    uom_id=item.sales_uom_id,
-                    stock_uom_id=item.inventory_uom_id,
-                    on_date=row.quotation_date,
-                    firm_scope=row.firm_id,
-                )
-                if prices.mentions(item.product_id)
-                else item.quantity
-            )
+        stock_quantities += [
+            self._stock_quantity(units, row, products[index], item, prices)
             for index, item in enumerate(lines)
+            if index >= asked
         ]
         priced: list[LineDiscount] = [
-            resolve_line_discount(
-                gross=grosses[index],
-                percent=item.discount_percent,
-                amount=item.discount_amount,
-                promotion_amount=benefits.line_discount(index),
-                price_list_percent=prices.rate_for(
-                    item.product_id, stock_quantities[index]
-                ),
-                customer_default=customer_discount,
-                customer_group_default=group_discount,
+            (
+                # With the tiers a person did not choose blanked, so the
+                # rate recorded is the branch taken (L7 step 5).
+                chosen_line_discount(
+                    terms[index],
+                    percent=item.discount_percent,
+                    amount=item.discount_amount,
+                    promotion_amount=benefits.line_discount(index),
+                    discount_from=settled.discount_from(index),
+                )
+                if index < asked
+                else resolve_line_discount(
+                    gross=grosses[index],
+                    percent=item.discount_percent,
+                    amount=item.discount_amount,
+                    promotion_amount=benefits.line_discount(index),
+                    price_list_percent=prices.rate_for(
+                        item.product_id, stock_quantities[index]
+                    ),
+                    customer_default=customer_discount,
+                    customer_group_default=group_discount,
+                )
             )
             for index, item in enumerate(lines)
         ]
@@ -1642,6 +1730,9 @@ class QuotationService(TransactionalDocumentService):
             line.warehouse_id = item.warehouse_id or row.warehouse_id
             line.remarks = item.remarks
             line.updated_by = actor_id
+            choice = settled.choices.get(index)
+            # A choice equal to the start is not one (design 3.3).
+            line.offer_choice_made = choice is not None
             # A gift line is in the stock unit, so its factor is one.
             factor = offer_factors[index] if index < asked else Decimal("1")
             found = (
@@ -1664,10 +1755,12 @@ class QuotationService(TransactionalDocumentService):
                     standing=standing,
                 )
             )
+            if choice is not None:
+                found = choice.mark_rows(found)
             offer_rows.append((line, found))
             if index < asked:
                 # What else the line could take, for the preview (L7 step 3).
-                self._line_candidates[item.line_number] = line_candidates(
+                listed = line_candidates(
                     offered=benefits.line_candidates(index),
                     rows=found,
                     priced=line_discount,
@@ -1691,6 +1784,9 @@ class QuotationService(TransactionalDocumentService):
                     next_break=prices.next_break(
                         item.product_id, stock_quantities[index]
                     ),
+                )
+                self._line_candidates[item.line_number] = (
+                    listed if choice is None else choice.mark_candidates(listed)
                 )
             seen.add(item.line_number)
             subtotal += taxable
@@ -1720,11 +1816,94 @@ class QuotationService(TransactionalDocumentService):
                 ),
             ],
         )
+        # Each real choice to the trail: the line, the start, what was taken
+        # and by whom (design 3.8, decision 4), inside the save's own unit of
+        # work, so a preview leaves none.
+        for index, choice in settled.choices.items():
+            chosen_line, _ = offer_rows[index]
+            record_audit(
+                self._session,
+                action="quotation.offer_chosen",
+                entity_type="quotation",
+                entity_id=row.id,
+                actor_id=actor_id,
+                firm_id=row.firm_id,
+                after_data={
+                    "quotation_number": row.quotation_number,
+                    "line_id": str(chosen_line.id),
+                    **choice.audit(chosen_line.line_number),
+                },
+            )
         return {
             "subtotal": self._q(subtotal),
             "tax_total": self._q(tax_total),
             "line_discount_total": self._q(discount_total),
         }
+
+    @staticmethod
+    def _stock_quantity(
+        units: UomService,
+        row: SalesQuotation,
+        product: Product,
+        item: QuotationLineWrite,
+        prices: PriceListResolver,
+    ) -> Decimal:
+        """Return a line's quantity in stock units, where a price list asks."""
+        if not prices.mentions(item.product_id):
+            return item.quantity
+        return item.quantity * units.stock_factor(
+            product,
+            uom_id=item.sales_uom_id,
+            stock_uom_id=item.inventory_uom_id,
+            on_date=row.quotation_date,
+            firm_scope=row.firm_id,
+        )
+
+    def _kept_choices(
+        self, row: SalesQuotation, existing: Mapping[int, SalesQuotationLine]
+    ) -> dict[int, OfferChoice]:
+        """Read back, by line number, the choices the saved lines carry (L7).
+
+        One statement, and only where a saved line was chosen on: the rows
+        marked chosen are the record of each choice.
+        """
+        chosen = {
+            line.id: number
+            for number, line in existing.items()
+            if line.offer_choice_made
+        }
+        if not chosen:
+            return {}
+        rows = self._session.scalars(
+            select(SalesQuotationOffer).where(
+                SalesQuotationOffer.sales_quotation_id == row.id,
+                SalesQuotationOffer.chosen.is_(True),
+            )
+        ).all()
+        found = stored_choices(rows, line_of=lambda item: item.sales_quotation_line_id)
+        return {
+            number: found.get(line_id, OfferChoice(offers=[]))
+            for line_id, number in chosen.items()
+        }
+
+    @staticmethod
+    def _choice_of(
+        item: QuotationLineWrite,
+        existing: Mapping[int, SalesQuotationLine],
+        kept: Mapping[int, OfferChoice],
+    ) -> tuple[OfferChoice | None, bool]:
+        """Return the choice a line is priced with, and whether it was kept.
+
+        Sent, it is the line's; left out, a line saved with a choice keeps
+        it while it still quotes the same product (L7 step 5).
+        """
+        if "offer_choice" in item.model_fields_set:
+            return item.offer_choice, False
+        saved = existing.get(item.line_number)
+        if saved is None or saved.product_id != item.product_id:
+            return None, False
+        choice = kept.get(item.line_number)
+        return choice, choice is not None
 
     def _replace_attachments(
         self,

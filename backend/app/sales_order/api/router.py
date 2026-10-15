@@ -164,6 +164,11 @@ def _sees_cost(scope: ResolvedFirmScope) -> bool:
     return scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
 
 
+def _may_choose(scope: ResolvedFirmScope) -> bool:
+    """Return whether the caller may choose what a line takes (L7 step 5)."""
+    return scope.principal.has_permission("SALES_OFFER_CHOOSE")
+
+
 def _filters(
     *,
     customer_id: UUID | None,
@@ -269,7 +274,12 @@ def create_sales_order(
 ) -> ApiResponse[SalesOrderResponse]:
     """Create one sales order."""
     service = SalesOrderService(db)
-    row = service.create_order(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    row = service.create_order(
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        may_choose=_may_choose(scope),
+    )
     return ApiResponse(data=service.order_response(row, show_cost=_sees_cost(scope)))
 
 
@@ -286,7 +296,10 @@ def preview_sales_order(
     """
     return ApiResponse(
         data=SalesOrderService(db).preview_order(
-            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+            data,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            may_choose=_may_choose(scope),
         )
     )
 
@@ -486,7 +499,11 @@ def update_sales_order(
     )
     assert_version(current.version, expected_version)
     row = service.update_order(
-        order_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        order_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        may_choose=_may_choose(scope),
     )
     set_etag(response, row)
     return ApiResponse(data=service.order_response(row, show_cost=_sees_cost(scope)))

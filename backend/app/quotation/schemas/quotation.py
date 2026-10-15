@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import NumberedOnce
-from app.promotions.schemas import LineOfferResponse, OfferCandidate
+from app.promotions.schemas import LineOfferResponse, OfferCandidate, OfferChoice
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -98,6 +98,13 @@ class QuotationLineWrite(QuotationSchema):
     pack_size: Decimal | None = Field(
         default=None, gt=1, max_digits=18, decimal_places=4
     )
+
+    #: What the bill maker chose for the line: the arrangement its discount
+    #: comes from and the offers it takes, by key (L7 step 5, design 3.3).
+    #: Left out, the server decides -- on an edit, a line keeps the choice
+    #: it was saved with; an explicit null clears it. Refused beside a
+    #: discount figure: two answers on one line.
+    offer_choice: OfferChoice | None = None
 
     @model_validator(mode="after")
     def _quotes_something(self) -> "QuotationLineWrite":

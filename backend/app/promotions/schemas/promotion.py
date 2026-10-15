@@ -460,6 +460,12 @@ class PromotionLineRequest(PromotionSchema):
     #: The document keeps the typed figure, so an offer's free goods are not
     #: given on that line -- and are not counted against the offer's budget.
     free_typed: bool = False
+    #: The offers a person chose for this line, by lasting identity
+    #: (``version_group_id``), or None where nobody chose: every offer the
+    #: line meets is then the engine's to apply, as always (L7 step 5). An
+    #: empty list takes none. Under "best one only" and "ask", a line that
+    #: names its offers takes every one named, combined as each allows.
+    offers: list[UUID] | None = Field(default=None, max_length=50)
 
 
 class PromotionEvaluationRequest(PromotionSchema):
@@ -591,6 +597,23 @@ class OfferCandidate(PromotionSchema):
     part_share: OfferPartShare | None = None
     #: The principal and its share, on screen only.
     funded_by: str | None = None
+
+
+class OfferChoice(PromotionSchema):
+    """What a person chose for one sales line (L7 step 5, design 3.3).
+
+    Keys only, never amounts: the server works every figure out itself.
+    Left out, the server decides, as it always has.
+    """
+
+    #: ``offers``, or the key of one standing arrangement the line takes
+    #: its discount from: a price list's id, ``CUSTOMER`` or
+    #: ``CUSTOMER_GROUP``. None follows the ranking.
+    discount_from: str | None = Field(default=None, min_length=1, max_length=50)
+    #: The keys (``version_group_id``) of the offers the line takes, discount
+    #: and free goods alike. None takes the offers the server would; an
+    #: empty list takes none.
+    offers: list[str] | None = Field(default=None, max_length=50)
 
 
 class PromotionLineOutcome(PromotionSchema):

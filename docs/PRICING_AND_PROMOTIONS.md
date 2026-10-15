@@ -101,6 +101,39 @@ a 1,000 line is worth 100, not 200. A mode is a firm setting, never a
 property of a promotion -- an offer that decided whether it combined would
 make the outcome depend on which offers happened to match.
 
+**Best one only is judged per line** (L7 step 5, owner decision 2 of
+`docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md`). An offer on a line's own
+goods -- a line percentage or amount, free units, buy X get Y -- is valued on
+that line alone and the best is applied there, so a bill of many items can
+carry a different scheme on each line; offers on the whole bill (a bill
+discount, free delivery, a gift, a combo across lines) are then judged among
+themselves. A firm on `BEST_OFFER` gives more schemes on a bill of many items
+than it did before 2026-10-15; a one-line bill is priced as it was. `ASK`
+starts each line where best one only does.
+
+**A person may choose what a line takes** (L7 step 5, design 3.3 to 3.8). An
+order or quotation line may send `offer_choice`: `discount_from` (`offers`, a
+price list's id, `CUSTOMER` or `CUSTOMER_GROUP`) and `offers` (the offers'
+`version_group_id`s). Keys only; the server works every figure out.
+`chosen_tiers` beside `resolve_line_discount` blanks the tiers not chosen so
+the ranking runs unchanged and the recorded source is the branch taken --
+typed amount, typed percent, the chosen arrangement, offers, price list,
+customer rate, group rate. `app/promotions/services/offer_choice.py` settles
+it for both documents: a figure typed beside a choice is two answers and
+refused; a key the line no longer lists is refused by name on a save and
+reported on the preview line (`choice_refused`), which is priced from the
+start; the chosen offers run through the same engine limited to those chosen,
+and one it does not reach is refused ("TEA-11 does not combine with TEA-5");
+under `BEST_OFFER` one offer a line, under `ASK` several, combined under the
+line cap. **A choice equal to the start is not a choice**: stored as the
+server's, `offer_choice_made` false, so an editor echoing what it read is
+harmless. A real choice needs `SALES_OFFER_CHOOSE`, marks its rows and
+candidates `chosen`, and writes `sales_order.offer_chosen` /
+`quotation.offer_chosen` to the trail with the start and what was taken. On
+an edit a line that leaves `offer_choice` out keeps the choice it was saved
+with (read back from its chosen rows) while it sells the same product; an
+explicit null clears it.
+
 **Combine mode may cap one line** (backlog 59 item 3,
 `sales_workflow_settings.max_line_discount_percent`, migration
 `20261001_0193`; null is no cap). After the stack, a line whose offer discount

@@ -37,3 +37,7 @@ class DocumentPreviewLine(BaseModel):
     #: not, with its worth and why it is not applied (L7 step 3). Empty on a
     #: purchase document and on a line an offer added.
     candidates: list[OfferCandidate] = Field(default_factory=list)
+    #: Why the choice sent on this line was not taken, in the words a save
+    #: would refuse it with; the line is priced from the start instead
+    #: (L7 step 5). Null where no choice was sent, or it stood.
+    choice_refused: str | None = None
