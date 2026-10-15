@@ -214,6 +214,8 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
         existing: existing,
         rateIncludesTax: rateIncludesTax,
         boxAndPieces: boxAndPieces,
+        mayChooseOffers:
+            widget.permissions.hasPermission('SALES_OFFER_CHOOSE'),
         // The firm's own fields on a quotation (MST-6).
         loadAttributes: () =>
             widget.api.applicableAttributeDefinitions('QUOTATION'),

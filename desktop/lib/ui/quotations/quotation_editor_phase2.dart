@@ -117,6 +117,8 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
             _finish(print: false),
         const SingleActivator(LogicalKeyboardKey.enter, control: true): _newRow,
+        // L7: into the side panel's offers block for the current line.
+        const SingleActivator(LogicalKeyboardKey.f6): _focusOffers,
       },
       // A scope, not a plain Focus: after a click outside a text box the
       // focus falls to the nearest scope, which was above these
@@ -190,6 +192,10 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
                             ),
                             _terms(context),
                             _totals(),
+                            BillOffersNote(
+                              candidates: _preview?.billCandidates ??
+                                  const <OfferCandidate>[],
+                            ),
                           ],
                         ),
                       ),
@@ -553,11 +559,17 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
             },
           )
         else ...[
-          _numberBox(
+          documentQuantityWithHint(
             context,
-            line.quantity,
-            validator: (value) => _positive(value, 'quantity'),
-            onTyped: () {},
+            _numberBox(
+              context,
+              line.quantity,
+              validator: (value) => _positive(value, 'quantity'),
+              onTyped: line.offers.quantityTyped,
+            ),
+            hint: offerQuantityHint(
+                companion?.candidates ?? const <OfferCandidate>[]),
+            key: ValueKey<String>('quotation-line-offer-hint-$index'),
           ),
           _numberBox(
             context,
@@ -681,6 +693,26 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
     );
   }
 
+  /// F6 (L7): move into the offers block of the line being typed, keeping
+  /// where the cursor was so Enter can bring it back.
+  void _focusOffers() {
+    if (_offerFocus.context == null) return;
+    _offerReturn = FocusManager.instance.primaryFocus;
+    _offerFocus.requestFocus();
+    _setState(() {});
+  }
+
+  void _returnFromOffers() {
+    final FocusNode? back = _offerReturn;
+    _offerReturn = null;
+    if (back != null && back.context != null) {
+      back.requestFocus();
+    } else {
+      _offerFocus.unfocus();
+    }
+    _setState(() {});
+  }
+
   Widget _sidePanel(BuildContext context) {
     final int index = _current.clamp(0, _lines.length - 1);
     final _LineDraft line = _lines[index];
@@ -757,6 +789,32 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
                     priced.discountSource,
                     priced.offers,
                   )}',
+      ),
+      OfferChoiceBlock(
+        key: ValueKey<String>('quotation-offers-$index'),
+        keyPrefix: 'quotation-offer',
+        candidates: companion?.candidates ?? const <OfferCandidate>[],
+        choice: line.offers,
+        refused: companion?.choiceRefused,
+        mayChoose: widget.mayChooseOffers,
+        lockedNote: line.discount.text.trim().isEmpty
+            ? null
+            : 'A discount typed on the line decides it; clear it to choose.',
+        focusNode: _offerFocus,
+        onReturn: _returnFromOffers,
+        onChanged: () {
+          _setState(() {});
+          _schedulePreview();
+        },
+        onPartShare: (OfferCandidate candidate) {
+          _setState(() {
+            line.quantity.text = plainOfferQuantity(
+                candidate.partShare!.chargedQuantity);
+            line.free.clear();
+            _loadBoxes([line]);
+          });
+          _schedulePreview();
+        },
       ),
       // D-SELL-41: silence takes the offer's free goods, a typed zero refuses.
       const DocumentSideNote('Free: blank takes the offer; 0 refuses it.'),

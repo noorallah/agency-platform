@@ -9,6 +9,7 @@ import '../../core/design/design_tokens.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
+import '../../models/offer_candidate.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
@@ -17,6 +18,7 @@ import '../../phase2/indian_format.dart';
 import '../workspace/box_piece_cells.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/offer_choice_block.dart';
 import '../workspace/party_place.dart';
 
 part 'quotation_editor_phase2.dart';
@@ -93,6 +95,10 @@ class _LineDraft {
   /// figures sent, in pieces.
   final BoxPieceEntry boxes = BoxPieceEntry();
 
+  /// L7: what the person ticked among the line's offers; sent only once
+  /// they ticked something.
+  final LineOfferChoice offers = LineOfferChoice();
+
   void dispose() {
     quantity.dispose();
     unitPrice.dispose();
@@ -124,6 +130,7 @@ class QuotationEditorDialog extends StatefulWidget {
     this.preview,
     this.rateIncludesTax = false,
     this.boxAndPieces = false,
+    this.mayChooseOffers = false,
     this.loadUnitPrices,
     this.loadAttributes,
     this.onSave,
@@ -175,6 +182,10 @@ class QuotationEditorDialog extends StatefulWidget {
   /// A revision keeps its own.
   final bool boxAndPieces;
 
+  /// Whether the signed-in user holds SALES_OFFER_CHOOSE (L7): without it
+  /// the line's offers block is read-only and no choice is sent.
+  final bool mayChooseOffers;
+
   @override
   State<QuotationEditorDialog> createState() => _QuotationEditorDialogState();
 }
@@ -220,6 +231,11 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   int _previewSerial = 0;
   bool _previewAsked = false;
 
+  /// L7: F6 moves here, into the side panel's offers block; Enter goes back
+  /// to whatever had focus before.
+  final FocusNode _offerFocus = FocusNode(debugLabel: 'quotation-offers');
+  FocusNode? _offerReturn;
+
   /// Whether the rates typed on this offer include GST (backlog 64 row 4).
   late bool _rateIncludesTax;
 
@@ -251,6 +267,13 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
           _pricedAs = <int, int>{
             for (int at = 0; at < rows.length; at += 1) rows[at]: at + 1,
           };
+          // L7: a choice the server could not take is dropped before the
+          // save, its words kept on the line.
+          for (final QuotationPreviewLine line in priced.lines) {
+            final int at = line.lineNumber - 1;
+            if (at < 0 || at >= rows.length) continue;
+            _lines[rows[at]].offers.refusedWith(line.choiceRefused);
+          }
         });
       } on ApiException {
         // A half-typed offer the server refuses (a price of nothing, say):
@@ -619,6 +642,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _offerFocus.dispose();
     _customFields?.dispose();
     for (final _LineDraft line in _lines) {
       line.dispose();
@@ -904,6 +928,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
           'discount_percent': line.discount.text.trim(),
         if (line.free.text.trim().isNotEmpty)
           'free_quantity': line.free.text.trim(),
+        // L7: only once somebody ticked, and never beside a typed discount,
+        // which the server refuses as two answers on one line.
+        if (line.discount.text.trim().isEmpty) ...line.offers.payload,
       };
 
   /// One line's row of controls.

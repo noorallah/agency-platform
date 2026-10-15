@@ -12,6 +12,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/line_margin.dart';
+import '../../models/offer_candidate.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/salesman.dart';
@@ -25,6 +26,7 @@ import '../workspace/box_piece_cells.dart';
 import '../workspace/brand_filter.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/offer_choice_block.dart';
 import '../workspace/party_place.dart';
 import '../workspace/price_level_box.dart';
 import 'firm_salesmen.dart';
@@ -127,6 +129,10 @@ class _LineDraft {
   /// figures sent, in pieces.
   final BoxPieceEntry boxes = BoxPieceEntry();
 
+  /// L7: what the person ticked among the line's offers; sent only once
+  /// they ticked something.
+  final LineOfferChoice offers = LineOfferChoice();
+
   String get signature => [
         productId ?? '',
         quantity.text.trim(),
@@ -189,9 +195,14 @@ class SalesOrderEditorDialog extends StatefulWidget {
     required this.today,
     this.orderId,
     this.steps = const [],
+    this.mayChooseOffers = false,
   });
 
   final ApiClient api;
+
+  /// Whether the signed-in user holds SALES_OFFER_CHOOSE (L7): without it
+  /// the line's offers block is read-only and no choice is sent.
+  final bool mayChooseOffers;
 
   /// The order's next steps, as the list toolbar offers them (D-BUY-22):
   /// *Save & approve* where the user may approve, and the rest of a saved
@@ -388,6 +399,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   int _previewSerial = 0;
   bool _phase2 = false;
 
+  /// L7: F6 moves here, into the side panel's offers block; Enter goes back
+  /// to whatever had focus before.
+  final FocusNode _offerFocus = FocusNode(debugLabel: 'sales-order-offers');
+  FocusNode? _offerReturn;
+
   /// Phase 2, backlog 64 row 4: whether the rates typed on this order include
   /// GST. A new order starts from the firm's setting; a draft keeps its own,
   /// and the switch can move it.
@@ -433,6 +449,13 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           _pricedAs = <int, int>{
             for (int at = 0; at < rows.length; at += 1) rows[at]: at + 1,
           };
+          // L7: a choice the server could not take is dropped before the
+          // save, its words kept on the line.
+          for (final DocumentPreviewLine line in priced.lines) {
+            final int at = line.lineNumber - 1;
+            if (at < 0 || at >= rows.length) continue;
+            _lines[rows[at]].offers.refusedWith(line.choiceRefused);
+          }
         });
         _ensureUnitCodes();
       } on ApiException {
@@ -524,6 +547,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _offerFocus.dispose();
     _customFields.dispose();
     for (final _LineDraft line in _lines) {
       line.dispose();
@@ -1261,6 +1285,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           'discount_percent': line.discountPercent.text.trim(),
         if (line.discountAmount.text.trim().isNotEmpty)
           'discount_amount': line.discountAmount.text.trim(),
+        // L7: only once somebody ticked, and never beside a typed discount,
+        // which the server refuses as two answers on one line.
+        if (line.discountPercent.text.trim().isEmpty &&
+            line.discountAmount.text.trim().isEmpty)
+          ...line.offers.payload,
       };
 
   /// Save and close.
