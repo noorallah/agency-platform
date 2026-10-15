@@ -133,6 +133,14 @@ class SalesReturnLineWrite(SalesReturnSchema):
     expiry_date: date | None = None
     manufacturing_date: date | None = None
     remarks: str | None = None
+    #: The pack size the screen added two cells up at -- boxes and pieces,
+    #: sent only by a line typed that way (L5, design 3.4). The line comes
+    #: back at the pack of the note or bill line it returns, and is refused
+    #: where this differs, so a stale screen cannot add the cells up wrong.
+    #: ``current_return_quantity`` is the total in pieces either way.
+    pack_size: Decimal | None = Field(
+        default=None, gt=1, max_digits=18, decimal_places=4
+    )
     #: Which serialised units are coming back, for a serial-tracked product:
     #: units sold on the source line (``GET /returnable-serials`` lists
     #: them), one per unit returned -- completing the return refuses until
@@ -207,6 +215,10 @@ class SalesReturnCreate(SalesReturnSchema):
     )
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
+    #: Typed as boxes and pieces (L5, design 3.8): how the document is shown
+    #: and typed, nothing else. Absent on a new return takes it where a note
+    #: or bill it returns has it; absent on an update keeps the return's own.
+    box_and_piece_entry: bool | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -357,6 +369,12 @@ class SalesReturnLineResponse(SalesReturnSchema):
     #: is then the same goods in that source line's unit (D-PRC-37).
     entered_quantity: Decimal | None = None
     conversion_version: int | None
+    #: The pack the line comes back at (L5): the note or bill line's, its
+    #: unit and the stock units in one. Boxes and pieces of every quantity on
+    #: the line are worked out with it and never stored. Null where the item
+    #: has no pack.
+    pack_uom_id: UUID | None = None
+    pack_size: Decimal | None = None
     warehouse_id: UUID | None
     storage_node_id: UUID | None
     batch_number: str | None
@@ -406,6 +424,8 @@ class SalesReturnResponse(SalesReturnSchema):
     exchange_rate: Decimal | None
     reference_number: str | None
     remarks: str | None
+    #: The layout the return was saved in: boxes and pieces (L5).
+    box_and_piece_entry: bool = False
     status: SalesReturnStatus
     total_source_quantity: Decimal
     total_already_returned_quantity: Decimal

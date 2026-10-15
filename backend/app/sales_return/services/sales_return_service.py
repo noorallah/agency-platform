@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import io
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
@@ -144,7 +144,15 @@ from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import Uom
-from app.uom.services import UomService, assert_quantity_fits_unit, stock_unit_of
+from app.uom.services import (
+    Pack,
+    PackedLine,
+    UomService,
+    assert_quantity_fits_unit,
+    held_packs,
+    line_packs,
+    stock_unit_of,
+)
 
 ZERO = Decimal("0")
 
@@ -197,6 +205,11 @@ class _ComingBack:
 def _optional_uuid(value: object) -> UUID | None:
     """Read a UUID out of an untyped line spec."""
     return value if isinstance(value, UUID) else None
+
+
+def _optional_decimal(value: object) -> Decimal | None:
+    """Read an optional Decimal out of an untyped line spec."""
+    return None if value is None else Decimal(str(value))
 
 
 def _decimal(value: object, default: Decimal = ZERO) -> Decimal:
@@ -713,6 +726,12 @@ class SalesReturnService(TransactionalDocumentService):
             exchange_rate=data.exchange_rate,
             reference_number=data.reference_number,
             remarks=data.remarks,
+            # Shown as what it returns is unless the request says (L5, 3.8).
+            box_and_piece_entry=(
+                any(bool(source["box_and_piece_entry"]) for source in source_rows)
+                if data.box_and_piece_entry is None
+                else data.box_and_piece_entry
+            ),
             status=SalesReturnStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -796,11 +815,18 @@ class SalesReturnService(TransactionalDocumentService):
         row.exchange_rate = data.exchange_rate
         row.reference_number = data.reference_number
         row.remarks = data.remarks
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
+        # The pack each saved line was written at, read before the lines go:
+        # a line sent again for the same item keeps it (L5, design 3.3).
+        kept = held_packs(self._lines_of(row.id))
         self._delete_children(row.id)
-        self._apply_children(row, data, source_rows, line_specs, actor_id=actor_id)
+        self._apply_children(
+            row, data, source_rows, line_specs, actor_id=actor_id, kept=kept
+        )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -1578,6 +1604,7 @@ class SalesReturnService(TransactionalDocumentService):
         line_specs: list[dict[str, object]],
         *,
         actor_id: UUID,
+        kept: Mapping[int, tuple[UUID, Pack]] | None = None,
     ) -> None:
         """Write the sources, lines, attachments and notes, and roll up totals."""
         firm_id = row.firm_id
@@ -1589,6 +1616,7 @@ class SalesReturnService(TransactionalDocumentService):
             return_date=data.return_date,
             business_profile_id=data.business_profile_id,
             actor_id=actor_id,
+            kept=kept,
         )
         row.total_source_quantity = totals["total_source_quantity"]
         row.total_already_returned_quantity = totals["total_already_returned_quantity"]
@@ -1652,10 +1680,22 @@ class SalesReturnService(TransactionalDocumentService):
         return_date: date,
         business_profile_id: UUID | None,
         actor_id: UUID,
+        kept: Mapping[int, tuple[UUID, Pack]] | None = None,
     ) -> dict[str, Decimal]:
         # The lines are re-inserted below with new ids, so what they picked is
         # carried across by line number for a line that says nothing new.
         previous_picks = self._trail.picks_by_line_number(row.id)
+        sources = [
+            (source_type, source_line, self._source_uom_id(source_line))
+            for spec in line_specs
+            for source_type in [self._source_type(spec["source_document_type"])]
+            for source_line in [
+                self._source_line(source_type, spec["source_document_line_id"])
+            ]
+        ]
+        packs = self._line_packs(
+            line_specs, sources, return_date=return_date, kept=kept or {}
+        )
         self._trail.clear_document(row.id)
         self._session.query(SalesReturnLine).filter(
             SalesReturnLine.sales_return_id == row.id
@@ -1675,11 +1715,9 @@ class SalesReturnService(TransactionalDocumentService):
         unbilled_here: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         free_in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
-        for index, spec in enumerate(line_specs, start=1):
-            source_type = self._source_type(spec["source_document_type"])
-            source_line = self._source_line(
-                source_type, spec["source_document_line_id"]
-            )
+        for index, (spec, (source_type, source_line, source_uom_id)) in enumerate(
+            zip(line_specs, sources, strict=True), start=1
+        ):
             # The line must be one of the document named beside it, or a
             # checked document could front for a line of an unchecked one.
             owner = (
@@ -1693,7 +1731,6 @@ class SalesReturnService(TransactionalDocumentService):
                 )
             requested = self._q(_decimal(spec["current_return_quantity"]))
             dispatched = self._source_quantity(source_type, source_line)
-            source_uom_id = self._source_uom_id(source_line)
             return_uom_id = _optional_uuid(spec.get("return_uom_id"))
             assert_quantity_fits_unit(
                 self._session,
@@ -1984,6 +2021,7 @@ class SalesReturnService(TransactionalDocumentService):
                 + charges_amount
                 + tax_amount
             )
+            pack = packs.get(index)
             line = SalesReturnLine(
                 sales_return_id=row.id,
                 firm_id=firm_id,
@@ -2020,6 +2058,8 @@ class SalesReturnService(TransactionalDocumentService):
                 return_uom_id=return_uom_id,
                 conversion_factor=conversion_factor,
                 entered_quantity=typed.entered if as_typed else None,
+                pack_uom_id=None if pack is None else pack.uom_id,
+                pack_size=None if pack is None else pack.size,
                 warehouse_id=_optional_uuid(spec.get("warehouse_id"))
                 or row.warehouse_id,
                 storage_node_id=_optional_uuid(spec.get("storage_node_id")),
@@ -2078,6 +2118,52 @@ class SalesReturnService(TransactionalDocumentService):
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
+
+    def _line_packs(
+        self,
+        line_specs: list[dict[str, object]],
+        sources: list[tuple[str, SourceLine, UUID | None]],
+        *,
+        return_date: date,
+        kept: Mapping[int, tuple[UUID, Pack]],
+    ) -> dict[int, Pack]:
+        """Return the pack each return line comes back at, by line number (L5).
+
+        A line comes back at the pack of the note or bill line it returns, so
+        a box of 12 sold before the item moved to 10 is returned as a box of
+        12 (design 3.6). A source written before L5 holds none: the saved
+        draft line keeps what it took, else the item's pack on the return's
+        date. Lines are numbered as they are stored, by position. A line
+        typed as boxes and pieces is counted in the unit it names, else its
+        source line's, and refused where that is not the stock unit or the
+        pack is not the one sent.
+        """
+        inherited = {
+            index: (
+                source_line.product_id,
+                Pack(source_line.pack_uom_id, None, source_line.pack_size),
+            )
+            for index, (_, source_line, _) in enumerate(sources, start=1)
+            if source_line.pack_uom_id is not None and source_line.pack_size is not None
+        }
+        return line_packs(
+            self._session,
+            [
+                PackedLine(
+                    line_number=index,
+                    product_id=source_line.product_id,
+                    pack_size=_optional_decimal(spec.get("pack_size")),
+                    sales_uom_id=_optional_uuid(spec.get("return_uom_id"))
+                    or source_uom_id,
+                )
+                for index, (spec, (_, source_line, source_uom_id)) in enumerate(
+                    zip(line_specs, sources, strict=True), start=1
+                )
+            ],
+            side="SELL",
+            on_date=return_date,
+            kept={**kept, **inherited},
+        )
 
     def _replace_attachments(
         self,
@@ -2208,6 +2294,7 @@ class SalesReturnService(TransactionalDocumentService):
                         "branch_id": note.branch_id,
                         "salesman_id": note.salesman_id,
                         "territory_id": note.territory_id,
+                        "box_and_piece_entry": note.box_and_piece_entry,
                     }
                 )
             elif source_type == SalesReturnSourceType.SALES_INVOICE.value:
@@ -2231,6 +2318,7 @@ class SalesReturnService(TransactionalDocumentService):
                         "branch_id": invoice.branch_id,
                         "salesman_id": invoice.salesman_id,
                         "territory_id": invoice.territory_id,
+                        "box_and_piece_entry": invoice.box_and_piece_entry,
                     }
                 )
             else:
@@ -3982,6 +4070,7 @@ class SalesReturnService(TransactionalDocumentService):
             exchange_rate=row.exchange_rate,
             reference_number=row.reference_number,
             remarks=row.remarks,
+            box_and_piece_entry=bool(row.box_and_piece_entry),
             status=SalesReturnStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_returned_quantity=row.total_already_returned_quantity,
