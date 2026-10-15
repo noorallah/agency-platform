@@ -918,6 +918,21 @@ own header flag.
 
 On the screens the sum lives once, in `desktop/lib/ui/workspace/box_piece_cells.dart`: the order, quotation and sales bill editors draw Box, Pcs, Free box and Free pcs from it, send the total in pieces in `quantity` and `free_quantity` and the item row's `pack_size` beside it, and a blank free pair still means "take the offer".
 
+### The continuing documents (L5 step 10)
+
+The delivery note, sales return, bill of notes, purchase order, goods receipt,
+supplier's bill and purchase return draw the same cells. A document raised
+from another takes its pack from the line it continues -- the order line's on
+a note or receipt, the note or receipt line's on a bill or return -- and the
+billable-documents read (`BillableLine.pack_size`) carries it for a new bill
+of notes. A new purchase order or bill of products follows the supplier's
+mark; every continuing document opens in the layout of the one it continues,
+as the server does when the flag is absent. What the line already holds
+(Ordered, Delivered, Received, Due, Left to bill) reads "3 x 12 + 5" through
+`boxesAndPieces`. A line counted in a unit other than the stock unit keeps
+its box cells closed, and a purchase order line typed in boxes names no
+buying unit, because the server puts a boxes line in the stock unit.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and
