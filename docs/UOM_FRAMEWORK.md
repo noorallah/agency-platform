@@ -751,6 +751,40 @@ when absent on create, kept when absent on update, and handed from a quotation
 to the order it becomes. `tests/unit/test_box_and_piece_sales.py` is the
 guard, with the worked example sold to the paisa (410.00 + 49.20).
 
+### The pack on a delivery note and a sales bill line (L5 step 4)
+
+A line continuing another is **written at its source line's pack**, not
+today's (design 3.3 and 3.6): a delivery note line at its order line's, a
+bill line at its note line's. 3 boxes + 5 ordered at 12 to a box are shipped
+and billed at 12 after the item moved to 10. A source line written before L5
+holds none, and the line takes the item's pack on its own document's date (a
+saved draft note line keeps what it took). Both lines store and answer
+`pack_uom_id` and `pack_size`; nothing about boxes is stored beyond that, and
+every quantity on the line -- shipping now, left, billed -- is split by the
+screen with the one pack size. The caps stay sums of pieces.
+
+These lines name no product and the note line may name no unit, so the
+caller hands `line_packs` a `PackedLine` (line number, the source's product,
+the `pack_size` sent, the unit the line is counted in). A typed `pack_size`
+is refused where it is not the source line's pack, or where the line is
+counted in a unit other than the stock unit -- a line billing a note in BOX
+is in boxes, not pieces.
+
+A bill typed straight in (the counter bill) sends `pack_size` on its product
+lines; the chain hands it, and the bill's `box_and_piece_entry`, to the order
+it raises, where it is checked against the item's pack, and the note and the
+bill then continue that order. A bill against an order with the note stage
+off hands a line's typed `pack_size` on to the bill line that bills the note
+raised for it. A draft counter bill whose edit raises its order and note
+again hands the new order the pack each product's line was first written at
+(`ensure_invoice_source(..., inherited_packs=)`), so its lines stay at 12.
+
+Headers: a new note takes its order's `box_and_piece_entry` and a new bill
+takes it where any note it bills has it; absent (or null) on an update keeps
+the document's own. `POST /sales-invoices/preview` answers both, since it is
+the save rolled back. `tests/unit/test_box_and_piece_note_and_bill.py` is the
+guard.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and

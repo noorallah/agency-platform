@@ -3,6 +3,7 @@
 from app.uom.services.packs import (
     BoxesAndPieces,
     Pack,
+    PackedLine,
     PackSide,
     held_packs,
     line_packs,
@@ -29,6 +30,7 @@ __all__ = [
     "ContinuedQuantity",
     "Pack",
     "PackSide",
+    "PackedLine",
     "StatedLine",
     "UnitSetService",
     "UomService",

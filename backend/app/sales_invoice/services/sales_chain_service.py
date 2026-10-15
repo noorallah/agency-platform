@@ -16,7 +16,7 @@ the caller's transaction, so a bill that fails leaves no order and no note
 behind it. That is the whole reason the `stage_*` methods exist.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -50,6 +50,7 @@ from app.sales_order.models import SalesOrder, SalesOrderLine, SalesWorkflowSett
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services.sales_order_service import SalesOrderService
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
+from app.uom.services import Pack
 
 ZERO = Decimal("0")
 
@@ -100,6 +101,7 @@ class SalesChainService:
         firm_id: UUID,
         actor_id: UUID,
         inclusive: InclusiveRates | None = None,
+        inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
     ) -> SalesInvoiceCreate:
         """Return an invoice payload whose every line names a delivery note.
 
@@ -110,6 +112,10 @@ class SalesChainService:
         ``inclusive`` is applied to a bill of bare lines only -- the one place
         a rate is typed rather than inherited -- before the order is raised,
         so the order, the note and the bill all carry the pre-tax rate.
+
+        ``inherited_packs`` is the pack each bare line keeps, by line number
+        with its product: a draft counter bill raised again keeps the pack
+        its lines were first written at (L5, design 3.3).
         """
         settings = SalesWorkflowService(self._session).settings_for(firm_id)
         bare = [line for line in data.lines if line.source_document_line_id is None]
@@ -135,6 +141,7 @@ class SalesChainService:
             actor_id=actor_id,
             settings=settings,
             inclusive=inclusive,
+            inherited_packs=inherited_packs,
         )
 
     def _order_and_note(
@@ -145,6 +152,7 @@ class SalesChainService:
         actor_id: UUID,
         settings: SalesWorkflowSettings,
         inclusive: InclusiveRates | None = None,
+        inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
     ) -> SalesInvoiceCreate:
         """Raise the order and the delivery note a bare bill implies."""
         if settings.sales_order_stage or settings.delivery_note_stage:
@@ -190,6 +198,8 @@ class SalesChainService:
                 bill_discount_percent=data.bill_discount_percent,
                 bill_discount_amount=data.bill_discount_amount,
                 freight_amount=data.freight_amount,
+                # The bill's layout; the note and the bill take it from here.
+                box_and_piece_entry=data.box_and_piece_entry,
                 lines=[
                     SalesOrderLineWrite(
                         line_number=line.line_number,
@@ -222,6 +232,9 @@ class SalesChainService:
                         # from it (D-SELL-81).
                         pinned_batch_id=self._one_batch(line),
                         remarks=line.remarks,
+                        # Checked against the item's pack on the order, which
+                        # the note and the bill then carry (L5).
+                        pack_size=line.pack_size,
                     )
                     for line in data.lines
                 ],
@@ -238,6 +251,7 @@ class SalesChainService:
             price_batches=self._price_batches(
                 data, firm_id=firm_id, on=data.invoice_date
             ),
+            inherited_packs=inherited_packs,
         )
         self._refuse_above_chosen_mrp(order, data.lines)
         self.raised_orders.append(order)
@@ -583,6 +597,11 @@ class SalesChainService:
                 tax_profile_id=note_line.tax_profile_id,
                 packaging_type_id=note_line.packaging_type_id,
                 invoice_uom_id=note_line.sales_uom_id,
+                # Typed as boxes and pieces on the line of the order: checked
+                # against the pack the note line ships at (L5).
+                pack_size=getattr(
+                    typed.get(note_line.sales_order_line_id), "pack_size", None
+                ),
                 warehouse_id=note_line.warehouse_id,
                 storage_node_id=note_line.storage_node_id,
                 remarks=note_line.remarks,
