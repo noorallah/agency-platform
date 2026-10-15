@@ -143,6 +143,18 @@ class SalesWorkflowService:
         people are asked to raise -- a change nobody can trace is one nobody
         can explain when the screens move.
         """
+        # A delivery note continues a sales order: its lines are the order's
+        # lines, and nothing raises the order behind a note typed without
+        # one. With the order switched off and the note on, neither a bill
+        # nor a note could be typed at all (D-SELL-103).
+        if data.delivery_note_stage and not data.sales_order_stage:
+            raise ValidationError(
+                "A delivery note is raised from a sales order, so the "
+                "Delivery note stage cannot be on while the Sales order stage "
+                "is off. Switch Sales order on, or switch Delivery note off "
+                "and the bill raises the note itself.",
+                details={"field": "delivery_note_stage"},
+            )
         row = self._stored_settings(firm_id)
         before: dict[str, object] | None = None
         # The stages are required on every write; the two defaults are not.
