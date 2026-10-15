@@ -3044,6 +3044,10 @@ class SalesOrderService(TransactionalDocumentService):
                     customer_percent=customer_discount,
                     group_percent=group_discount,
                     standing=standing,
+                    # The "buy N more" hint (L7 step 4).
+                    quantity=item.quantity,
+                    stock_factor=factors[index],
+                    next_break=prices.next_break(item.product_id, at_stock),
                 )
             seen.add(item.line_number)
             subtotal += taxable

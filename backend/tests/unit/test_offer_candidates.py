@@ -186,8 +186,9 @@ def test_step_1_nine_pieces_take_tea_5_and_list_the_rest() -> None:
     assert tea11.worth == Decimal("0")
     assert tea11.reason == "Nothing earned on this line yet."
     assert tea11.gives.sentence == "11 + 1 free"
-    # The hint and the part share are later steps.
-    assert tea11.needs_more is None and tea11.part_share is None
+    # The hint is step 4 (test_offer_hints.py); the part share step 7.
+    assert (tea11.needs_more, tea11.then_gives) == (Decimal("2"), "1 free")
+    assert tea11.part_share is None
 
     city = found["CITY"]
     assert (city.source, city.applied, city.worth) == (

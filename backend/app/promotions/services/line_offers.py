@@ -14,7 +14,7 @@ their free goods, but took nothing off.
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import Any
 from uuid import UUID
 
@@ -25,7 +25,7 @@ from app.core.utils.money import quantize_money
 from app.core.utils.pricing import LineDiscount
 from app.core.utils.quantities import at_quantity_scale, plain_quantity
 from app.customers.models import CustomerGroup
-from app.pricing.services.price_list_service import PriceListRef
+from app.pricing.services.price_list_service import PriceListBreak, PriceListRef
 from app.promotions.models.line_offer import LineOfferMixin
 from app.promotions.schemas import (
     LineOfferResponse,
@@ -292,6 +292,9 @@ def line_candidates(
     customer_percent: Decimal | None = None,
     group_percent: Decimal | None = None,
     standing: StandingArrangement | None = None,
+    quantity: Decimal | None = None,
+    stock_factor: Decimal = Decimal("1"),
+    next_break: PriceListBreak | None = None,
 ) -> list[OfferCandidate]:
     """Return what one line could take: its offers, then its standing terms (L7).
 
@@ -309,6 +312,11 @@ def line_candidates(
         customer_percent: The customer's standing rate; None where unset.
         group_percent: The customer's group's rate; None where unset.
         standing: The group's code and name.
+        quantity: The quantity typed on the line, in its own unit: the
+            window of the "buy N more" hint (step 4). None gives no hint.
+        stock_factor: The stock units one of the line's units holds.
+        next_break: The price list's next break above the line's quantity
+            (`PriceListResolver.next_break`), for its hint.
 
     Nothing is chosen in this step: ``chosen`` stays False throughout. Each
     standing rate is valued alone on the line's gross, as the shared rule
@@ -342,6 +350,14 @@ def line_candidates(
                 priced=priced,
             )
         )
+    if quantity is not None and next_break is not None and priced.source not in _TYPED:
+        candidates = _with_break_hint(
+            candidates,
+            next_break=next_break,
+            quantity=quantity,
+            stock_factor=stock_factor,
+            listed=price_list is not None and price_list_percent is not None,
+        )
     if customer_percent is not None and customer_percent > ZERO:
         candidates.append(
             _standing_candidate(
@@ -367,7 +383,103 @@ def line_candidates(
                 priced=priced,
             )
         )
-    return candidates
+    return candidates if quantity is None else nearest_hints(candidates, quantity)
+
+
+#: How many hints a line shows at most (design section 3.6).
+HINTS_PER_LINE = 2
+
+
+def in_line_units(stock_shortfall: Decimal, stock_factor: Decimal) -> Decimal:
+    """Return a shortfall in stock units as the line's own unit, rounded up.
+
+    At the four places a quantity holds, and up rather than to the nearest:
+    a hint that falls short of the break by a fraction earns nothing.
+    """
+    factor = stock_factor if stock_factor > ZERO else Decimal("1")
+    return (stock_shortfall / factor).quantize(
+        Decimal("0.0001"), rounding=ROUND_CEILING
+    )
+
+
+def nearest_hints(
+    candidates: Sequence[OfferCandidate], quantity: Decimal
+) -> list[OfferCandidate]:
+    """Keep the line's two nearest hints within its window (L7 step 4).
+
+    Section 3.6: a hint is shown where the shortfall is no more than the
+    quantity typed, nearest first, two a line at most. A candidate past the
+    window or the two keeps its place with the hint cleared, except one
+    listed only for its hint -- never available, as a hint cannot be
+    chosen -- which is dropped. Ties keep the list's order.
+    """
+    shown = sorted(
+        (item.needs_more, at)
+        for at, item in enumerate(candidates)
+        if item.needs_more is not None and item.needs_more <= quantity
+    )
+    kept = {at for _, at in shown[:HINTS_PER_LINE]}
+    result: list[OfferCandidate] = []
+    for at, item in enumerate(candidates):
+        if item.needs_more is None or at in kept:
+            result.append(item)
+        elif item.available:
+            result.append(
+                item.model_copy(update={"needs_more": None, "then_gives": None})
+            )
+    return result
+
+
+def _with_break_hint(
+    candidates: list[OfferCandidate],
+    *,
+    next_break: PriceListBreak,
+    quantity: Decimal,
+    stock_factor: Decimal,
+    listed: bool,
+) -> list[OfferCandidate]:
+    """Put the price list's next break on its candidate, or list it for it.
+
+    A line below the list's first break has no price list candidate yet:
+    it is listed for the hint alone, worth nothing and not available.
+    """
+    stock = quantity * stock_factor
+    if next_break.starts_at <= stock:
+        return candidates
+    needs_more = in_line_units(next_break.starts_at - stock, stock_factor)
+    rate = quantize_money(next_break.percent)
+    then_gives = f"{plain_quantity(rate)}% off"
+    key = str(next_break.price_list.id)
+    if listed:
+        return [
+            (
+                item.model_copy(
+                    update={"needs_more": needs_more, "then_gives": then_gives}
+                )
+                if item.source == "price_list"
+                else item
+            )
+            for item in candidates
+        ]
+    return [
+        *candidates,
+        OfferCandidate(
+            key=key,
+            source="price_list",
+            code=next_break.price_list.code,
+            name=next_break.price_list.name[:_NAME_LENGTH],
+            gives=OfferGives(
+                kind="PERCENT", percent=rate, sentence=f"{plain_quantity(rate)}% off"
+            ),
+            worth=ZERO,
+            applied=False,
+            combines=False,
+            available=False,
+            reason=f"{plain_quantity(needs_more)} more to earn it.",
+            needs_more=needs_more,
+            then_gives=then_gives,
+        ),
+    ]
 
 
 def _standing_candidate(
