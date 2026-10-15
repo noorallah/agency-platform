@@ -131,6 +131,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     'QUARANTINE_RELEASE': 'Quarantine release',
     'ADJUSTMENT': 'Adjustment / count',
     'ADJUSTMENT_REVERSAL': 'Repack cancelled',
+    'LOT_SETTLEMENT': 'Lot settled against earlier sales',
+    'COST_CORRECTION': 'Cost correction',
   };
 
   /// The quantity of a movement with the direction it took current stock:

@@ -474,6 +474,11 @@ RESET_ORDER: tuple[str, ...] = (
     # the settlements omission recorded above, and found the same way.
     "promotion_redemptions",
     "promotion_coupons",
+    # The offers a quotation's or an order's line carried (L7) name the
+    # revision they applied; their documents cascade them away, but the list
+    # must not depend on those having gone first.
+    "sales_order_offers",
+    "sales_quotation_offers",
     "promotion_execution_logs",
     "promotion_actions",
     "promotion_conditions",
