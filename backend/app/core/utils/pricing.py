@@ -161,6 +161,52 @@ def resolve_line_discount(
     return LineDiscount(amount=applied, percent=rate, source=source)
 
 
+#: The arrangements a person may put first on one line, by the key a choice
+#: names them with; a price list is named by its own id (L7 step 5).
+CHOSEN_OFFERS = "offers"
+CHOSEN_CUSTOMER = "CUSTOMER"
+CHOSEN_CUSTOMER_GROUP = "CUSTOMER_GROUP"
+
+
+@dataclass(frozen=True, slots=True)
+class LineTiers:
+    """The untyped tiers `resolve_line_discount` ranks, as a line offers them."""
+
+    promotion_amount: Decimal | None = None
+    price_list_percent: Decimal | None = None
+    customer_default: Decimal | None = None
+    customer_group_default: Decimal | None = None
+
+
+def chosen_tiers(
+    tiers: LineTiers, *, discount_from: str | None, price_list_key: str | None
+) -> LineTiers:
+    """Blank the tiers a person did not choose, so the ranking runs unchanged.
+
+    ``docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md`` section 3.4. With a
+    choice the ranking reads: typed amount, typed percent, **the chosen
+    arrangement**, offers, price list, customer's rate, group's rate. The
+    chosen arrangement is put first by blanking everything between it and
+    what was typed -- the offers' discount and the other standing tiers --
+    so `resolve_line_discount` takes the branch it names and records it as
+    the source, exactly as it would have reached it on its own. ``offers``
+    blanks the standing tiers: the line's discount is the offers' or none.
+    None, or a key naming nothing here, leaves the ranking as it is; the
+    caller refuses a key the line cannot take before it gets this far.
+    """
+    if discount_from is None:
+        return tiers
+    if discount_from == CHOSEN_OFFERS:
+        return LineTiers(promotion_amount=tiers.promotion_amount)
+    if price_list_key is not None and discount_from == price_list_key:
+        return LineTiers(price_list_percent=tiers.price_list_percent)
+    if discount_from == CHOSEN_CUSTOMER:
+        return LineTiers(customer_default=tiers.customer_default)
+    if discount_from == CHOSEN_CUSTOMER_GROUP:
+        return LineTiers(customer_group_default=tiers.customer_group_default)
+    return tiers
+
+
 @dataclass(frozen=True, slots=True)
 class LinePrice:
     """The price a line starts at, and where it came from."""

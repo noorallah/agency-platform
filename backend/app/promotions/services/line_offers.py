@@ -58,6 +58,19 @@ class OfferRow:
     promotion_id: UUID | None = None
     promotion_group_id: UUID | None = None
     price_list_id: UUID | None = None
+    #: Put there by a person rather than by the server (L7 step 5).
+    chosen: bool = False
+
+    @property
+    def key(self) -> str:
+        """Return the key a candidate and a choice name this arrangement by."""
+        if self.promotion_group_id is not None:
+            return str(self.promotion_group_id)
+        if self.price_list_id is not None:
+            return str(self.price_list_id)
+        return {"customer": "CUSTOMER", "customer_group": "CUSTOMER_GROUP"}.get(
+            self.source, self.code
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,7 +257,7 @@ def rewrite_offer_rows(
                     code=item.code,
                     name=item.name,
                     state="APPLIED",
-                    chosen=False,
+                    chosen=item.chosen,
                     discount_amount=item.discount_amount,
                     free_quantity=item.free_quantity,
                     part_share=False,

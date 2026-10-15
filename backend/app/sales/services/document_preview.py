@@ -233,14 +233,22 @@ def _with_stock(
 
 
 def with_candidates[LineT: DocumentPreviewLine](
-    lines: Sequence[LineT], by_line: Mapping[int, list[OfferCandidate]]
+    lines: Sequence[LineT],
+    by_line: Mapping[int, list[OfferCandidate]],
+    refused: Mapping[int, str] | None = None,
 ) -> list[LineT]:
     """Put beside each previewed line what it could take (L7 step 3).
 
     A line the order's offers added -- a gift -- has none, and nor does one
-    the document did not price itself.
+    the document did not price itself. ``refused`` says, by line number,
+    why a choice sent was not taken (L7 step 5).
     """
     return [
-        line.model_copy(update={"candidates": list(by_line.get(line.line_number, []))})
+        line.model_copy(
+            update={
+                "candidates": list(by_line.get(line.line_number, [])),
+                "choice_refused": (refused or {}).get(line.line_number),
+            }
+        )
         for line in lines
     ]

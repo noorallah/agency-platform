@@ -175,6 +175,7 @@
     {
       "available_quantity": "0",
       "candidates": [],
+      "choice_refused": null,
       "incoming_quantity": "10.00000000000000",
       "last_discount_percent": null,
       "last_invoice_date": null,

@@ -87,6 +87,18 @@ _BILL_ACTIONS = frozenset(
         PromotionActionType.FREE_PRODUCT.value,
     }
 )
+#: The actions judged line by line under "best one only": each gives one
+#: line its own benefit. A combo across lines, a gift counted over several
+#: and anything on the whole bill are judged among themselves (decision 2
+#: of the L7 design).
+_PER_LINE_ACTIONS = frozenset(
+    {
+        PromotionActionType.LINE_DISCOUNT_PERCENT.value,
+        PromotionActionType.LINE_DISCOUNT_AMOUNT.value,
+        PromotionActionType.FREE_QUANTITY.value,
+        PromotionActionType.BUY_X_GET_Y_DISCOUNT.value,
+    }
+)
 _BILL_DISCOUNTS = frozenset(
     {
         PromotionActionType.BILL_DISCOUNT_PERCENT.value,
@@ -198,12 +210,19 @@ class PromotionService:
         self._gifts_passed_over: dict[UUID, Promotion] = {}
 
     def evaluate(
-        self, data: PromotionEvaluationRequest, *, firm_scope: UUID
+        self,
+        data: PromotionEvaluationRequest,
+        *,
+        firm_scope: UUID,
+        record: bool = True,
     ) -> PromotionEvaluationResponse:
         """Apply every matching promotion, in order, and report what happened.
 
         Never commits: the caller is mid-document. The `/simulate` endpoint
-        owns the transaction, exactly as it does for tax.
+        owns the transaction, exactly as it does for tax. ``record`` False
+        writes no execution log, for a caller weighing a person's choice
+        against the start (L7 step 5) that logs the answer it keeps with
+        `record`.
         """
         states = [
             _LineState(
@@ -233,7 +252,11 @@ class PromotionService:
         decisions: list[PromotionDecision] = []
 
         coupon = self._coupon_for(data, firm_scope=firm_scope)
-        best_only, line_cap = self._promotion_policy(firm_scope)
+        mode, line_cap = self._promotion_policy(firm_scope)
+        best_only = mode in ("BEST_OFFER", "ASK")
+        # Why an offer is not on one line, where that is the line's own
+        # business: not chosen there, or another worth more there (L7 step 5).
+        line_reasons: dict[tuple[UUID, int], str] = {}
         candidates: list[tuple[Promotion, list[_LineState]]] = []
         # Which offer added how much to which line, in the order applied, so a
         # combined cap can take back the last slice first (backlog 59 item 3).
@@ -286,7 +309,9 @@ class PromotionService:
             ]
 
         def apply_one(
-            promotion: Promotion, matched_lines: list[_LineState]
+            promotion: Promotion,
+            matched_lines: list[_LineState],
+            stops: bool = True,
         ) -> bool | None:
             """Apply one offer to the document; True when evaluation must stop.
 
@@ -407,7 +432,7 @@ class PromotionService:
             for state in matched_lines:
                 state.codes.append(promotion.code)
             decisions.append(self._decision(promotion, True, "Applied."))
-            if not promotion.allow_stacking:
+            if not promotion.allow_stacking and stops:
                 decisions.append(
                     self._decision(
                         promotion,
@@ -480,9 +505,16 @@ class PromotionService:
             # skipping here is what stops the trace claiming a benefit the
             # line never received, which is the question this log exists to
             # answer.
-            matched_lines = [
-                states[index] for index in holds if not data.lines[index].caller_priced
-            ]
+            matched_lines = []
+            for index in holds:
+                if data.lines[index].caller_priced:
+                    continue
+                if not _allowed(data.lines[index].offers, promotion):
+                    # A person chose this line's offers and left this one
+                    # out (L7 step 5).
+                    line_reasons[(promotion.id, index)] = "Not chosen on this line."
+                    continue
+                matched_lines.append(states[index])
             if not matched_lines:
                 decisions.append(
                     self._decision(
@@ -491,7 +523,14 @@ class PromotionService:
                         (
                             "Every line was priced by hand."
                             if all(line.caller_priced for line in data.lines)
-                            else "No line met the conditions."
+                            else (
+                                "Not chosen on any line it meets."
+                                if any(
+                                    (promotion.id, index) in line_reasons
+                                    for index in holds
+                                )
+                                else "No line met the conditions."
+                            )
                         ),
                     )
                 )
@@ -504,8 +543,17 @@ class PromotionService:
                 stopped_by = promotion
 
         if best_only and candidates:
-            self._apply_best(candidates, states, data, decisions, apply_one)
-        elif line_cap is not None:
+            self._apply_best_per_line(
+                candidates,
+                states,
+                data,
+                decisions,
+                apply_one,
+                line_reasons=line_reasons,
+            )
+        if line_cap is not None and (mode == "ASK" or not best_only):
+            # Under "ask" only a line whose offers a person ticked can carry
+            # more than one, and the cap holds them (design 3.5).
             self._cap_lines(
                 line_cap,
                 states=states,
@@ -513,6 +561,15 @@ class PromotionService:
                 applications=applications,
                 applied_promotions=applied_promotions,
                 decisions=decisions,
+                only=(
+                    None
+                    if mode != "ASK"
+                    else {
+                        index
+                        for index, line in enumerate(data.lines)
+                        if line.offers is not None
+                    }
+                ),
             )
         for passed_over in self._gifts_passed_over.values():
             decisions.append(
@@ -536,6 +593,7 @@ class PromotionService:
             gifts=gifts,
             freight_waived=freight_waived,
             contexts=contexts,
+            line_reasons=line_reasons,
         )
 
         response = PromotionEvaluationResponse(
@@ -568,8 +626,19 @@ class PromotionService:
             decisions=decisions,
             bill_candidates=bill_candidates,
         )
-        self._log(data, response, firm_scope=firm_scope)
+        if record:
+            self._log(data, response, firm_scope=firm_scope)
         return response
+
+    def record(
+        self,
+        data: PromotionEvaluationRequest,
+        response: PromotionEvaluationResponse,
+        *,
+        firm_scope: UUID,
+    ) -> None:
+        """Log an answer `evaluate` was asked not to log (L7 step 5)."""
+        self._log(data, response, firm_scope=firm_scope)
 
     def _candidates(
         self,
@@ -585,6 +654,7 @@ class PromotionService:
         gifts: list[PromotionGift],
         freight_waived: Decimal,
         contexts: list[dict[str, object]],
+        line_reasons: dict[tuple[UUID, int], str] | None = None,
     ) -> tuple[list[list[OfferCandidate]], list[OfferCandidate]]:
         """List every offer looked at beside the lines, and under the bill (L7).
 
@@ -639,6 +709,7 @@ class PromotionService:
                         and PromotionActionType.FREE_QUANTITY.value in kinds,
                         worth=worths[index],
                         reason=reason,
+                        line_reason=(line_reasons or {}).get((promotion.id, index)),
                     )
                     hint = (
                         _hint(promotion, state, floor=None)
@@ -1240,13 +1311,129 @@ class PromotionService:
                 return value
         return None
 
+    def _apply_best_per_line(
+        self,
+        candidates: list[tuple[Promotion, list[_LineState]]],
+        states: list[_LineState],
+        data: PromotionEvaluationRequest,
+        decisions: list[PromotionDecision],
+        apply_one: Callable[..., bool | None],
+        *,
+        line_reasons: dict[tuple[UUID, int], str],
+    ) -> None:
+        """Give each line the one offer worth most on it (L7 decision 2).
+
+        Judged **per line**: an offer on a line's own goods is valued on
+        that line alone, and the most valuable applied there, a tie going
+        to the one earlier in "Applies at" order. Each winner is applied
+        once, to every line it won. Offers on the whole bill -- a bill
+        discount, free delivery, a gift, a combo across lines -- are then
+        judged among themselves (`_apply_best`), after the lines.
+
+        A line whose offers a person named takes every one named, combined
+        as each allows: one that does not stack closes the line to the
+        offers after it. An offer whose budget cannot cover this document
+        is passed over and its lines fall to their next best -- among the
+        offers not yet applied elsewhere, since an offer is applied once.
+        """
+        per_line = [
+            (promotion, matched)
+            for promotion, matched in candidates
+            if _action_kinds(promotion) <= _PER_LINE_ACTIONS
+        ]
+        whole = [
+            (promotion, matched)
+            for promotion, matched in candidates
+            if not _action_kinds(promotion) <= _PER_LINE_ACTIONS
+        ]
+        position = {id(state): index for index, state in enumerate(states)}
+        worths: dict[tuple[UUID, int], Decimal] = {
+            (promotion.id, position[id(state)]): self._worth_alone(
+                promotion, [state], states, data
+            )
+            for promotion, matched in per_line
+            for state in matched
+        }
+        lost: dict[UUID, str] = {}
+        done: set[UUID] = set()
+        given: set[UUID] = set()
+        closed_by: dict[int, Promotion] = {}
+
+        def plan(lines: list[int]) -> dict[UUID, list[int]]:
+            """Return, by offer, the lines it is to be applied to."""
+            taken: dict[UUID, list[int]] = {}
+            for index in lines:
+                offers = [
+                    (promotion, worths[(promotion.id, index)])
+                    for promotion, _ in per_line
+                    if (promotion.id, index) in worths and promotion.id not in done
+                ]
+                if not offers:
+                    continue
+                if data.lines[index].offers is not None:
+                    for promotion, _ in offers:
+                        taken.setdefault(promotion.id, []).append(index)
+                    continue
+                top = max(value for _, value in offers)
+                winner = next(promotion for promotion, value in offers if value == top)
+                taken.setdefault(winner.id, []).append(index)
+                for promotion, value in offers:
+                    if promotion is winner:
+                        continue
+                    reason = (
+                        f"Best offer only: {winner.code} was worth more "
+                        f"({quantize_ledger(top)} against {quantize_ledger(value)}) "
+                        f"on line {states[index].line_number}."
+                    )
+                    line_reasons[(promotion.id, index)] = reason
+                    lost[promotion.id] = reason
+            return taken
+
+        lines = list(range(len(states)))
+        while lines:
+            taken = plan(lines)
+            orphans: list[int] = []
+            for promotion, _ in per_line:
+                if promotion.id not in taken:
+                    continue
+                targets: list[int] = []
+                for index in taken[promotion.id]:
+                    closer = closed_by.get(index)
+                    if closer is None:
+                        targets.append(index)
+                    else:
+                        line_reasons[(promotion.id, index)] = (
+                            f"Does not combine with {closer.code}."
+                        )
+                done.add(promotion.id)
+                if not targets:
+                    continue
+                result = apply_one(
+                    promotion, [states[index] for index in targets], stops=False
+                )
+                if result is None:
+                    orphans += [
+                        index for index in targets if data.lines[index].offers is None
+                    ]
+                    continue
+                given.add(promotion.id)
+                if not promotion.allow_stacking:
+                    for index in targets:
+                        closed_by.setdefault(index, promotion)
+            lines = orphans
+        for promotion, _ in per_line:
+            if promotion.id not in given and promotion.id in lost:
+                decisions.append(self._decision(promotion, False, lost[promotion.id]))
+        if whole:
+            self._apply_best(whole, states, data, decisions, apply_one)
+
     def _apply_best(
         self,
         candidates: list[tuple[Promotion, list[_LineState]]],
         states: list[_LineState],
         data: PromotionEvaluationRequest,
         decisions: list[PromotionDecision],
-        apply_one: Callable[[Promotion, list[_LineState]], bool | None],
+        apply_one: Callable[..., bool | None],
     ) -> None:
         """Give only the single offer worth most (backlog 59).
 
@@ -1280,12 +1467,17 @@ class PromotionService:
                 )
             )
 
-    def _promotion_policy(self, firm_scope: UUID) -> tuple[bool, Decimal | None]:
-        """Return (best offer only, combined line cap %) for the firm (backlog 59).
+    def promotion_mode(self, firm_scope: UUID) -> str:
+        """Return the firm's ``promotion_mode``; COMBINE where none is set."""
+        return self._promotion_policy(firm_scope)[0]
+
+    def _promotion_policy(self, firm_scope: UUID) -> tuple[str, Decimal | None]:
+        """Return (promotion mode, combined line cap %) for the firm (backlog 59).
 
         A firm with no settings row combines with no cap, as offers always
-        have. The cap is read only in Combine mode: a single best offer is
-        already one offer.
+        have. The cap is read in Combine mode, and in Ask mode for the lines
+        a person ticked more than one on: a single best offer is already
+        one offer.
         """
         from app.sales_order.models import SalesWorkflowSettings
 
@@ -1299,13 +1491,14 @@ class PromotionService:
             )
         ).first()
         if row is None:
-            return False, None
-        mode, cap = row
+            return "COMBINE", None
+        mode = str(row[0] or "COMBINE")
+        cap = row[1]
         # ASK (L7) starts a line where best one only does; what the bill
-        # maker ticks beyond that is a choice, read with the choice.
-        if mode in ("BEST_OFFER", "ASK"):
-            return True, None
-        return False, (None if cap is None else Decimal(str(cap)))
+        # maker ticks beyond that is a choice, held to the cap.
+        if mode == "BEST_OFFER":
+            return mode, None
+        return mode, (None if cap is None else Decimal(str(cap)))
 
     def _cap_lines(
         self,
@@ -1316,6 +1509,7 @@ class PromotionService:
         applications: list[PromotionApplication],
         applied_promotions: list[Promotion],
         decisions: list[PromotionDecision],
+        only: set[int] | None = None,
     ) -> None:
         """Hold each line's combined offer discount to the firm's cap.
 
@@ -1326,6 +1520,8 @@ class PromotionService:
         a line discount and is left alone.
         """
         for index, state in enumerate(states):
+            if only is not None and index not in only:
+                continue
             limit = quantize_money(state.gross * cap_percent / HUNDRED)
             excess = state.discount - limit
             if excess <= ZERO:
@@ -1996,6 +2192,11 @@ def offer_gives(promotion: Promotion) -> OfferGives:
     )
 
 
+def _allowed(offers: Sequence[UUID] | None, promotion: Promotion) -> bool:
+    """Return whether a line whose offers a person named may take this one."""
+    return offers is None or promotion.version_group_id in offers
+
+
 def _line_reason(
     item: _Considered,
     *,
@@ -2005,6 +2206,7 @@ def _line_reason(
     free_typed: bool,
     worth: Decimal,
     reason: str | None,
+    line_reason: str | None = None,
 ) -> tuple[bool, str | None]:
     """Return whether an offer is available on one line, and why it is not in.
 
@@ -2017,6 +2219,8 @@ def _line_reason(
         return False, "A discount is typed on this line."
     if not item.available:
         return False, item.reason
+    if line_reason is not None:
+        return True, line_reason
     if free_typed and worth <= ZERO:
         return False, "A free quantity is typed on this line."
     if worth <= ZERO:
