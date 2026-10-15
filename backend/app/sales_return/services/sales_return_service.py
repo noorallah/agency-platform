@@ -967,6 +967,14 @@ class SalesReturnService(TransactionalDocumentService):
         lines = self._lines_of(row.id)
         if not lines:
             raise ValidationError("Sales return must contain at least one line.")
+        # Rounded again on the running total as it stands now: another
+        # return off the same document may have completed since this one
+        # was priced (D-SELL-102).
+        if SalesWorkflowService(self._session).rounds_bills(firm_scope):
+            worked_out = self._q(row.grand_total - row.round_off)
+            row.round_off = self._running_round_off(row, worked_out)
+            row.grand_total = self._q(worked_out + row.round_off)
+            self._session.flush()
         # A credit note approved since the return was priced has taken some
         # of what its bill was worth.
         credited_on, placed = self._refuse_credit_past_the_bill(row, lines)
@@ -1662,9 +1670,10 @@ class SalesReturnService(TransactionalDocumentService):
             + row.additional_charges
         )
         # A firm that rounds every bill rounds its credit notes the same way,
-        # so a bill returned in full is cancelled to the rupee (backlog 134).
+        # so a bill returned in full is cancelled to the rupee (backlog 134),
+        # and returned in parts too (D-SELL-102).
         if SalesWorkflowService(self._session).rounds_bills(firm_id):
-            row.round_off = rupee_round_off(worked_out)
+            row.round_off = self._running_round_off(row, worked_out)
         row.grand_total = self._q(worked_out + row.round_off)
         self._session.flush()
         self._refuse_header_charges_past_the_bill(row, self._lines_of(row.id))
@@ -1672,6 +1681,76 @@ class SalesReturnService(TransactionalDocumentService):
             row, data.attachments, firm_id=firm_id, actor_id=actor_id
         )
         self._replace_notes(row, data.notes, firm_id=firm_id, actor_id=actor_id)
+
+    def _running_round_off(self, row: SalesReturn, worked_out: Decimal) -> Decimal:
+        """Return a return's round-off, taken on the running total of its source.
+
+        Each return rounded on its own made the parts of a bill credit more
+        or less than the bill: seven returns of one 14.56 piece each credited
+        15.00, 105.00 against a bill of 102.00 (D-SELL-102). The round-off is
+        instead taken on everything credited off the same document so far,
+        as an apportioned figure puts its residual on one part: this return
+        brings the running total to the rupee nearest everything returned
+        unrounded, less what the earlier returns already credited. A bill
+        returned in any number of parts is credited exactly what it billed,
+        and each return stays within a rupee of its own value.
+
+        The earlier returns are the completed ones off this return's one
+        source document and nothing else. A return off several documents, or
+        the first off its document, rounds on its own as before.
+
+        Args:
+            row: The return being priced or completed.
+            worked_out: Its total before any round-off, at four places.
+
+        Returns:
+            The round-off, at the document's four places.
+
+        """
+        sources = self._session.scalars(
+            select(SalesReturnSource.source_document_id).where(
+                SalesReturnSource.sales_return_id == row.id,
+                SalesReturnSource.is_deleted.is_(False),
+            )
+        ).all()
+        if len(set(sources)) != 1:
+            return rupee_round_off(worked_out)
+        alone = (
+            select(SalesReturnSource.sales_return_id)
+            .where(SalesReturnSource.is_deleted.is_(False))
+            .group_by(SalesReturnSource.sales_return_id)
+            .having(
+                func.count(func.distinct(SalesReturnSource.source_document_id)) == 1
+            )
+        )
+        earlier = self._session.execute(
+            select(
+                func.coalesce(func.sum(SalesReturn.grand_total), 0),
+                func.coalesce(func.sum(SalesReturn.round_off), 0),
+            )
+            .join(
+                SalesReturnSource,
+                SalesReturnSource.sales_return_id == SalesReturn.id,
+            )
+            .where(
+                SalesReturn.firm_id == row.firm_id,
+                SalesReturn.id != row.id,
+                SalesReturn.is_deleted.is_(False),
+                SalesReturn.status.in_(
+                    (
+                        SalesReturnStatus.COMPLETED.value,
+                        SalesReturnStatus.CLOSED.value,
+                    )
+                ),
+                SalesReturnSource.is_deleted.is_(False),
+                SalesReturnSource.source_document_id == sources[0],
+                SalesReturn.id.in_(alone),
+            )
+        ).one()
+        credited = Decimal(str(earlier[0]))
+        unrounded = credited - Decimal(str(earlier[1]))
+        running = self._q(unrounded + worked_out)
+        return self._q(running + rupee_round_off(running) - credited - worked_out)
 
     def _replace_sources(
         self,
