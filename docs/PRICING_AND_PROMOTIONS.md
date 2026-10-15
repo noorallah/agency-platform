@@ -150,6 +150,14 @@ choice to the order, checked on the order's date: one that has lapsed is
 dropped, that line ordered from the start, and the `CONVERTED` timeline entry
 says which. Offers are still claimed only at the bill's approval.
 
+**Blank, zero and a choice are three answers.** Blank discount and no
+`offer_choice` take the start; a typed figure, zero included, beats any
+arrangement and refuses the rest; a figure beside a choice is refused, never
+resolved quietly. The rows live in `sales_order_offers` and
+`sales_quotation_offers` (one shape, rewritten whenever the line is priced,
+nothing refers to them by id); the bill and the note read the order line's,
+never a copy. Offers are claimed at the bill's approval, never by a preview.
+
 **A part share of "buy N get M free"** (L7 step 7, design 3.7). An offer with
 a `FREE_QUANTITY` action may carry `allow_part_share` (on the offer's form,
 off by default; any other offer is refused the switch; an edit that leaves it

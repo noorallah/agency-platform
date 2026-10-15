@@ -353,6 +353,14 @@ Cases TC-STOCK-001 to 020; results in `docs/qa/INVENTORY_API_CHECK_ROUND_1_2026-
 | D-UI-100 | 2026-10-14 | **A Draft supplier bill that received its own goods against an order cannot have its quantities changed.** `update_invoice` raises the documents behind a bill again only where a line names no source; a bill raised off an order names its own draft receipt, which keeps its quantity and batch, so a lowered bill would still receive the original at approval. Edit opens such a bill with the quantity, batch and expiry boxes read-only and says so; rates, dates and numbers can be changed. Beside it: no response says which order or receipt a bill raised, so the Edit window tells a bill of products from a bill off an order by the order's reference and date. | Low | Read in the code while building D-UI-39; not driven | `update_invoice`, `_prepare_invoice_sources` in `app/purchase_invoice/services/purchase_invoice_service.py`; `_loadEditing` in `desktop/lib/ui/purchase_invoices/purchase_invoice_editor_dialog.dart` |
 | D-UI-102 | 2026-10-15 | **The count sheet's footer overflows by 187 px at 800x600** : seen while L5 step 11 added *Show boxes* to the count sheet, and already there before that change (the toggle did not cause it). The footer's buttons and totals sit in one row with no wrap. Not fixed. | Low | Found by the step 11 widget tests at the 800x600 test window | `desktop/lib/ui/inventory/physical_count_sheet_dialog.dart` |
 
+### Offers chosen on the bill line -- found driving L7 step 10 over HTTP, 2026-10-15
+
+Cases TC-OFR-001 to 012 in `docs/INDEPENDENT_TEST_CASES.md`; results in `docs/qa/OFFERS_ON_THE_LINE_API_CHECK_2026-10-15.md`, kept scripts in `docs/qa/checks/offers/` (12 checks, 11 clean).
+
+| Id | Found | Summary | Severity | Evidence | Where |
+| --- | --- | --- | --- | --- | --- |
+| D-SELL-101 | 2026-10-15 | **A choice that leaves `offers` out marks every offer the server applied as chosen.** A line of 5.5 saved with `offer_choice` `{"part_share": <TEA-11>}` stores TEA-11 chosen (right) and TEA-5's 27.50, which the server applied anyway, **also chosen**; `{"discount_from": <CITY>}` alone marks TEA-11's free piece chosen the same way. Design 3.2: `chosen` is "whether a person put it there". Prices are right; the "chosen by a person" on the saved view, and anything counting chosen rows, overstate what was chosen. **Not a one-line fix:** `stored_choices` rebuilds a kept choice from the rows marked chosen (no column holds it), so marking only the part share would make an edit that keeps the choice drop TEA-5 and move the price. The fix needs the record to tell an offer named from one left to the server (a flag on the row, or the choice held on the line). | Low | Live; `tc_ofr_008.py` step (2) | `_judge` in `backend/app/promotions/services/offer_choice.py`: `named` is every promotion row when `choice.offers is None` |
+
 ---
 
 ## Fixed

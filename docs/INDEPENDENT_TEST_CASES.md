@@ -8715,6 +8715,148 @@ These cases use the fixture `lot-firm` (firm TEST03, *Test Fixtures Lot Firm*, a
 
 ---
 
+## Offers chosen on the bill line
+
+While a sales line is typed, the side panel lists every offer and standing discount that could act on it, with what each gives, why it is or is not applied, a "buy N more" hint and, for an offer that allows it, a part share; the bill maker may tick a different set and the server prices the line again. `docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md` (sections 1, 3 and 6) is the reference; what was built is the L7 row of `docs/CUSTOMER_BUILD_TASKS.md`.
+
+These cases use the fixture `selling-firm` (a Wholesale firm of the run's own). Each one also needs **a scene of its own**, made through the API: an item at 100.00 a piece, GST 12% (`GST_12_LOCAL`); a customer on a standing rate of 2% with a price list CITY of his own at 4% on the item; and the offers the case names, each with the condition `product_id EQUALS` the item so no other offer reaches it. **TEA-5** is 5% off a line of 5 or more (priority 10); **TEA-11** is buy 11 get 1 free of the item, part share allowed (priority 20); both combine. The firm's own offers (BULK5 at 25+, CLEARANCE at 40+, BIGORDER on a bill of 4,500+) never reach a line below 13 pieces. The firm's setting is *Sales Stages > Offers*, `promotion_mode` on `PUT /api/v1/sales-orders/workflow-settings`; a case that changes it puts it back.
+
+The kept scripts are `docs/qa/checks/offers/` (`setup.py` once, then `python docs/qa/checks/run.py offers`); each makes a fresh scene, so any case runs alone and twice. Results: `docs/qa/OFFERS_ON_THE_LINE_API_CHECK_2026-10-15.md`. The steps are the HTTP calls the screens make (`POST /api/v1/sales-orders/preview` is what the side panel shows); the screens themselves were not clicked.
+
+### TC-OFR-001 — A line's candidates and reasons in the preview
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 step 3; design 3.1, 3.2; worked example steps 1 and 2
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11; the setting *Combine as each offer allows* (`COMBINE`).
+- **Steps:** (1) **(HTTP)** `POST /api/v1/sales-orders/preview` with one line of 9 pieces and no discount typed. Read the line's `candidates` and the order's line. (2) The same with 11 pieces. (3) List the customer's orders.
+- **Expect:** (1) TEA-5 applied, worth 45.00, "5% off", its key the offer's `version_group_id`; TEA-11 not applied, "11 + 1 free", combines; CITY (key: the list's id) worth 36.00 and the standing rate (key `CUSTOMER`) worth 18.00, neither applied, each "An offer gives this line its discount."; the coupon offer WELCOME listed, not available, saying no coupon was presented. The line: 45.00 off from a promotion, taxable 855.00, GST 102.60, amount 957.60, nothing free; no choice refused. (2) TEA-5 applied at 55.00 and TEA-11 applied: 55.00 off, 1 free, taxable 1,045.00, GST 125.40, amount 1,170.40. (3) None: a preview saves nothing.
+- **Leaves:** the scene's masters; no document.
+
+### TC-OFR-002 — The "buy N more" hint
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 step 4; design 3.6
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11, and CITY with a second break: 6% from 10 pieces.
+- **Steps:** **(HTTP)** preview a line of (1) 9 pieces, (2) 3 pieces, (3) 9 pieces with a discount of 0% typed.
+- **Expect:** (1) TEA-11 `needs_more` 2, `then_gives` "1 free"; CITY `needs_more` 1, "6% off"; TEA-5 (applied) no hint; at most two hints on the line. (2) TEA-5 `needs_more` 2, "5% off", listed but not available; no hint from TEA-11 (8 short, more than the 3 typed) or CITY (7 short). (3) No hint at all, and every candidate says "A discount is typed on this line."
+- **Leaves:** the scene's masters; no document.
+
+### TC-OFR-003 — A choice on an order line
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 steps 5 and 9; design 3.3, 3.4, 3.8; worked example step 3
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`; a Sales executive of the firm (holds `SALES_OFFER_CHOOSE`).
+- **Steps:** As the Sales executive: (1) **(HTTP)** preview a line of 11 with `offer_choice` `{"discount_from": <CITY's id>, "offers": [<TEA-11's key>]}`. (2) Save the order the same way; read the audit trail for `sales_order.offer_chosen` on it. (3) Save another order whose choice is the start: `{"discount_from": "offers", "offers": [TEA-5, TEA-11]}`; read its audit trail.
+- **Expect:** (1) CITY applied and chosen, worth 44.00; TEA-5 neither applied nor chosen. The line: 44.00 off from the price list, 1 free, taxable 1,056.00, GST 126.72, amount 1,182.72. (2) Saved (201). The line's `offers` rows: CITY APPLIED chosen 44.00; TEA-11 APPLIED chosen, 1 free; TEA-5 REFUSED (passed over) at 55.00. The discount box is the server's 44.00. One audit row, by the Sales executive. (3) Saved; stored as the server's: TEA-5 and TEA-11 APPLIED, neither chosen, nothing passed over; no audit row.
+- **Leaves:** two draft orders for the scene's customer.
+
+### TC-OFR-004 — A choice refused on save, reported in a preview
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 step 5; design 3.3 rule 1, 3.4
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`.
+- **Steps:** **(HTTP)** save an order with (1) a line of 11, 3% typed, and a choice of CITY + TEA-11; (2) a line of 3 choosing TEA-5 (a key chosen at 9, then the quantity lowered); (3) a line of 11 choosing an offer key, and then an arrangement key, that no candidate carries. (4) List the customer's orders. (5) Preview the order of (2) with a second line of 11 choosing CITY + TEA-11.
+- **Expect:** (1) 422, "two answers on one line". (2) 422, "Line 1: offer TEA5-... does not apply to this line any more. Choose again." (3) 422 each, "does not apply to this line any more". (4) None saved. (5) The preview answers 200: line 1's `choice_refused` carries the words of (2) and the line is priced from the start (CITY 4% of 300.00 = 12.00); line 2's choice stands: 44.00 off and 1 free.
+- **Leaves:** the scene's masters; no document.
+
+### TC-OFR-005 — An offer that does not combine
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 step 5; design 3.2 `combines`, 3.3 rule 2
+- **Fixture:** `selling-firm`
+- **Also needs:** a scene with SOLO-3 (3% off a line of 5 or more, does **not** combine, priority 5) and TEA-5 (priority 10); `COMBINE`.
+- **Steps:** **(HTTP)** (1) preview a line of 9. (2) Save it choosing SOLO-3 and TEA-5. (3) Save it choosing TEA-5 alone.
+- **Expect:** (1) SOLO-3, first, applied (27.00), `combines` false; TEA-5 not applied, "Does not combine with SOLO3-..."; the line takes 27.00. An offer that does not combine ends the stack where it applies, so one ranked **before** it still combines with it. (2) 422, "TEA5-... does not combine with SOLO3-...". (3) Saved: 45.00 off by TEA-5, chosen; SOLO-3 REFUSED (passed over) at 27.00.
+- **Leaves:** one draft order.
+
+### TC-OFR-006 — Without SALES_OFFER_CHOOSE
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 step 5; design 3.8
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`; a user of a firm role holding the Sales executive's codes less `SALES_OFFER_CHOOSE`, and a Sales executive.
+- **Steps:** As the user without the permission, **(HTTP)** (1) preview a line of 11; (2) preview it choosing CITY + TEA-11; (3) save it so; (4) save it sending back the start (TEA-5 + TEA-11). (5) As the Sales executive, save the choice of (3).
+- **Expect:** (1) The candidates are listed. (2) `choice_refused` names `SALES_OFFER_CHOOSE`; the line is priced from the start (55.00 off). (3) **403** naming the permission; nothing saved. (4) Saved: the start is not a choice. (5) Saved.
+- **Leaves:** two draft orders.
+
+### TC-OFR-007 — One line under the three settings
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 steps 1 and 5; design 3.5; decision 2
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11; the Firm admin, to change the setting and put it back.
+- **Steps:** **(HTTP)** a line of 11 under each setting: (1) `COMBINE`: preview. (2) `BEST_OFFER`: preview. (3) Save choosing TEA-5 and TEA-11. (4) Save choosing TEA-5. (5) `ASK`: preview. (6) Save choosing TEA-5 and TEA-11. Put the setting back.
+- **Expect:** (1) 55.00 off by TEA-5 and 1 free by TEA-11. (2) TEA-11 alone (1 free is worth 100.00 against 55.00) with CITY's 4% beside it: 44.00 off from the price list, 1 free; TEA-5 listed, not applied, with a reason. (3) 422, "the firm gives the best one offer a line". (4) Saved: 55.00 off, nothing free; TEA-11 kept as passed over, 1 free. (5) As under best one only: 44.00 by CITY and 1 free. (6) Saved: 55.00 off and 1 free, both offers applied and chosen.
+- **Leaves:** two draft orders; the setting as it was.
+
+### TC-OFR-008 — A part share of "11 + 1"
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 step 7; design 3.7; worked example step 4; D-SELL-91
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11; a second scene whose TEA-11 does not allow a part share; `COMBINE`.
+- **Steps:** **(HTTP)** (1) preview lines of 6 and of 4 and read TEA-11's `part_share`. (2) Save a line of 5.5 with `offer_choice` `{"part_share": <TEA-11's key>}`. (3) Save the same with 5 pieces; with 0.5 free typed; with TEA-5 as the part share. (4) In the second scene, preview 6 and save 5.5 with its TEA-11 as the part share.
+- **Expect:** (1) 6 is 5.5 charged + 0.5 free; 4 is 3.6667 + 0.3333. (2) Saved: 5.5 + 0.5 free, TEA-5 27.50 off, taxable 522.50, GST 62.70, amount 585.20. Rows: TEA-11 APPLIED, chosen, 0.5 free, `part_share` true; TEA-5 APPLIED 27.50, **not chosen** (the server applied it; nobody chose it; **fails, D-SELL-101**). (3) 422 each: "PIECE is counted in whole numbers, so 5.4545 PIECE cannot be entered"; "cannot be billed as a part share" (free typed); the same for a discount offer. (4) No `part_share` on the candidate; the save is refused, "cannot be billed as a part share".
+- **Leaves:** one draft order.
+
+### TC-OFR-009 — A counter bill carries the choice to its order
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 step 6; design 3.3 (the chain)
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11 and 50 pieces in MAIN; `COMBINE`; for (1)-(4) the order and delivery-note stages switched off (put back after).
+- **Steps:** **(HTTP)** (1) `POST /api/v1/sales-invoices/preview`: a bare line of 11 choosing CITY + TEA-11. (2) Save the bill. (3) Read the order raised behind it. (4) Read TEA-11's `free_quantity_claimed`; approve the bill; read it again. (5) With the stages on, raise an order of 2, a delivery note, dispatch it, and bill the note with an `offer_choice` on the line.
+- **Expect:** (1) The candidates are listed; CITY applied and chosen; nothing refused. (2) Saved: 44.00 off, 1 free; the bill line carries its order line's rows (CITY and TEA-11 chosen, TEA-5 passed over at 55.00). (3) One order, holding the same rows. (4) 0 before approval, 1 after. (5) 422: "what a line takes is chosen where its price is set".
+- **Leaves:** an approved counter bill; an order, a dispatched note; the stages as they were.
+
+### TC-OFR-010 — A converted quotation hands its choice over
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 step 6; design 3.3 (quotation to order)
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`.
+- **Steps:** **(HTTP)** (1) `POST /api/v1/quotations/preview`, a line of 11 choosing CITY + TEA-11. (2) Save the quotation. (3) Send it, accept it, convert it; read the order.
+- **Expect:** (1) CITY applied and chosen. (2) 44.00 off and 1 free; rows CITY and TEA-11 chosen, TEA-5 passed over at 55.00. (3) The order line: 44.00 off from the price list, 1 free, the same rows.
+- **Leaves:** a converted quotation and its order.
+
+### TC-OFR-011 — Saved rows, and an edit that keeps or clears the choice
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 steps 5 and 9; design 3.3, 3.9
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`.
+- **Steps:** **(HTTP)** (1) Save an order of 11 choosing CITY + TEA-11 and read it. (2) `PUT` it with the line sent **without** `offer_choice`. (3) `PUT` it with `"offer_choice": null`.
+- **Expect:** (1) Rows: CITY and TEA-11 APPLIED and chosen, TEA-5 REFUSED at 55.00. (2) The choice is kept: the same rows, 44.00 off. (3) The line follows the server again: TEA-5 55.00 and TEA-11 1 free, neither chosen, nothing passed over.
+- **Leaves:** one draft order.
+
+### TC-OFR-012 — The discount reports
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Covers:** L7 step 9; design 5 (reports); backlog 100 step 4
+- **Fixture:** `selling-firm`
+- **Also needs:** the scene with TEA-5 and TEA-11 and 50 pieces in MAIN; `COMBINE`; the order and delivery-note stages off while billing.
+- **Steps:** **(HTTP)** (1) Approve two counter bills of 11: one choosing CITY + TEA-11, one with no choice. (2) `GET /api/v1/sales-invoices/reports/discount-by-product` for today; read the item's row. (3) `GET /api/v1/sales-invoices/reports/discount-by-offer-product` for today; read the item's rows.
+- **Expect:** (2) 2 lines, gross 2,200.00, arranged 44.00, by offer 55.00; `chosen_lines` 1, `chosen_discount` 44.00, `passed_over` 1, `passed_over_amount` 55.00. (3) TEA-11 on 2 lines, 2 free; TEA-5 on 1 line, 55.00.
+- **Leaves:** two approved bills; the stages as they were.
+
+---
+
 ## Adding a case
 
 Every section is here now, so what follows is for a **new** case — a new
