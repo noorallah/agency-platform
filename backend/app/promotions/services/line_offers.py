@@ -40,6 +40,9 @@ HUNDRED = Decimal("100")
 
 #: The words a line's ``discount_source`` uses for a standing arrangement.
 STANDING_SOURCES = frozenset({"price_list", "customer", "customer_group"})
+#: The two states a row holds (design 3.9).
+APPLIED = "APPLIED"
+REFUSED = "REFUSED"
 #: How long ``name`` may be on the row (``LineOfferMixin``).
 _NAME_LENGTH = 120
 
@@ -62,6 +65,9 @@ class OfferRow:
     chosen: bool = False
     #: The free goods were given as a part share (L7 step 7).
     part_share: bool = False
+    #: ``APPLIED``, or ``REFUSED`` for an arrangement the start applied and a
+    #: person's choice passed over (L7 step 9): what it would have given.
+    state: str = APPLIED
 
     @property
     def key(self) -> str:
@@ -259,7 +265,7 @@ def rewrite_offer_rows(
                     price_list_id=item.price_list_id,
                     code=item.code,
                     name=item.name,
-                    state="APPLIED",
+                    state=item.state,
                     chosen=item.chosen,
                     discount_amount=item.discount_amount,
                     free_quantity=item.free_quantity,
@@ -318,9 +324,9 @@ def line_candidates(
 
     Args:
         offered: The engine's candidates for the line, in the order applied.
-        rows: The line's APPLIED rows (`line_offer_rows`): an offer is in the
-            price shown only where it has one, so the list and the rows the
-            document keeps cannot disagree.
+        rows: The line's rows (`line_offer_rows`): an offer is in the price
+            shown only where it has an APPLIED one, so the list and the rows
+            the document keeps cannot disagree. REFUSED rows are left out.
         priced: The shared rule's answer for the line.
         gross: The line's value before discount, to value each standing rate.
         price_list: The list whose break the line's quantity takes.
@@ -339,7 +345,11 @@ def line_candidates(
     would take it.
 
     """
-    in_rows = {str(row.promotion_group_id) for row in rows if row.promotion_group_id}
+    in_rows = {
+        str(row.promotion_group_id)
+        for row in rows
+        if row.promotion_group_id and row.state == APPLIED
+    }
     candidates: list[OfferCandidate] = []
     for item in offered:
         if item.applied and item.key not in in_rows:

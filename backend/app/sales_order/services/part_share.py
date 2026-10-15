@@ -39,6 +39,7 @@ def part_share_order_lines(
         select(SalesOrderOffer.sales_order_line_id).where(
             SalesOrderOffer.firm_id == firm_id,
             SalesOrderOffer.part_share.is_(True),
+            SalesOrderOffer.state == "APPLIED",
             SalesOrderOffer.is_deleted.is_(False),
             SalesOrderOffer.sales_order_line_id.in_(ids),
         )

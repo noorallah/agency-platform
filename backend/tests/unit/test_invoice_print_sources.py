@@ -325,3 +325,84 @@ def test_the_bill_names_who_took_the_order_from_the_salesman_list() -> None:
     entry.is_deleted = True
     setup.session.flush()
     assert "Order ByPhone <order> & counter" in _printed(setup, invoice)
+
+
+def _offer_rows(setup: _Billing) -> None:
+    """Price the order line behind the bill as an L7 save would record it.
+
+    TEA-11 gave the line a free piece, CITY its discount, and a person's
+    choice passed TEA-5 over.
+    """
+    from app.sales_order.models import SalesOrderOffer
+
+    for sequence, (source, code, state, discount, free) in enumerate(
+        (
+            ("promotion", "TEA-11", "APPLIED", "0", "1"),
+            ("price_list", "CITY", "APPLIED", "16", "0"),
+            ("promotion", "TEA-5", "REFUSED", "20", "0"),
+        ),
+        start=1,
+    ):
+        setup.session.add(
+            SalesOrderOffer(
+                firm_id=setup.firm.id,
+                sales_order_id=setup.order.id,
+                sales_order_line_id=setup.order_line.id,
+                sequence=sequence,
+                source=source,
+                promotion_group_id=uuid4() if source == "promotion" else None,
+                code=code,
+                name=code,
+                state=state,
+                chosen=state == "APPLIED",
+                discount_amount=Decimal(discount),
+                free_quantity=Decimal(free),
+            )
+        )
+    setup.session.flush()
+
+
+def test_the_bill_prints_the_offer_its_order_line_was_given() -> None:
+    """L7 step 9: the offer, through the order line; never a list or a refusal."""
+    setup = _Billing(_session_factory()())
+    _offer_rows(setup)
+    note = _dispatched_note(setup, quantity=Decimal("4"))
+    invoice = _bill(setup, [note])
+    setup.session.commit()
+
+    text = _printed(setup, invoice)
+
+    assert "Offer: TEA-11" in text
+    assert "CITY" not in text
+    assert "TEA-5" not in text
+
+
+def test_the_bill_view_lists_the_offers_of_the_order_line_behind_it() -> None:
+    """Every row of the order line, APPLIED then REFUSED, as the order lists."""
+    setup = _Billing(_session_factory()())
+    _offer_rows(setup)
+    note = _dispatched_note(setup, quantity=Decimal("4"))
+    invoice = _bill(setup, [note])
+    setup.session.commit()
+
+    [response] = SalesInvoiceService(setup.session).invoice_responses([invoice])
+
+    assert [
+        (item.code, item.state, item.chosen) for item in response.lines[0].offers
+    ] == [
+        ("TEA-11", "APPLIED", True),
+        ("CITY", "APPLIED", True),
+        ("TEA-5", "REFUSED", False),
+    ]
+
+
+def test_a_bill_line_with_no_rows_behind_it_lists_none() -> None:
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup, quantity=Decimal("4"))
+    invoice = _bill(setup, [note])
+    setup.session.commit()
+
+    [response] = SalesInvoiceService(setup.session).invoice_responses([invoice])
+
+    assert response.lines[0].offers == []
+    assert "Offer:" not in _printed(setup, invoice)

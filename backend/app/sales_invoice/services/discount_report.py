@@ -29,6 +29,20 @@ by salesman by exactly what that product sold for, and the percentage beside
 it was of a smaller figure than the firm billed (D-PRC-14). The three
 dimensions add up to the same gross and the same discount.
 
+**Chosen by a person, and passed over** (L7 step 9). A billed line whose
+deciding order line carries a person's choice of offers
+(``offer_choice_made``) counts in ``chosen_lines``, its line discount in
+``chosen_discount``. Each arrangement that choice dropped is a REFUSED row of
+``sales_order_offers``: ``passed_over`` counts them and
+``passed_over_amount`` is what they would have taken off, pro-rated by the
+quantity billed over the order line's, so an order billed in parts gives
+each bill its share. A line with no order behind it reads nothing in all
+four, and so does one saved before L7, which has no rows.
+
+**Offer by product** (backlog 100 step 4) reads the APPLIED promotion rows of
+each billed line's deciding order line, pro-rated the same way, and groups
+them by offer and product.
+
 Grouped and paged in SQL; names are read once for the page.
 """
 
@@ -40,6 +54,7 @@ from uuid import UUID
 from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.expression import FromClause
 
 from app.common.report_names import salesman_names
 from app.core.exceptions import ValidationError
@@ -52,7 +67,7 @@ from app.products.models import Product
 from app.promotions.models import Promotion, PromotionRedemption
 from app.promotions.services.offer_use import claims_given
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
-from app.sales_order.models import SalesOrderLine
+from app.sales_order.models import SalesOrderLine, SalesOrderOffer
 
 ZERO = Decimal("0.00")
 BILLED = ("APPROVED", "CLOSED")
@@ -81,6 +96,31 @@ class DiscountRow:
     bill_discount: Decimal
     total_discount: Decimal
     discount_percent: Decimal
+    #: Billed lines whose order line carries a person's choice (L7 step 9).
+    chosen_lines: int = 0
+    #: The line discount on those lines.
+    chosen_discount: Decimal = ZERO
+    #: Arrangements those choices passed over, and what they would have
+    #: taken off, in the share billed.
+    passed_over: int = 0
+    passed_over_amount: Decimal = ZERO
+
+
+@dataclass(frozen=True)
+class OfferProductRow:
+    """One offer's discount and free goods on one product over the period."""
+
+    version_group_id: UUID
+    code: str
+    name: str
+    product_id: UUID
+    product_code: str
+    product_name: str
+    #: Billed lines the offer gave something on.
+    lines: int
+    discount_amount: Decimal
+    #: In the product's stock unit, as the offer rows hold it.
+    free_quantity: Decimal
 
 
 @dataclass(frozen=True)
@@ -95,6 +135,21 @@ class PromotionDiscountRow:
     benefit_amount: Decimal
     #: The free units the offer's claims gave over the period.
     free_quantity: Decimal = Decimal("0")
+
+
+def _billed_share(order_line: FromClause) -> ColumnElement[Any]:
+    """Return the share of an order line a bill line bills, as SQL.
+
+    The quantity billed over the order line's; a whole one where the order
+    line holds no quantity, so nothing divides by nothing.
+    """
+    return case(
+        (
+            order_line.c.quantity > 0,
+            SalesInvoiceLine.current_invoice_quantity / order_line.c.quantity,
+        ),
+        else_=1,
+    )
 
 
 def _money(value: object) -> Decimal:
@@ -155,6 +210,25 @@ class DiscountReportService:
         total = func.coalesce(
             func.sum(amount + SalesInvoiceLine.bill_discount_amount), 0
         )
+        # What each order line's choice passed over, one row an order line.
+        refused = (
+            select(
+                SalesOrderOffer.sales_order_line_id.label("line_id"),
+                func.count(SalesOrderOffer.id).label("rows"),
+                func.coalesce(func.sum(SalesOrderOffer.discount_amount), 0).label(
+                    "amount"
+                ),
+            )
+            .where(
+                SalesOrderOffer.firm_id == firm_id,
+                SalesOrderOffer.is_deleted.is_(False),
+                SalesOrderOffer.state == "REFUSED",
+                SalesOrderOffer.sales_order_line_id.is_not(None),
+            )
+            .group_by(SalesOrderOffer.sales_order_line_id)
+            .subquery("passed_over")
+        )
+        chosen = order_line.c.offer_choice_made.is_(True)
         statement: Select[Any] = (
             select(
                 key.label("key_id"),
@@ -165,6 +239,12 @@ class DiscountReportService:
                 part(source == "promotion"),
                 func.coalesce(func.sum(SalesInvoiceLine.bill_discount_amount), 0),
                 total,
+                func.coalesce(func.sum(case((chosen, 1), else_=0)), 0),
+                part(chosen),
+                func.coalesce(func.sum(refused.c.rows), 0),
+                func.coalesce(
+                    func.sum(refused.c.amount * _billed_share(order_line)), 0
+                ),
             )
             .select_from(SalesInvoiceLine)
             .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
@@ -183,6 +263,7 @@ class DiscountReportService:
                     SalesInvoiceLine.source_document_line_id,
                 ),
             )
+            .outerjoin(refused, refused.c.line_id == order_line.c.id)
             .where(
                 SalesInvoice.firm_id == firm_id,
                 SalesInvoice.is_deleted.is_(False),
@@ -193,28 +274,23 @@ class DiscountReportService:
             .group_by(key)
             .order_by(total.desc(), case((key.is_(None), 1), else_=0), key)
         )
-        if window.page is None:
-            rows = list(self._session.execute(statement).all())
-            count = len(rows)
-        else:
-            count = int(
-                self._session.scalar(
-                    select(func.count()).select_from(
-                        statement.order_by(None).subquery()
-                    )
-                )
-                or 0
-            )
-            rows = list(
-                self._session.execute(
-                    statement.offset((window.page - 1) * window.page_size).limit(
-                        window.page_size
-                    )
-                ).all()
-            )
+        rows, count = self._page(statement, window)
         names = self._names(firm_id, dimension, [row[0] for row in rows if row[0]])
         records: list[DiscountRow] = []
-        for key_id, lines, gross, typed_, arranged, promotion, bill, given in rows:
+        for (
+            key_id,
+            lines,
+            gross,
+            typed_,
+            arranged,
+            promotion,
+            bill,
+            given,
+            chosen_lines,
+            chosen_amount,
+            passed,
+            passed_amount,
+        ) in rows:
             code, name = names.get(key_id, ("", NO_SALESMAN if key_id is None else ""))
             gross_amount = _money(gross)
             given_amount = _money(given)
@@ -235,9 +311,121 @@ class DiscountReportService:
                         if gross_amount
                         else ZERO
                     ),
+                    chosen_lines=int(chosen_lines),
+                    chosen_discount=_money(chosen_amount),
+                    passed_over=int(passed),
+                    passed_over_amount=_money(passed_amount),
                 )
             )
         return ReportRows(records, total_records=count)
+
+    def by_offer_product(
+        self, firm_id: UUID, window: ReportWindow
+    ) -> list[OfferProductRow]:
+        """Return what each offer gave on each product, costliest first.
+
+        Backlog 100 step 4. For each line billed in the window (approved and
+        closed bills, by the bill's own date), the APPLIED promotion rows of
+        the order line that decided it -- reached through a delivery note's
+        line where there is one, as `by` reaches it. Each row's discount and
+        free goods are pro-rated by the quantity billed over the order
+        line's: an order billed in parts gives each bill its share. A line
+        with no order behind it, or saved before L7 and so holding no rows,
+        contributes nothing.
+
+        Grouped by the offer's ``version_group_id`` and the product in SQL,
+        paged like `by`; the page's offers and products are named once.
+        """
+        order_line = SalesOrderLine.__table__.alias("decided_on")
+        share = _billed_share(order_line)
+        given = func.coalesce(func.sum(SalesOrderOffer.discount_amount * share), 0)
+        free = func.coalesce(func.sum(SalesOrderOffer.free_quantity * share), 0)
+        group = SalesOrderOffer.promotion_group_id
+        product = SalesInvoiceLine.product_id
+        statement: Select[Any] = (
+            select(group, product, func.count(SalesInvoiceLine.id), given, free)
+            .select_from(SalesInvoiceLine)
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .outerjoin(
+                DeliveryNoteLine,
+                and_(
+                    SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
+                    DeliveryNoteLine.id == SalesInvoiceLine.source_document_line_id,
+                ),
+            )
+            .join(
+                order_line,
+                order_line.c.id
+                == func.coalesce(
+                    DeliveryNoteLine.sales_order_line_id,
+                    SalesInvoiceLine.source_document_line_id,
+                ),
+            )
+            .join(
+                SalesOrderOffer,
+                and_(
+                    SalesOrderOffer.sales_order_line_id == order_line.c.id,
+                    SalesOrderOffer.firm_id == firm_id,
+                    SalesOrderOffer.is_deleted.is_(False),
+                    SalesOrderOffer.state == "APPLIED",
+                    SalesOrderOffer.source == "promotion",
+                    SalesOrderOffer.promotion_group_id.is_not(None),
+                ),
+            )
+            .where(
+                SalesInvoice.firm_id == firm_id,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status.in_(BILLED),
+                SalesInvoiceLine.is_deleted.is_(False),
+                *window.dated(SalesInvoice.invoice_date),
+            )
+            .group_by(group, product)
+            .order_by(given.desc(), free.desc(), group, product)
+        )
+        rows, count = self._page(statement, window)
+        offers = _offer_names(self._session, group_ids=[row[0] for row in rows])
+        products = _master_names(
+            self._session, dimension="product", ids=[row[1] for row in rows]
+        )
+        return ReportRows(
+            (
+                OfferProductRow(
+                    version_group_id=group_id,
+                    code=offers.get(group_id, ("", ""))[0],
+                    name=offers.get(group_id, ("", ""))[1],
+                    product_id=product_id,
+                    product_code=products.get(product_id, ("", ""))[0],
+                    product_name=products.get(product_id, ("", ""))[1],
+                    lines=int(lines),
+                    discount_amount=_money(amount),
+                    free_quantity=at_quantity_scale(units),
+                )
+                for group_id, product_id, lines, amount, units in rows
+            ),
+            total_records=count,
+        )
+
+    def _page(
+        self, statement: Select[Any], window: ReportWindow
+    ) -> tuple[list[Any], int]:
+        """Return the window's page of ``statement`` and how many rows match."""
+        if window.page is None:
+            rows = list(self._session.execute(statement).all())
+            return rows, len(rows)
+        count = int(
+            self._session.scalar(
+                select(func.count()).select_from(statement.order_by(None).subquery())
+            )
+            or 0
+        )
+        rows = list(
+            self._session.execute(
+                statement.offset((window.page - 1) * window.page_size).limit(
+                    window.page_size
+                )
+            ).all()
+        )
+        return rows, count
 
     def by_promotion(
         self, firm_id: UUID, window: ReportWindow

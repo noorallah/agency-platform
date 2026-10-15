@@ -1770,7 +1770,9 @@ class QuotationService(TransactionalDocumentService):
                 )
             )
             if choice is not None:
-                found = choice.mark_rows(found)
+                # What the start gave and the choice passed over, as REFUSED
+                # rows after the applied ones (L7 step 9).
+                found = choice.mark_rows(found, stock_factor=factor, standing=standing)
             offer_rows.append((line, found))
             if index < asked:
                 # What else the line could take, for the preview (L7 step 3).

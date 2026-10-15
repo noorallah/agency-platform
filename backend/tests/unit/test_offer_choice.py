@@ -100,12 +100,13 @@ def _save(
 
 
 def _rows(shop: _Shop, line: SalesOrderLine) -> dict[str, SalesOrderOffer]:
-    """Return a saved line's rows by code."""
+    """Return a saved line's APPLIED rows by code (step 9 keeps REFUSED ones)."""
     return {
         row.code: row
         for row in shop.session.scalars(
             select(SalesOrderOffer).where(
-                SalesOrderOffer.sales_order_line_id == line.id
+                SalesOrderOffer.sales_order_line_id == line.id,
+                SalesOrderOffer.state == "APPLIED",
             )
         )
     }
@@ -419,8 +420,13 @@ def test_the_quotation_takes_the_choice_as_the_order_does() -> None:
     assert line.discount_amount == Decimal("44.0000")
     assert line.gross_amount - line.discount_amount == Decimal("1056.0000")
     assert line.free_quantity == Decimal("1.0000")
-    chosen = {item.code: item.chosen for item in line.offers}
+    chosen = {item.code: item.chosen for item in line.offers if item.state == "APPLIED"}
     assert chosen == {"TEA-11": True, "CITY": True}
+    # What the choice passed over follows, as the quotation keeps it (step 9).
+    assert [(item.code, item.state) for item in line.offers][-1] == (
+        "TEA-5",
+        "REFUSED",
+    )
     assert shop.session.scalar(
         select(AuditLog).where(AuditLog.action == "quotation.offer_chosen")
     )

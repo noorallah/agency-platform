@@ -44,6 +44,7 @@ from app.core.utils.pricing import (
     chosen_tiers,
     resolve_line_discount,
 )
+from app.core.utils.quantities import at_quantity_scale
 from app.pricing.models import PriceList
 from app.pricing.services.price_list_service import PriceListRef
 from app.promotions.models import Promotion
@@ -56,6 +57,8 @@ from app.promotions.schemas import (
     PromotionLineOutcome,
 )
 from app.promotions.services.line_offers import (
+    APPLIED,
+    REFUSED,
     OfferRow,
     StandingArrangement,
     line_offer_rows,
@@ -66,6 +69,8 @@ ZERO = Decimal("0")
 #: The permission a real choice needs (design 3.8).
 CHOOSE_PERMISSION = "SALES_OFFER_CHOOSE"
 _NOT_COMBINING = "Does not combine with "
+#: How long a row's ``name`` may be (``LineOfferMixin``).
+_NAME_LENGTH = 120
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +165,9 @@ class SettledChoice:
     taken: tuple[str, ...]
     #: The key of the offer taken as a part share (L7 step 7), if one is.
     part_share: str | None = None
+    #: The arrangements the start applied that the choice did not take, as
+    #: the start gave them: free goods in the line's own unit (L7 step 9).
+    passed_over: tuple[OfferRow, ...] = ()
 
     def keys(self) -> frozenset[str]:
         """Return every key the person chose on the line."""
@@ -168,10 +176,41 @@ class SettledChoice:
             named.add(str(self.discount_from))
         return frozenset(named)
 
-    def mark_rows(self, rows: Sequence[OfferRow]) -> list[OfferRow]:
-        """Return the line's rows with the chosen ones marked so."""
+    def mark_rows(
+        self,
+        rows: Sequence[OfferRow],
+        *,
+        stock_factor: Decimal,
+        standing: StandingArrangement | None = None,
+    ) -> list[OfferRow]:
+        """Return the line's rows with the chosen ones marked so.
+
+        Each arrangement the choice passed over follows the applied rows as a
+        REFUSED row (L7 step 9), holding what the start gave: its discount,
+        and its free goods in stock units (``stock_factor`` is the stock
+        units one of the line's units holds). A REFUSED row is never chosen
+        and adds to nothing: only the APPLIED rows add up to the line.
+        """
         keys = self.keys()
-        return [replace(row, chosen=row.key in keys) for row in rows]
+        marked = [replace(row, chosen=row.key in keys) for row in rows]
+        for row in self.passed_over:
+            if row.source == "customer_group" and standing is not None:
+                # The start named the group generically; the caller knows it.
+                row = replace(
+                    row,
+                    code=standing.group_code or row.code,
+                    name=(standing.group_name or row.name)[:_NAME_LENGTH],
+                )
+            marked.append(
+                replace(
+                    row,
+                    state=REFUSED,
+                    chosen=False,
+                    part_share=False,
+                    free_quantity=at_quantity_scale(row.free_quantity * stock_factor),
+                )
+            )
+        return marked
 
     def mark_candidates(
         self, candidates: Sequence[OfferCandidate]
@@ -497,6 +536,7 @@ def _judge(
         start=tuple(row.code for row in start_rows),
         taken=tuple(row.code for row in rows),
         part_share=choice.part_share,
+        passed_over=tuple(row for row in start_rows if row.key not in taken),
     )
 
 
@@ -614,7 +654,7 @@ def stored_choices[RowT: LineOfferMixin](
     found: dict[UUID, tuple[str | None, list[str], str | None]] = {}
     for row in sorted(rows, key=lambda item: item.sequence):
         line_id = line_of(row)
-        if line_id is None or not row.chosen:
+        if line_id is None or not row.chosen or row.state != APPLIED:
             continue
         discount_from, offers, part_share = found.setdefault(line_id, (None, [], None))
         if row.source == "promotion" and row.promotion_group_id is not None:

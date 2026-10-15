@@ -28,13 +28,14 @@ from app.products.models import Product
 from app.promotions.models import Promotion, PromotionRedemption
 from app.sales_invoice.api.router import (
     get_discount_by_customer,
+    get_discount_by_offer_product,
     get_discount_by_product,
     get_discount_by_promotion,
     get_discount_by_salesman,
 )
 from app.sales_invoice.api.router import router as invoice_router
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
-from app.sales_order.models import SalesOrderLine
+from app.sales_order.models import SalesOrderLine, SalesOrderOffer
 from app.salesmen.models import Salesman
 from app.settlements.api.router import (
     collections_by_day,
@@ -136,6 +137,7 @@ class _Firm:
         product: int = 0,
         source_type: str = "MANUAL",
         source_line: UUID | None = None,
+        billed: str = "0",
     ) -> None:
         _add(
             self.session,
@@ -150,9 +152,12 @@ class _Firm:
             discount_amount=Decimal(discount),
             bill_discount_amount=Decimal(bill),
             discount_source=source,
+            current_invoice_quantity=Decimal(billed),
         )
 
-    def order_line(self, source: str) -> UUID:
+    def order_line(
+        self, source: str, *, chosen: bool = False, quantity: str = "0"
+    ) -> UUID:
         line = uuid.uuid4()
         _add(
             self.session,
@@ -160,8 +165,35 @@ class _Firm:
             id=line,
             firm_id=self.id,
             discount_source=source,
+            offer_choice_made=chosen,
+            quantity=Decimal(quantity),
         )
         return line
+
+    def offer_row(
+        self,
+        order_line: UUID,
+        *,
+        state: str = "APPLIED",
+        discount: str = "0",
+        free: str = "0",
+        group: UUID | None = None,
+        source: str = "promotion",
+    ) -> None:
+        _add(
+            self.session,
+            SalesOrderOffer,
+            firm_id=self.id,
+            sales_order_line_id=order_line,
+            sequence=1,
+            source=source,
+            promotion_group_id=group,
+            code="X",
+            name="X",
+            state=state,
+            discount_amount=Decimal(discount),
+            free_quantity=Decimal(free),
+        )
 
     def note_line(self, order_line: UUID) -> UUID:
         line = uuid.uuid4()
@@ -309,6 +341,105 @@ def test_an_inherited_discount_is_judged_where_it_was_decided() -> None:
     assert row.promotion_discount == Decimal("8.00")
     assert row.typed_discount == Decimal("5.00")
     assert row.arranged_discount == Decimal("3.00")
+
+
+def test_chosen_lines_and_offers_passed_over() -> None:
+    """L7 step 9: what a person chose, and what that choice dropped."""
+    firm = _Firm()
+    bill = firm.invoice(on=date(2026, 5, 3))
+    chosen = firm.order_line("price_list", chosen=True, quantity="10")
+    firm.offer_row(chosen, discount="44")
+    firm.offer_row(chosen, state="REFUSED", discount="55")
+    firm.offer_row(chosen, state="REFUSED", discount="0", free="1")
+    # Half the order line billed through a note: half of what was passed over.
+    firm.line(
+        bill,
+        source="inherited",
+        discount="22",
+        source_type="DELIVERY_NOTE",
+        source_line=firm.note_line(chosen),
+        billed="5",
+    )
+    # The server's own pricing, and a line with no order behind it.
+    firm.line(
+        bill,
+        source="inherited",
+        discount="9",
+        source_type="SALES_ORDER",
+        source_line=firm.order_line("promotion"),
+    )
+    firm.line(bill, source="amount", discount="3")
+
+    [row] = get_discount_by_customer(
+        report_scope(firm.id), firm.session, date(2026, 5, 1), date(2026, 5, 31)
+    ).data
+
+    assert row.chosen_lines == 1
+    assert row.chosen_discount == Decimal("22.00")
+    assert row.passed_over == 2
+    assert row.passed_over_amount == Decimal("27.50")
+    assert row.total_discount == Decimal("34.00")
+
+
+def test_discount_by_offer_product_prorates_each_bill() -> None:
+    """Backlog 100 step 4: APPLIED promotion rows by offer and product."""
+    firm = _Firm()
+    first, second = uuid.uuid4(), uuid.uuid4()
+    for group, code in ((first, "TEA-5"), (second, "TEA-11")):
+        _add(
+            firm.session,
+            Promotion,
+            firm_id=firm.id,
+            version_group_id=group,
+            version_number=1,
+            code=code,
+            name=f"Offer {code}",
+        )
+    order = firm.order_line("promotion", quantity="12")
+    firm.offer_row(order, discount="60", group=first)
+    firm.offer_row(order, free="1", group=second)
+    # Passed over, a price list, and a bill line with no order: none count.
+    firm.offer_row(order, state="REFUSED", discount="99", group=first)
+    firm.offer_row(order, discount="5", source="price_list")
+    bill = firm.invoice(on=date(2026, 5, 3))
+    firm.line(
+        bill,
+        source="inherited",
+        discount="15",
+        source_type="SALES_ORDER",
+        source_line=order,
+        billed="3",
+    )
+    firm.line(bill, source="amount", discount="7", product=1)
+    # The rest of the order billed later in the month.
+    firm.line(
+        firm.invoice(on=date(2026, 5, 9)),
+        source="inherited",
+        discount="45",
+        source_type="DELIVERY_NOTE",
+        source_line=firm.note_line(order),
+        billed="9",
+    )
+
+    page = get_discount_by_offer_product(
+        report_scope(firm.id), firm.session, date(2026, 5, 1), date(2026, 5, 31)
+    )
+
+    assert [
+        (
+            row.code,
+            row.name,
+            row.product_code,
+            row.lines,
+            row.discount_amount,
+            row.free_quantity,
+        )
+        for row in page.data
+    ] == [
+        ("TEA-5", "Offer TEA-5", "P0", 2, Decimal("60.00"), Decimal("0.0000")),
+        ("TEA-11", "Offer TEA-11", "P0", 2, Decimal("0.00"), Decimal("1.0000")),
+    ]
+    assert page.pagination.total_records == 2
 
 
 def test_discount_by_salesman_and_by_product() -> None:
@@ -543,6 +674,7 @@ def test_the_new_report_routes_bound_their_page() -> None:
         "/api/v1/sales-invoices/reports/discount-by-salesman",
         "/api/v1/sales-invoices/reports/discount-by-product",
         "/api/v1/sales-invoices/reports/discount-by-promotion",
+        "/api/v1/sales-invoices/reports/discount-by-offer-product",
     )
     assert_page_size_is_bounded(
         receipts_router,

@@ -1181,7 +1181,10 @@ class DiscountGivenRecord(BaseModel):
 
     ``typed_discount`` is what somebody keyed; ``arranged_discount`` what a
     price list or a standing customer or group rate applied; the bill's
-    share of a bill discount is ``bill_discount``.
+    share of a bill discount is ``bill_discount``. ``chosen_lines`` and
+    ``chosen_discount`` are the lines whose offers a person chose, and
+    ``passed_over`` / ``passed_over_amount`` the arrangements those choices
+    dropped and what they would have taken off (L7 step 9).
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -1197,6 +1200,29 @@ class DiscountGivenRecord(BaseModel):
     bill_discount: Decimal
     total_discount: Decimal
     discount_percent: Decimal
+    chosen_lines: int = 0
+    chosen_discount: Decimal = Decimal("0")
+    passed_over: int = 0
+    passed_over_amount: Decimal = Decimal("0")
+
+
+class OfferProductRecord(BaseModel):
+    """One offer's discount and free goods on one product (backlog 100 step 4).
+
+    ``free_quantity`` is in the product's stock unit.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    version_group_id: UUID
+    code: str
+    name: str
+    product_id: UUID
+    product_code: str
+    product_name: str
+    lines: int
+    discount_amount: Decimal
+    free_quantity: Decimal
 
 
 class PromotionDiscountRecord(BaseModel):
@@ -1304,6 +1330,32 @@ def get_discount_by_promotion(
             PromotionDiscountRecord.model_validate(row, from_attributes=True)
             for row in rows
         ]
+    )
+
+
+@router.get(
+    "/reports/discount-by-offer-product",
+    response_model=PaginatedResponse[OfferProductRecord],
+)
+def get_discount_by_offer_product(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[OfferProductRecord]:
+    """Return what each offer gave on each product billed, costliest first."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = DiscountReportService(db).by_offer_product(scope.firm_id, window)
+    return window.respond(
+        mapped_like(
+            rows,
+            (
+                OfferProductRecord.model_validate(row, from_attributes=True)
+                for row in rows
+            ),
+        )
     )
 
 
