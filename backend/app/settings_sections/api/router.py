@@ -60,6 +60,7 @@ def platform_settings_section_state(
     section: str,
     scope: OptionalFirmScope,
     db: Annotated[Session, Depends(get_platform_db)],
+    store: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[SettingsSectionStateResponse]:
     """Return every step of a Settings subject kept in the platform store.
 
@@ -74,6 +75,8 @@ def platform_settings_section_state(
         section: The subject's code, ``people`` or ``firms``.
         scope: The caller, and the firm they are working in if they named one.
         db: The platform store. Nothing is written to it.
+        store: The store the Business profiles screen reads, where
+            ``business_profiles`` lives. Nothing is written to it.
 
     Returns:
         The steps, and how many of them are still to do.
@@ -100,7 +103,7 @@ def platform_settings_section_state(
         )
     else:
         firm_id = scope.firm_id
-    return _section_response(section, reader(db, firm_id))
+    return _section_response(section, reader(db, store, firm_id))
 
 
 @router.get(
