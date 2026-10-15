@@ -1366,7 +1366,7 @@ def _platform_state(
 ) -> SettingsSectionStateResponse:
     """Call the platform route function as ``principal`` working in ``firm_id``."""
     scope = FirmScope(principal=principal, firm_id=firm_id)
-    response = platform_settings_section_state(section, scope, session)
+    response = platform_settings_section_state(section, scope, session, session)
     assert response.data is not None
     return response.data
 
@@ -1420,13 +1420,11 @@ def test_people_counts_what_a_firm_administrator_s_screens_list(
         "roles",
         "user-templates",
         "users",
-        "user-firms",
     ]
     assert _details(state) == {
         "roles": ("DONE", "2 ready-made, 1 your own"),
         "user-templates": ("OPTIONAL", "2 templates"),
         "users": ("DONE", "2 people"),
-        "user-firms": ("OPTIONAL", "3 memberships"),
     }
     assert state.todo_count == 0
 

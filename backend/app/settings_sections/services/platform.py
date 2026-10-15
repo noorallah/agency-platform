@@ -1,9 +1,11 @@
 """The People and Firms subjects: what lives in the platform store.
 
-Users, roles, templates, memberships, firms and business profiles exist only
-in the platform schema, so these readers take a **platform** session and are
-registered apart from ``SECTIONS``, whose readers take the firm's own store.
-Like every other reader, they only select.
+Users, roles, templates, memberships and firms exist only in the platform
+schema, so these readers take a **platform** session and are registered apart
+from ``SECTIONS``, whose readers take the firm's own store. Business profiles
+are the exception: they live in the firm stores, so the Firms reader counts
+them on the store the Business profiles screen reads (``get_db``), handed in
+beside the platform one. Like every other reader, they only select.
 
 Each reader takes the firm the caller administers, or ``None`` for a platform
 administrator, and counts what the matching list screen shows that caller --
@@ -38,7 +40,7 @@ from app.settings_sections.services.steps import (
     counted,
 )
 
-PlatformSectionReader = Callable[[Session, UUID | None], list[SettingsStep]]
+PlatformSectionReader = Callable[[Session, Session, UUID | None], list[SettingsStep]]
 
 
 def _count(session: Session, model: type[object], *where: ColumnElement[bool]) -> int:
@@ -112,12 +114,8 @@ def _users_step(session: Session, firm_id: UUID | None) -> SettingsStep:
     return SettingsStep("users", DONE, counted(count, "person", "people"))
 
 
-def _memberships_step(session: Session, firm_id: UUID | None) -> SettingsStep:
-    """Count the live memberships, across firms for a platform administrator."""
-    if firm_id is not None:
-        count = _count(session, UserFirm, _members(firm_id))
-        detail = counted(count, "membership", "memberships") if count else NONE_YET
-        return SettingsStep("user-firms", OPTIONAL, detail)
+def _memberships_step(session: Session) -> SettingsStep:
+    """Count the live memberships across firms, for a platform administrator."""
     live = (UserFirm.is_active.is_(True), UserFirm.is_deleted.is_(False))
     count = _count(session, UserFirm, *live)
     if not count:
@@ -133,25 +131,39 @@ def _memberships_step(session: Session, firm_id: UUID | None) -> SettingsStep:
     return SettingsStep("user-firms", OPTIONAL, detail)
 
 
-def people_section(session: Session, firm_id: UUID | None) -> list[SettingsStep]:
-    """Return the four steps of the People subject, in set-up order."""
-    return [
+def people_section(
+    session: Session, store: Session, firm_id: UUID | None
+) -> list[SettingsStep]:
+    """Return the steps of the People subject, in set-up order.
+
+    User-firm assignments are a platform administrator's screen alone, so a
+    caller working in one firm is answered no row for it, as they are offered
+    no tab.
+    """
+    del store
+    steps = [
         _roles_step(session, firm_id),
         _templates_step(session, firm_id),
         _users_step(session, firm_id),
-        _memberships_step(session, firm_id),
     ]
+    if firm_id is None:
+        steps.append(_memberships_step(session))
+    return steps
 
 
-def firms_section(session: Session, firm_id: UUID | None) -> list[SettingsStep]:
+def firms_section(
+    session: Session, store: Session, firm_id: UUID | None
+) -> list[SettingsStep]:
     """Return the two steps of the Firms subject, in set-up order.
 
     Only a platform administrator is answered (``PLATFORM_SECTIONS``), so the
-    counts are the whole installation's and ``firm_id`` is not read.
+    counts are the whole installation's and ``firm_id`` is not read. The
+    profiles are counted on ``store``: ``business_profiles`` is not a platform
+    table, and reading it on the platform session answered 503.
     """
     del firm_id
     profiles = _count(
-        session,
+        store,
         BusinessProfile,
         BusinessProfile.is_deleted.is_(False),
         BusinessProfile.status == "ACTIVE",
