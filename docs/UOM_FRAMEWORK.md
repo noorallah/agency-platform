@@ -916,6 +916,8 @@ switch says; the screens read it only where the switch is on, to choose the
 layout a new document opens in (design section 4). A saved document keeps its
 own header flag.
 
+On the screens the sum lives once, in `desktop/lib/ui/workspace/box_piece_cells.dart`: the order, quotation and sales bill editors draw Box, Pcs, Free box and Free pcs from it, send the total in pieces in `quantity` and `free_quantity` and the item row's `pack_size` beside it, and a blank free pair still means "take the offer".
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and
