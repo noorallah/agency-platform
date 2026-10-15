@@ -24,6 +24,7 @@ class OfferChoiceBlock extends StatefulWidget {
     required this.mayChoose,
     required this.onChanged,
     this.refused,
+    this.savedOffers = const <dynamic>[],
     this.lockedNote,
     this.onPartShare,
     this.focusNode,
@@ -43,6 +44,12 @@ class OfferChoiceBlock extends StatefulWidget {
 
   /// Why the server did not take the choice sent on this line.
   final String? refused;
+
+  /// The saved line's `offers` rows (L7 step 9): what was applied and what
+  /// a person's choice passed over. Shown, read-only, while there are no
+  /// [candidates] for the line -- a saved document opened, or one that is
+  /// no longer priced afresh because it is approved.
+  final List<dynamic> savedOffers;
 
   /// Why nothing can be ticked on this line although the person may choose
   /// (a discount typed on the line is the other answer).
@@ -119,6 +126,9 @@ class _OfferChoiceBlockState extends State<OfferChoiceBlock> {
       fontSize: 11,
       color: scheme.onSurfaceVariant,
     );
+    final List<Map<String, dynamic>> saved = savedOfferRows(
+      widget.savedOffers,
+    );
     return Focus(
       focusNode: widget.focusNode,
       onKeyEvent: _onKey,
@@ -134,8 +144,10 @@ class _OfferChoiceBlockState extends State<OfferChoiceBlock> {
               child: Text('GIVES', style: small),
             ),
           ]),
-          if (widget.candidates.isEmpty)
+          if (widget.candidates.isEmpty && saved.isEmpty)
             const DocumentSideNote('No offer or arrangement for this line.'),
+          if (widget.candidates.isEmpty)
+            ...savedOfferTexts(context, saved, keyPrefix: widget.keyPrefix),
           for (int at = 0; at < widget.candidates.length; at += 1)
             _row(context, at, highlighted: focused && at == _highlight),
           if (widget.choice.partShareNote.isNotEmpty)
@@ -252,6 +264,99 @@ class _OfferChoiceBlockState extends State<OfferChoiceBlock> {
       ),
     );
   }
+}
+
+/// A saved line's `offers` rows that carry something to say, in the order
+/// the server weighed them (`sequence`).
+List<Map<String, dynamic>> savedOfferRows(Object? offers) {
+  final List<Map<String, dynamic>> rows = <Map<String, dynamic>>[
+    for (final dynamic row in offers is List ? offers : const <dynamic>[])
+      if (row is Map)
+        if ('${row['state']}' == 'APPLIED' || '${row['state']}' == 'REFUSED')
+          Map<String, dynamic>.from(row),
+  ];
+  int sequence(Map<String, dynamic> row) =>
+      int.tryParse('${row['sequence']}') ?? 0;
+  rows.sort((Map<String, dynamic> a, Map<String, dynamic> b) =>
+      sequence(a).compareTo(sequence(b)));
+  return rows;
+}
+
+/// A saved line's offers, read-only, for a line no pricing lists afresh: a
+/// bill line continuing a note (L7 step 9). Nothing where the line has none.
+class SavedOffersBlock extends StatelessWidget {
+  const SavedOffersBlock({
+    super.key,
+    required this.offers,
+    this.keyPrefix = 'offer-choice',
+  });
+
+  /// The line's `offers` as the server answered them.
+  final Object? offers;
+  final String keyPrefix;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Map<String, dynamic>> saved = savedOfferRows(offers);
+    if (saved.isEmpty) return const SizedBox.shrink();
+    return Column(
+      key: ValueKey<String>('$keyPrefix-saved-block'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const DocumentSideHeading('Offers and discounts'),
+        ...savedOfferTexts(context, saved, keyPrefix: keyPrefix),
+      ],
+    );
+  }
+}
+
+/// One line of text per saved row, keyed `<prefix>-saved-<n>`.
+List<Widget> savedOfferTexts(
+  BuildContext context,
+  List<Map<String, dynamic>> saved, {
+  required String keyPrefix,
+}) {
+  final TextStyle? body =
+      Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13);
+  return <Widget>[
+    for (int at = 0; at < saved.length; at += 1)
+      Text(
+        savedOfferWords(saved[at]),
+        key: ValueKey<String>('$keyPrefix-saved-$at'),
+        style: body,
+      ),
+  ];
+}
+
+/// How a saved document's view words one of a line's `offers` rows (L7
+/// step 9, design section 4: "what was applied and 'chosen by'").
+///
+/// An applied row says what it gave and who decided it -- "TEA-5 · 55.00
+/// off · applied", "TEA-11 · 1 free · part share · chosen by a person"; a
+/// refused row is an offer the start would have applied that a person's
+/// choice passed over -- "TEA-11 · passed over". A price list reads
+/// "Price list CITY", the customer's own rate "Standing rate" and the
+/// group's "Group rate".
+String savedOfferWords(Map<String, dynamic> row) {
+  final String source = '${row['source'] ?? ''}';
+  final String code = '${row['code'] ?? ''}'.trim();
+  final String name = switch (source) {
+    'price_list' => code.isEmpty ? 'Price list' : 'Price list $code',
+    'customer' => 'Standing rate',
+    'customer_group' => 'Group rate',
+    _ => code.isNotEmpty ? code : '${row['name'] ?? 'Offer'}',
+  };
+  if ('${row['state']}' == 'REFUSED') return '$name · passed over';
+  final double off = double.tryParse('${row['discount_amount']}') ?? 0;
+  final double free = double.tryParse('${row['free_quantity']}') ?? 0;
+  final List<String> parts = <String>[
+    name,
+    if (off > 0) '${documentMoney('${row['discount_amount']}')} off',
+    if (free > 0) '${plainOfferQuantity('${row['free_quantity']}')} free',
+    if (row['part_share'] == true) 'part share',
+    row['chosen'] == true ? 'chosen by a person' : 'applied',
+  ];
+  return parts.join(' · ');
 }
 
 /// The bill's own offers, read-only under the totals: what applies to the

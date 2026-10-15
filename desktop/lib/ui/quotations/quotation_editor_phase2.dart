@@ -796,6 +796,8 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
         candidates: companion?.candidates ?? const <OfferCandidate>[],
         choice: line.offers,
         refused: companion?.choiceRefused,
+        savedOffers:
+            companion == null ? line.savedOffers : const <dynamic>[],
         mayChoose: widget.mayChooseOffers,
         lockedNote: line.discount.text.trim().isEmpty
             ? null

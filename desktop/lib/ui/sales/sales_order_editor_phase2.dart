@@ -1314,6 +1314,8 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
         candidates: companion?.candidates ?? const <OfferCandidate>[],
         choice: line.offers,
         refused: companion?.choiceRefused,
+        savedOffers:
+            companion == null ? line.savedOffers : const <dynamic>[],
         mayChoose: widget.mayChooseOffers && !_locked,
         lockedNote: line.discountPercent.text.trim().isEmpty &&
                 line.discountAmount.text.trim().isEmpty

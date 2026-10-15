@@ -133,6 +133,10 @@ class _LineDraft {
   /// they ticked something.
   final LineOfferChoice offers = LineOfferChoice();
 
+  /// L7 step 9: the saved line's `offers` rows, shown in the side panel
+  /// until a pricing lists the line's offers afresh.
+  List<dynamic> savedOffers = const <dynamic>[];
+
   String get signature => [
         productId ?? '',
         quantity.text.trim(),
@@ -815,7 +819,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         )
           ..priceEdited = true
           ..pinnedBatchId = _blankToNull(stringValue(line['pinned_batch_id']))
-          ..savedMargin = LineMargin.maybeFrom(line),
+          ..savedMargin = LineMargin.maybeFrom(line)
+          ..savedOffers = line['offers'] is List
+              ? line['offers'] as List<dynamic>
+              : const <dynamic>[],
       );
       _lines.last.savedSignature = _lines.last.signature;
     }
