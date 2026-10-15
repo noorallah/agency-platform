@@ -208,13 +208,43 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// leaves their choice alone.
   bool _boxesTouched = false;
 
-  /// L5: whether the toggle is offered: on a bill of products, or a saved
-  /// counter bill taking more, where the firm's switch is on or the bill was
-  /// saved in boxes and pieces.
+  /// L5: whether the toggle is offered, on the phase 2 bill: where the
+  /// firm's switch is on or the bill was saved in boxes and pieces. A bill
+  /// of delivery notes has it too (L5 step 10): its Bill qty becomes the
+  /// two boxes.
   bool get _offersBoxes =>
-      _phase2 &&
-      (_direct || _addsProducts) &&
-      (_stages.boxAndPieceEntry || _savedInBoxes);
+      _phase2 && (_stages.boxAndPieceEntry || _savedInBoxes);
+
+  /// L5 step 10: the box cells of each billed note line, by its source line
+  /// id. [_quantities] stays the figure sent, in pieces.
+  final Map<String, BoxPieceEntry> _noteBoxes = <String, BoxPieceEntry>{};
+
+  /// L5 step 10: the pack each saved line was billed at, by its source line
+  /// id, as the saved bill's lines say.
+  final Map<String, String> _savedPacks = <String, String>{};
+
+  /// L5 step 10: whether each customer whose notes are billed is marked
+  /// *Bills in boxes and pieces*, from the customer row the address picker
+  /// already reads.
+  final Map<String, bool> _boxMarkOf = <String, bool>{};
+
+  /// L5 step 10: the pack a billed note line splits by: the one the saved
+  /// bill holds for it, else the item's where the items were read. A line
+  /// typed in another unit has none.
+  String _notePackSize(BillableLine line) {
+    if (_isTypedInOtherUnit(line.sourceDocumentLineId)) return '';
+    final String saved = _savedPacks[line.sourceDocumentLineId] ?? '';
+    if (packOf(saved) != null) return saved;
+    return _packSizeOf(line.productId);
+  }
+
+  /// L5 step 10: a new bill of notes follows its customer's mark, until the
+  /// toggle is moved by hand.
+  void _followBillCustomer() {
+    if (_editing || _direct || !_offersBoxes || _boxesTouched) return;
+    final String? id = _tickCustomerId;
+    _boxAndPieces = id != null && (_boxMarkOf[id] ?? false);
+  }
 
   /// L5: the pack a line's cells split by, or null for an item with none.
   double? _packFor(String? productId) => packOf(_packSizeOf(productId));
@@ -533,7 +563,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     try {
       final Customer customer = await widget.api.customer(customerId);
       if (!mounted) return;
-      setState(() => _addressesOf[customerId] = customer.addresses);
+      setState(() {
+        _addressesOf[customerId] = customer.addresses;
+        _boxMarkOf[customerId] = customer.boxAndPieceEntry;
+        _followBillCustomer();
+      });
     } on Object {
       // No picker; the server inherits the address.
     }
@@ -605,6 +639,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     }
     for (final TextEditingController controller in _quantities.values) {
       controller.dispose();
+    }
+    for (final BoxPieceEntry entry in _noteBoxes.values) {
+      entry.dispose();
     }
     super.dispose();
   }
@@ -952,6 +989,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     final List<BillableLine> rebuilt = <BillableLine>[];
     for (final Json line in lines) {
       final String lineId = '${line['source_document_line_id'] ?? ''}';
+      // L5 step 10: the pack the line was billed at.
+      _savedPacks[lineId] = stringValue(line['pack_size']);
       final String entered = stringValue(line['entered_rate']);
       if (entered.isNotEmpty) _enteredRates[lineId] = entered;
       final double own =
@@ -1136,6 +1175,12 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       for (final BillableLine line in document.lines) {
         _quantities.remove(line.sourceDocumentLineId)?.dispose();
         _pickedSerials.remove(line.sourceDocumentLineId);
+        final BoxPieceEntry? boxes =
+            _noteBoxes.remove(line.sourceDocumentLineId);
+        // After the frame: the cells may still be drawn this one.
+        if (boxes != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => boxes.dispose());
+        }
       }
     }
     final Set<String> had = {
@@ -1163,6 +1208,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _shipToId = null;
       unawaited(_loadAddresses(after));
     }
+    _followBillCustomer();
   }
 
   /// The quantity in the source line's unit, which is what the price and the
@@ -1270,6 +1316,10 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           // What was typed goes back with the unit it was typed in.
           if (_isTypedInOtherUnit(line.sourceDocumentLineId))
             'invoice_uom_id': _typedUnits[line.sourceDocumentLineId],
+          // L5 step 10: the pack the two cells were added up with, only on
+          // a line typed as boxes and pieces.
+          if (_boxAndPieces && packOf(_notePackSize(line)) != null)
+            'pack_size': _notePackSize(line),
           'unit_price': line.unitPrice,
           if (_picksSerials(source, line))
             'serial_ids': [...?_pickedSerials[line.sourceDocumentLineId]],

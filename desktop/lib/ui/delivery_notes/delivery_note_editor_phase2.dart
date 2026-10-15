@@ -10,17 +10,44 @@ part of 'delivery_note_editor_dialog.dart';
 /// Not priced by the server: a note is valued at its order's rates, and the
 /// bill it leads to is the sales invoice.
 extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
-  static const List<DocumentColumn> _columns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product', 0),
-    DocumentColumn('Ordered', 70, numeric: true),
-    DocumentColumn('Reserved', 72, numeric: true),
-    DocumentColumn('Delivered', 74, numeric: true),
-    DocumentColumn('Delivering', 84, numeric: true),
-    DocumentColumn('Free', 60, numeric: true),
-    DocumentColumn('Damaged', 70, numeric: true),
-    DocumentColumn('Value', 96, numeric: true),
+  List<DocumentColumn> get _columns => [
+    const DocumentColumn('#', 28),
+    DocumentColumn(
+      'Product',
+      0,
+      // L5 step 10: the toggle above the lines, where the firm's switch is
+      // on, with room kept for it before the table scrolls sideways.
+      minWidth: _offersBoxes ? 300 : DocumentLineTable.minFlexWidth,
+      heading: _offersBoxes
+          ? BoxPieceToggle(
+              key: const ValueKey('delivery-note-box-and-pieces'),
+              label: 'Product',
+              value: _boxAndPieces,
+              onChanged: _saving ? null : _setBoxAndPieces,
+            )
+          : null,
+    ),
+    // "3 x 12 + 5" is wider than a figure.
+    DocumentColumn('Ordered', _boxAndPieces ? 84 : 70, numeric: true),
+    DocumentColumn('Reserved', _boxAndPieces ? 84 : 72, numeric: true),
+    DocumentColumn('Delivered', _boxAndPieces ? 84 : 74, numeric: true),
+    // L5 step 10: typed as boxes and pieces, Delivering and Free become
+    // four cells.
+    if (_boxAndPieces)
+      ...boxPieceColumns
+    else ...const [
+      DocumentColumn('Delivering', 84, numeric: true),
+      DocumentColumn('Free', 60, numeric: true),
+    ],
+    const DocumentColumn('Damaged', 70, numeric: true),
+    const DocumentColumn('Value', 96, numeric: true),
   ];
+
+  /// L5 step 10: a quantity of [line] as the lines are shown: "3 x 12 + 5"
+  /// while typed in boxes and pieces.
+  String _figure(String value, DeliveryDraftLine line) => _boxAndPieces
+      ? boxesAndPieces(value, _packOf(line) == null ? '' : line.packSize)
+      : documentQuantity(value);
 
   Widget _phase2Page(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -578,29 +605,57 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
             style: text,
           ),
         ),
-        Text(documentQuantity(line.orderedQuantity), style: quiet),
         Text(
-          documentQuantity(_trim(line.reserved)),
+          _figure(line.orderedQuantity, line),
+          key: ValueKey<String>('delivery-note-ordered-$index'),
+          style: quiet,
+        ),
+        Text(
+          _figure(_trim(line.reserved), line),
           style: line.reserved <= 0 && line.outstanding > 0
               ? text?.copyWith(color: theme.colorScheme.error)
               : quiet,
         ),
-        Text(documentQuantity(line.alreadyDelivered), style: quiet),
-        _cellBox(
-          context,
-          index: index,
-          name: 'delivering',
-          value: line.deliveryQuantity,
-          over: delivering > line.deliverable,
-          onChanged: (value) => line.deliveryQuantity = value,
+        Text(
+          _figure(line.alreadyDelivered, line),
+          key: ValueKey<String>('delivery-note-delivered-$index'),
+          style: quiet,
         ),
-        _cellBox(
-          context,
-          index: index,
-          name: 'free',
-          value: line.freeQuantity,
-          onChanged: (value) => line.freeQuantity = value,
-        ),
+        if (_boxAndPieces)
+          ...boxPieceCells(
+            context,
+            entry: line.boxes,
+            pack: _packOf(line),
+            readOnly: _saving,
+            keyPrefix: 'delivery-note-line-$index',
+            // A line delivering nothing is left off the note.
+            chargedRequired: false,
+            onChanged: () {
+              final double? pack = _packOf(line);
+              _setState(() {
+                line.deliveryQuantity = line.boxes.quantityText(pack);
+                line.freeQuantity = line.boxes.freeText(pack);
+                _current = index;
+              });
+            },
+          )
+        else ...[
+          _cellBox(
+            context,
+            index: index,
+            name: 'delivering',
+            value: line.deliveryQuantity,
+            over: delivering > line.deliverable,
+            onChanged: (value) => line.deliveryQuantity = value,
+          ),
+          _cellBox(
+            context,
+            index: index,
+            name: 'free',
+            value: line.freeQuantity,
+            onChanged: (value) => line.freeQuantity = value,
+          ),
+        ],
         _cellBox(
           context,
           index: index,
@@ -655,21 +710,31 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
       DocumentSideHeading(
         'Line ${line.lineNumber} · ${product?.name ?? line.description}',
       ),
-      DocumentSidePair('Ordered', documentQuantity(line.orderedQuantity)),
+      if (_boxAndPieces && _packOf(line) != null)
+        DocumentSideNote(
+          boxPieceSummary(
+            packSize: line.packSize,
+            quantity: line.deliveryQuantity,
+            free: line.freeQuantity,
+            rate: line.unitPrice,
+          ),
+          key: const ValueKey('delivery-note-side-boxes'),
+        ),
+      DocumentSidePair('Ordered', _figure(line.orderedQuantity, line)),
       DocumentSidePair(
         'Delivered before',
-        documentQuantity(line.alreadyDelivered),
+        _figure(line.alreadyDelivered, line),
       ),
       DocumentSidePair(
         'Can go now',
-        documentQuantity(_trim(line.deliverable)),
+        _figure(_trim(line.deliverable), line),
         bold: true,
         tone: delivering > line.deliverable ? scheme.error : null,
       ),
       if (line.ordersFreeGoods)
         DocumentSidePair(
           'Free on the order',
-          documentQuantity(line.orderFreeQuantity),
+          _figure(line.orderFreeQuantity, line),
         ),
       DocumentSideNote(freeBoxHelper(line).toLowerCase()),
       if (line.outstanding <= 0)

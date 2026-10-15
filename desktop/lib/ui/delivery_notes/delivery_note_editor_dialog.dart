@@ -22,6 +22,7 @@ import '../document_framework/document_steps.dart';
 import '../sales/firm_salesmen.dart';
 import '../sales/ship_to_field.dart';
 import '../workspace/batch_picker_panel.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 
@@ -105,6 +106,7 @@ class DeliveryDraftLine {
     this.warehouseId = '',
     this.remarks = '',
     this.trackSerial = false,
+    this.packSize = '',
     List<String>? serialIds,
   }) : serialIds = serialIds ?? <String>[];
 
@@ -145,6 +147,15 @@ class DeliveryDraftLine {
 
   /// The serials picked for this line, by id.
   final List<String> serialIds;
+
+  /// L5: the pack the order line was struck at ('' where it has none), which
+  /// the note ships at: what the Box cell counts.
+  final String packSize;
+
+  /// L5: the line's Box, Pcs, Free box and Free pcs cells, used while the
+  /// note is typed in boxes and pieces. [deliveryQuantity] and
+  /// [freeQuantity] stay the figures sent, in pieces.
+  final BoxPieceEntry boxes = BoxPieceEntry();
 
   /// The batches chosen for the line, by batch id, in stock units. `null` is
   /// no choice at all -- the key is left out and the server goes earliest
@@ -325,6 +336,68 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   /// Phase 2: the line the side panel follows.
   int _current = 0;
 
+  /// L5 step 10: the firm's selling switch for boxes and pieces, from the
+  /// stages settings this window already reads.
+  bool _firmBoxes = false;
+
+  /// L5 step 10: whether the order's customer is marked *Bills in boxes and
+  /// pieces*, from the customer row the address picker already reads.
+  bool _customerBoxes = false;
+
+  /// L5 step 10: whether the lines are typed as boxes and pieces. A new note
+  /// follows its customer's mark where the firm's switch is on.
+  bool _boxAndPieces = false;
+
+  /// Set once somebody moves the toggle, so the customer's row arriving
+  /// after that leaves their choice alone.
+  bool _boxesTouched = false;
+
+  /// L5 step 10: whether the toggle is offered: on the phase 2 note, where
+  /// the firm's switch is on.
+  bool get _offersBoxes => _firmBoxes && Phase2Scope.of(context);
+
+  /// L5 step 10: the pack a line's cells split by, or null where it has
+  /// none. A line counted in another unit than stock has none: the server
+  /// refuses boxes and pieces there.
+  double? _packOf(DeliveryDraftLine line) {
+    if (line.salesUomId.isNotEmpty &&
+        line.inventoryUomId.isNotEmpty &&
+        line.salesUomId != line.inventoryUomId) {
+      return null;
+    }
+    return packOf(line.packSize);
+  }
+
+  /// L5 step 10: fill [lines]' box cells from their figures in pieces.
+  void _loadBoxes(Iterable<DeliveryDraftLine> lines) {
+    if (!_boxAndPieces) return;
+    for (final DeliveryDraftLine line in lines) {
+      line.boxes.load(
+        quantity: line.deliveryQuantity,
+        free: line.freeQuantity,
+        pack: _packOf(line),
+      );
+    }
+  }
+
+  /// L5 step 10: the toggle above the lines. Changes no quantity: the same
+  /// figures are shown as one cell or as two.
+  void _setBoxAndPieces(bool value) {
+    _setState(() {
+      _boxAndPieces = value;
+      _boxesTouched = true;
+      _loadBoxes(_lines);
+    });
+  }
+
+  /// L5 step 10: a new note follows its customer's mark where the firm's
+  /// switch is on, until the toggle is moved by hand.
+  void _followCustomer() {
+    if (_boxesTouched) return;
+    _boxAndPieces = _firmBoxes && _customerBoxes;
+    _loadBoxes(_lines);
+  }
+
   void _setState(VoidCallback change) => setState(change);
 
   /// The firm's own fields on a delivery note (MST-6), sent only once the
@@ -346,8 +419,13 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
     try {
       final SalesWorkflowSettings stages =
           await widget.api.salesWorkflowSettings();
-      if (!mounted || stages.deliveryNoteApproval) return;
-      setState(() => _approvalOff = true);
+      if (!mounted) return;
+      setState(() {
+        if (!stages.deliveryNoteApproval) _approvalOff = true;
+        // L5 step 10: the selling switch rides on the same read.
+        _firmBoxes = stages.boxAndPieceEntry;
+        _followCustomer();
+      });
     } on Object {
       // Left as it was.
     }
@@ -393,6 +471,9 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   @override
   void dispose() {
     _customFields.dispose();
+    for (final DeliveryDraftLine line in _lines) {
+      line.boxes.dispose();
+    }
     super.dispose();
   }
 
@@ -426,6 +507,8 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       _error = null;
       _addresses = const [];
       _shippingAddressId = null;
+      _customerBoxes = false;
+      _followCustomer();
     });
     unawaited(_loadAddresses(order));
     if (!_salesmenRequested &&
@@ -452,10 +535,18 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
         await _stockFor(lines, defaultWarehouse);
     await _loadSerials(lines);
     if (!mounted) return;
+    final List<DeliveryDraftLine> replaced = _lines;
     setState(() {
       _lines = lines;
       _stockByProduct = stock;
       _loadingLines = false;
+      _loadBoxes(lines);
+    });
+    // After the frame: the old lines' cells may still be drawn this one.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final DeliveryDraftLine line in replaced) {
+        line.boxes.dispose();
+      }
     });
   }
 
@@ -477,6 +568,9 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
         final String own = stringValue(order['shipping_address_id']);
         _shippingAddressId =
             own.isNotEmpty ? own : defaultShipToId(customer.addresses);
+        // L5 step 10: the customer's mark rides on the same row.
+        _customerBoxes = customer.boxAndPieceEntry;
+        _followCustomer();
       });
     } on Object {
       // No picker; the server inherits the order's address.
@@ -546,6 +640,15 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   String? _blankToNull(String value) =>
       value.trim().isEmpty ? null : value.trim();
 
+  /// L5 step 10: the item's own pack, for an order line struck before L5
+  /// that holds none -- the server ships such a line at the item's.
+  String _itemPack(String productId) {
+    for (final Product product in widget.products) {
+      if (product.id == productId) return product.packSize;
+    }
+    return '';
+  }
+
   bool _isSerialised(String productId) {
     for (final Product product in widget.products) {
       if (product.id == productId) return product.trackSerial;
@@ -609,6 +712,9 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
           ? stringValue(line['warehouse_id'])
           : defaultWarehouse,
       trackSerial: _isSerialised(stringValue(line['product_id'])),
+      packSize: stringValue(line['pack_size']).isNotEmpty
+          ? stringValue(line['pack_size'])
+          : _itemPack(stringValue(line['product_id'])),
     );
     draft.deliveryQuantity = _trim(draft.deliverable);
     return draft;
@@ -725,9 +831,19 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
         if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
         // Only once the definitions arrived: absent leaves the values alone.
         if (_customFields.hasFields) 'attributes': _customFields.payload(),
+        // L5 step 10: only where the toggle is offered; absent takes the
+        // order's.
+        if (phase2 && _firmBoxes) 'box_and_piece_entry': _boxAndPieces,
         'lines': [
           for (int index = 0; index < sending.length; index++)
-            {...sending[index].toJson(), 'line_number': index + 1},
+            {
+              ...sending[index].toJson(),
+              'line_number': index + 1,
+              // L5 step 10: the pack the two cells were added up with, only
+              // on a line typed as boxes and pieces.
+              if (phase2 && _boxAndPieces && _packOf(sending[index]) != null)
+                'pack_size': sending[index].packSize,
+            },
         ],
       };
       final Json response = await widget.api.create('delivery-notes', payload);

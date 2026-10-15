@@ -19,6 +19,17 @@ class _ReturnLineDraft {
   bool serialsRead = false;
   final Set<String> picked = <String>{};
 
+  /// L5 step 10: the line's Box, Pcs, Free box and Free pcs cells, used
+  /// while the return is typed in boxes and pieces. [quantity] and [free]
+  /// stay the figures sent, in pieces.
+  final BoxPieceEntry boxes = BoxPieceEntry();
+
+  /// L5 step 10: the pack the line went out at, or null where it had none.
+  double? get pack => packOf(line.packSize);
+
+  /// Fill the box cells from the figures in pieces.
+  void loadBoxes() => boxes.load(quantity: quantity, free: free, pack: pack);
+
   /// The Draft's own line for this row while one is edited (D-UI-39); null
   /// on a new return and on a row the Draft brings nothing back on.
   SalesReturnLine? stored;
@@ -82,20 +93,69 @@ class _ReturnLineDraft {
 /// figures and the serial numbers coming back. The dialog still hands its
 /// payload to the caller, which creates the return.
 extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
-  static const List<DocumentColumn> _columns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product', 0),
-    DocumentColumn('Sent', 64, numeric: true),
-    DocumentColumn('Returning', 80, numeric: true),
-    DocumentColumn('Of which free', 96, numeric: true),
-    DocumentColumn('Damaged', 70, numeric: true),
-    DocumentColumn('Scrap', 60, numeric: true),
-    DocumentColumn('To shelf', 68, numeric: true),
-    DocumentColumn('Rate', 84, numeric: true),
-    DocumentColumn('Taxable', 92, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 100, numeric: true),
+  List<DocumentColumn> get _columns => [
+    const DocumentColumn('#', 28),
+    DocumentColumn(
+      'Product',
+      0,
+      // L5 step 10: the toggle above the lines, with room kept for it
+      // before the table scrolls sideways.
+      minWidth: _offersBoxes ? 300 : DocumentLineTable.minFlexWidth,
+      heading: _offersBoxes
+          ? BoxPieceToggle(
+              key: const ValueKey('sales-return-box-and-pieces'),
+              label: 'Product',
+              value: _boxAndPieces,
+              onChanged: saving ? null : _setBoxAndPieces,
+            )
+          : null,
+    ),
+    // "3 x 12 + 5" is wider than a figure.
+    DocumentColumn('Sent', _boxAndPieces ? 84 : 64, numeric: true),
+    // L5 step 10: typed as boxes and pieces, Returning and Of which free
+    // become four cells.
+    if (_boxAndPieces)
+      ...boxPieceColumns
+    else ...const [
+      DocumentColumn('Returning', 80, numeric: true),
+      DocumentColumn('Of which free', 96, numeric: true),
+    ],
+    const DocumentColumn('Damaged', 70, numeric: true),
+    const DocumentColumn('Scrap', 60, numeric: true),
+    const DocumentColumn('To shelf', 68, numeric: true),
+    const DocumentColumn('Rate', 84, numeric: true),
+    const DocumentColumn('Taxable', 92, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 100, numeric: true),
   ];
+
+  /// L5 step 10: whether the toggle is offered. This window reads no
+  /// settings and no customer, so it is offered where the note or bill the
+  /// goods went out on, or the Draft being put right, was typed as boxes
+  /// and pieces -- which only a firm with the switch on can have done.
+  bool get _offersBoxes =>
+      _phase2 &&
+      (_document?.boxAndPieceEntry == true ||
+          widget.editing?.boxAndPieceEntry == true);
+
+  /// L5 step 10: the toggle above the lines. Changes no quantity: the same
+  /// figures are shown as one cell or as two.
+  void _setBoxAndPieces(bool value) {
+    _setState(() {
+      _boxAndPieces = value;
+      if (value) {
+        for (final _ReturnLineDraft draft in _drafts) {
+          draft.loadBoxes();
+        }
+      }
+    });
+  }
+
+  /// L5 step 10: a quantity of [draft]'s line as the lines are shown: "3 x
+  /// 12 + 5" while typed in boxes and pieces.
+  String _figure(String value, _ReturnLineDraft draft) => _boxAndPieces
+      ? boxesAndPieces(value, draft.line.packSize)
+      : documentQuantity(value);
 
   Widget _phase2Page(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -225,6 +285,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
   /// Rebuild the lines for the chosen document: nothing coming back until
   /// it is typed, so no line returns by accident.
   void _phase2Document(ReturnableDocument document) {
+    final List<_ReturnLineDraft> replaced = _drafts;
     _setState(() {
       _drafts = [
         for (final ReturnableLine line in document.lines)
@@ -232,6 +293,19 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
       ];
       _current = 0;
       _preview = null;
+      // L5 step 10: a new return follows the document it is raised against.
+      _boxAndPieces = _phase2 && document.boxAndPieceEntry;
+      if (_boxAndPieces) {
+        for (final _ReturnLineDraft draft in _drafts) {
+          draft.loadBoxes();
+        }
+      }
+    });
+    // After the frame: the old lines' cells may still be drawn this one.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final _ReturnLineDraft draft in replaced) {
+        draft.boxes.dispose();
+      }
     });
   }
 
@@ -274,6 +348,13 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
     }
     final int held = _drafts.indexWhere((draft) => draft.stored != null);
     _current = held < 0 ? 0 : held;
+    // L5 step 10: a saved return reopens as it was saved.
+    _boxAndPieces = editing.boxAndPieceEntry;
+    if (_boxAndPieces) {
+      for (final _ReturnLineDraft draft in _drafts) {
+        draft.loadBoxes();
+      }
+    }
     // The units each line may name, so the ones it picked show as picked.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -479,6 +560,9 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
       if (_reason.text.trim().isNotEmpty) 'return_reason': _reason.text.trim(),
       if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
       if (editing != null) ..._heldHeader(editing),
+      // L5 step 10: only where the toggle is offered; absent takes the
+      // document's on a new return and keeps the return's own on an edit.
+      if (_offersBoxes) 'box_and_piece_entry': _boxAndPieces,
       'lines': [
         for (int i = 0; i < sending.length; i++)
           <String, dynamic>{
@@ -489,6 +573,10 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
             'current_return_quantity': sending[i].quantity.trim().isEmpty
                 ? '0'
                 : sending[i].quantity.trim(),
+            // L5 step 10: the pack the two cells were added up with, only
+            // on a line typed as boxes and pieces.
+            if (_boxAndPieces && sending[i].pack != null)
+              'pack_size': sending[i].line.packSize,
             // Blank is not sent: the server then takes the charged units
             // first. Only a line that shipped free goods can say otherwise.
             if (sending[i].line.shippedFree &&
@@ -781,33 +869,41 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
             style: text,
           ),
         ),
-        Text(documentQuantity(draft.line.quantity), style: quiet),
-        _cellBox(
-          context,
-          index: index,
-          name: 'returning',
-          value: draft.quantity,
-          over: draft.returned > draft.mayReturn,
-          onChanged: (value) => draft.quantity = value,
+        Text(
+          _figure(draft.line.quantity, draft),
+          key: ValueKey<String>('sales-return-sent-$index'),
+          style: quiet,
         ),
-        if (draft.line.shippedFree)
-          Tooltip(
-            message: 'Sent ${_quantity(draft.sent)} charged and '
-                '${_quantity(draft.sentFree)} free. Blank takes the charged '
-                'units first; free units are credited nothing. Returning 0 '
-                'with a number here sends back only that many free units.',
-            child: _cellBox(
-              context,
-              index: index,
-              name: 'free',
-              value: draft.free,
-              over: draft.freeQuantity > draft.sentFree ||
-                  draft.freeQuantity > draft.returned,
-              onChanged: (value) => draft.free = value,
-            ),
-          )
-        else
-          Text('', style: quiet),
+        if (_boxAndPieces)
+          ..._boxCells(context, index)
+        else ...[
+          _cellBox(
+            context,
+            index: index,
+            name: 'returning',
+            value: draft.quantity,
+            over: draft.returned > draft.mayReturn,
+            onChanged: (value) => draft.quantity = value,
+          ),
+          if (draft.line.shippedFree)
+            Tooltip(
+              message: 'Sent ${_quantity(draft.sent)} charged and '
+                  '${_quantity(draft.sentFree)} free. Blank takes the charged '
+                  'units first; free units are credited nothing. Returning 0 '
+                  'with a number here sends back only that many free units.',
+              child: _cellBox(
+                context,
+                index: index,
+                name: 'free',
+                value: draft.free,
+                over: draft.freeQuantity > draft.sentFree ||
+                    draft.freeQuantity > draft.returned,
+                onChanged: (value) => draft.free = value,
+              ),
+            )
+          else
+            Text('', style: quiet),
+        ],
         _cellBox(
           context,
           index: index,
@@ -842,6 +938,38 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
         ),
       ],
     );
+  }
+
+  /// L5 step 10: the line's Box and Pcs cells, and its Free box and Free
+  /// pcs where the line sent free goods; blank cells beside a line that
+  /// sent none.
+  List<Widget> _boxCells(BuildContext context, int index) {
+    final _ReturnLineDraft draft = _drafts[index];
+    final List<Widget> cells = boxPieceCells(
+      context,
+      entry: draft.boxes,
+      pack: draft.pack,
+      readOnly: saving,
+      keyPrefix: 'sales-return-line-$index',
+      // A line nothing comes back on is left off the return.
+      chargedRequired: false,
+      onChanged: () {
+        _setState(() {
+          draft.quantity = draft.boxes.quantityText(draft.pack);
+          if (draft.line.shippedFree) {
+            draft.free = draft.boxes.freeText(draft.pack);
+          }
+        });
+        _focusLine(index);
+        _schedulePreview();
+      },
+    );
+    return [
+      ...cells.take(2),
+      if (draft.line.shippedFree)
+        ...cells.skip(2)
+      else ...const [Text(''), Text('')],
+    ];
   }
 
   Widget _returnTotals() {
@@ -910,11 +1038,26 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
       DocumentSideHeading(
         'Line ${draft.line.lineNumber} · ${draft.line.description}',
       ),
-      DocumentSidePair('Went out', documentQuantity(draft.line.quantity)),
+      if (_boxAndPieces && draft.pack != null)
+        DocumentSideNote(
+          boxPieceSummary(
+            packSize: draft.line.packSize,
+            quantity: '${draft.returned}',
+            free: draft.free,
+            rate: draft.line.unitPrice,
+          ),
+          key: const ValueKey('sales-return-side-boxes'),
+        ),
+      DocumentSidePair('Went out', _figure(draft.line.quantity, draft)),
       if (draft.line.shippedFree)
         DocumentSidePair(
-            'Went out free', documentQuantity(draft.line.freeQuantity)),
-      DocumentSidePair('Coming back', _quantity(draft.returned)),
+            'Went out free', _figure(draft.line.freeQuantity, draft)),
+      DocumentSidePair(
+        'Coming back',
+        _boxAndPieces
+            ? _figure('${draft.returned}', draft)
+            : _quantity(draft.returned),
+      ),
       DocumentSidePair(
         draft.restock < 0 ? 'More than came back by' : 'Back on the shelf',
         _quantity(draft.restock.abs()),
