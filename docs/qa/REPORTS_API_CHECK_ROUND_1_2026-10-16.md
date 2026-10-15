@@ -17,7 +17,7 @@ Result: **3 of 4 scripts clean**; `tc_rep_003` fails on purpose for D-RPT-23.
 | --- | --- | --- |
 | tc_rep_001 | Every catalogue report read once as the firm administrator: 200, `success`, under 3 s | 106 of 106 clean, none slow (after two parameters added to the table: `financial_year_id` for the IT block schedule, `product_id` for the rate trend) |
 | tc_rep_003 | A Seller is refused every finance report with 403, never 500; a range ending before it starts is refused | 403 on every finance report, no 500 anywhere; **72 dated reports answer 200 with an empty list for an inverted range** (D-RPT-23) |
-| tc_rep_004 | D-FIN-35: orders booked (`analysis?basis=ordered`) against the order register over the same range | Equal on TEST01 (43,070.00 over 95 orders); TEST01 has no counter bill in the range, so the fix is pinned by the unit test |
+| tc_rep_004 | D-FIN-35: orders booked (`analysis?basis=ordered`) against the order register over the same range | Before the fix both came to 43,070.00 over 95 orders; after it (live, #1608) orders booked reads 25,134.00 over 33, the 62 orders the counter bills raised for themselves left out. The check asserts booked < register; the exact rule is pinned by the unit test |
 | tc_rep_005 | D-FIN-36: `POST /report-layouts` saves by name | 200 on both saves, the second keeps the first's id and the new settings; delete 204 |
 
 A footing check (total = sum of the column) was written and dropped: 104 of the
