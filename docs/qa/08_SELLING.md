@@ -6,7 +6,7 @@ explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
 bar, `Sell > Documents > Proforma` is a screen in the
 Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
-right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+right of the bar. Generated on 2026-10-15 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -716,6 +716,318 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Preconditions:** a `pharma-firm`, with the delivery note stage **off** for (a) and (b) and **on** for (c). A batch-tracked product with two in-date batches, an **earlier** and a **later** expiry, 10 each, in the default warehouse, and nothing reserved. A customer.
 - **Steps:** (a) Counter bill **A**: the product, quantity **4**, batches untouched → Save. Counter bill **B**: quantity **4**, all 4 on the **later** batch → Save. Stock > Batches. **Cancel** B. Stock > Batches. **Approve** A. (b) Counter bill **C**: quantity **4**, picked **1** earlier + **3** later → Save; Stock > Batches. Raise and approve an ordinary bill or order for the **16** that are left. Approve C. (c) With the delivery note stage on: order **X** for 4 (it holds the earlier batch); order **Y** for 4 with **Batch** = the later batch; approve both. Cancel Y. Stock > Batches. Dispatch X.
 - **Expect:** (a) A holds 4 of the earlier batch and B 4 of the later. Cancelling B frees the later batch and leaves A's 4 alone (Stock Ledger: `UNRESERVE` 4 on the later batch against B's order); A approves and ships 4 of the earlier batch. (b) C holds **1** on the earlier batch and **3** on the later, exactly as picked; the other document takes only the rest, and C approves and ships 1 + 3. (c) cancelling Y frees the later batch and nothing else; X dispatches from the earlier batch. An order whose stock is reserved on the batch its customer's minimum shelf life allows dispatches from that batch even while another order holds the earlier one. Cancelling an order while a dispatched note stands against it is refused, as before.
+
+### TC-SELL-096 — Print several bills, or several challans, at once
+
+*Added 2026-10-09 with the feature. **Server side driven 2026-10-09** over HTTP on the demo firm (three bills and three challans: one PDF each, nine pages, the same pages as the three printed singly; a view-only user; an id that is not the firm's; an empty list; 101 ids). **The screen's button is covered by a widget test, not yet clicked in the running app.***
+
+- **Preconditions:** a firm with at least three approved sales invoices and three delivery notes, printing on A4 with the default three copies.
+- **Steps:** (a) Sell > **Sales Invoices**: tick three bills → **Print selected**. (b) Sell > **Delivery Notes**: tick three notes → **Print selected**. (c) Repeat (a) signed in as a user who holds only `SALES_VIEW`. (d) In Print settings set the paper to **Thermal roll (80 mm)**, save, and repeat (a); set it back to A4. (e) Tick one row only.
+- **Expect:** (a) and (b) the print dialog opens **once**, on one document of **nine pages**: each bill (or challan) in the order of the list, as ORIGINAL, DUPLICATE and TRIPLICATE, exactly as it prints alone. (c) the same: printing needs no more than viewing. (d) refused, saying several documents print together on A4 or A5 and to print them one at a time on a roll; nothing prints. (e) no *Print selected*; the ordinary **Print** is offered.
+### TC-SELL-097 — A discount above a role's limit is refused at billing, with the limit named
+
+*Added 2026-10-13 (backlog 114). **Driven over HTTP** that day on a preparation firm (26 checks); the screens were not clicked.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a second user of the firm holding only **Sales Manager**; under *Settings → Selling → Discount Limits* one row, Sales Manager **5**; a product priced 100.00 with stock; a customer **A** with no discount of its own and a customer **B** whose standing discount is 10%. Where the firm types orders and delivery notes, each bill below continues a note for 2 of the product.
+- **Steps**
+  1. As the Sales Manager open *Settings → Selling → Discount Limits*.
+  2. As the Sales Manager raise a bill for A with **8** in the line's discount % and press **Approve**.
+  3. On the bills list tick that bill and approve it from the list.
+  4. As the firm administrator approve the same bill.
+  5. As the Sales Manager raise a bill for A with **5** on the line and approve it.
+  6. Raise a bill for A with nothing on the line and **10** as the discount on the whole bill; approve it.
+  7. Raise a bill for A with the price typed as **80.00** and no discount; approve it.
+  8. Raise a bill for B and type no discount; approve it.
+  9. As the firm administrator change the limit to **10** and save. As the Sales Manager approve the bills of steps 6 and 7 again.
+  10. As the firm administrator remove the row and save. As the Sales Manager approve the bill of step 7.
+- **Expect**
+  - Step 1: the limits are shown and cannot be changed.
+  - Step 2: refused, "Line 1 carries a discount of 8.00%, above your limit of 5.00%. It needs approval by someone allowed at least 8.00%." The bill is still a draft.
+  - Step 3: the row is refused in the same words; nothing is approved.
+  - Step 4: approved.
+  - Step 5: approved. A discount at the limit is within it.
+  - Step 6: refused, naming 10.00% and the limit of 5.00%.
+  - Step 7: refused, "Line 1 is priced at 80.00 where the customer's price is 100.00: 20.00% off in all, above your limit of 5.00%. ..."
+  - Step 8: approved, and the bill carries B's 10%. A discount nobody typed is not judged.
+  - Step 9: the bill of step 6 is approved; the bill of step 7 is refused, now naming a limit of 10.00%.
+  - Step 10: approved. A role with no row has no limit.
+### TC-SELL-098 — The licence check warns or blocks, catches an expired licence, and the firm's numbers print on the bill
+
+*Added 2026-10-13 (backlog 116). **Driven over HTTP** that day on a preparation firm (30 checks); the screens were not clicked.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a second user of the firm holding only **Sales Manager**; under *Settings → Set up → Party lists → Licence Types* two types, **DGL** and **FSSAI**; a category **Medicines** whose licence is DGL; a product **M** in Medicines and a product **P** in no category, both with stock; a customer **A** with no licence. The firm holds no licence yet. Where the firm types orders and delivery notes, each bill below continues a note.
+- **Steps**
+  1. Under *Licence Check* choose **Warn** for selling and save. Raise a sales order for A with P and approve it.
+  2. Raise a sales order for A with M and press **Approve**.
+  3. Choose **Block** and save. Raise another order for A with M and approve it, giving no reason.
+  4. As the Sales Manager approve the order of step 3, giving a reason.
+  5. As the firm administrator approve it, giving a reason.
+  6. Under *Masters → Trade Licences* record the firm's own DGL licence, valid to next year, and A's DGL licence, valid to **yesterday**. Raise an order for A with M and approve it.
+  7. Change A's licence to end next year. Approve the order of step 6, deliver it and raise its bill, leaving the bill a draft.
+  8. Change A's licence to end yesterday again and approve the bill.
+  9. Change A's licence to end next year and approve the bill.
+  10. Record the firm's own FSSAI licence, valid to next year, and a second DGL licence of the firm that ended yesterday. Print the bill.
+- **Expect**
+  - Step 1: approved; nothing is said about a licence.
+  - Step 2: a notice names line 1 and says A holds no DGL and the firm holds no DGL. The order is approved.
+  - Step 3: refused, "Line 1 (M): A holds no DGL. ... The firm's policy refuses a sale without the licence ...". The order is still a draft.
+  - Step 4: refused. Overriding needs the licence override permission.
+  - Step 5: approved, and the order's timeline keeps the reason.
+  - Step 6: refused, naming A's licence number and "expired on" yesterday's date. The firm is not named: its licence is valid.
+  - Step 7: the order is approved with nothing said; the delivery note and the draft bill follow.
+  - Step 8: refused in the words of step 6.
+  - Step 9: approved.
+  - Step 10: under the firm's name and address the bill reads **DGL** with the valid number and **FSSAI** with its number; the DGL number that ended yesterday is not there. Under **Billed to**, A's DGL number.
+### TC-SELL-099 — A short bill prints on half a page, a long one on a full page, and a customer has his own paper
+
+*Added 2026-10-13 (backlog 118). **Driven over HTTP** that day on a preparation firm (38 checks); the screens were not clicked and nothing was put through a printer.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product **P** with stock; three customers, **A**, **B** and **C**. Where the firm types orders and delivery notes, each bill below continues a note.
+- **Steps**
+  1. Open a sales invoice, choose *Print settings*, set **Paper** to **Half page (half of A4)** and save.
+  2. Raise and approve a bill for A with one line of P. Print it.
+  3. Raise and approve a bill for A with sixty lines. Print it.
+  4. Open customer B, set **Bill paper** to **Full page (A4)** and save. Raise and approve a one-line bill for B and print it.
+  5. Tick the three bills in the list and choose *Print selected*.
+  6. Set **Paper** back to **A4** under *Print settings*. Print the bill of step 2 again.
+  7. Open customer C, set **Bill paper** to **Half page** and save. Raise and approve a one-line bill for C and print it.
+  8. Open customer C, set **Bill paper** to **Firm's setting** and save. Print C's bill again.
+- **Expect**
+  - Step 1: under the list a line says a bill too long for half a page prints on a full page by itself.
+  - Step 2: one page per copy, as wide as A4 and half as tall. The firm with its GSTIN and licence numbers on the left, the buyer on the right. The columns read SL, Product Details, HSN, MRP, Qty, Free, Rate, Disc., GST %, GST, Net Amount, Batch, Exp. Dt. Below: a GST summary with one row per rate, the amount in words, and taxable value, each GST head and **Net payable**; then **Customer signature** and the firm's.
+  - Step 3: full A4 pages in the ordinary layout, with the HSN summary. The column headings repeat on the second page.
+  - Step 4: full A4 pages, though the firm prints half pages.
+  - Step 5: one file. A's short bill is half pages, A's long bill full pages, B's bill full pages, in the order of the list.
+  - Step 6: full A4 pages.
+  - Step 7: full A4 pages. A firm that prints full pages does not read the customer's paper (changed 2026-10-14, backlog 151).
+  - Step 8: full A4 pages.
+### TC-SELL-100 — Approval switched off for a document: one Save completes it, and only for whoever raised it
+
+*Added 2026-10-13 (backlog 119). **Driven over HTTP** that day on a preparation firm (42 checks); the screens were not clicked.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product **P** with 50 in stock in the firm's default warehouse; a customer **A**; a second user **S** holding only the **Sales Executive** role. The firm administrator is **F**.
+- **Steps**
+  1. As S, open *Settings > Selling > Sales Stages*.
+  2. As F, open *Sales Stages*. Switch Quotation, Sales order and Delivery note off, and under **Approval** switch **Sales bills wait for approval** off. Save.
+  3. As S, new sales invoice for A: P, quantity 1. Press **Save**.
+  4. As F, new sales invoice for A: P, quantity 500. Press **Save**: it is refused for stock and stays a draft; close the window. As S, find that draft in the list.
+  5. As S, new sales invoice for A: P, quantity 500. Press **Save**.
+  6. As F, switch **Sales bills wait for approval** on again and save. As S, new sales invoice for A: P, quantity 1. Press the save button.
+  7. As F, approve S's bill of step 6.
+  8. As F, switch the three stages on, and **Sales orders wait for approval** off. As S, new sales order for A: P, quantity 2. Press **Save**.
+  9. As F, switch everything back as it was.
+- **Expect**
+  - Step 1: S cannot change the settings.
+  - Step 2: the Approval part shows three switches, all on until changed. A line under the heading says that with a switch off Save completes the document, whoever raised it approves it, the checks are still made, and a change applies to documents raised from then on.
+  - Step 3: the window shows one button, **Save**, and no *Save & approve*. The bill is **Approved**; stock of P falls by 1.
+  - Step 4: S is not offered Approve on a bill somebody else raised (the server answers *Only whoever raised this sales invoice may approve it without SALES_APPROVE*).
+  - Step 5: refused in words (not enough stock); the bill stays a draft in the open window.
+  - Step 6: the button reads **Save draft**; the bill stays a **Draft** and S is not offered Approve (the server answers *This sales invoice waits for approval, which needs SALES_APPROVE*). A bill S raised before the switch went back on, and left as a draft, can still be completed by S.
+  - Step 7: approved.
+  - Step 8: one **Save**; the order is **Approved** and holds its stock.
+### TC-SELL-101 — Retail and wholesale: the bill starts at the customer's level, and one switch reprices it
+
+*Added 2026-10-13 (backlog 131). The sales order was **driven over HTTP** that day on a preparation firm (28 checks); the bill typed directly was run in the unit suite only; the screens were not clicked.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** price levels **Retail** and **Wholesale** (*Price Levels*); a product **Soap** selling at 100.00 with 95.00 at Retail and 80.00 at Wholesale; a product **Oil** at 200.00 with 190.00 and 150.00; a product **Salt** at 40.00 with 38.00 at Retail and no Wholesale rate; a customer **T** whose price level is Wholesale; a customer **S** with no price level. Rates do not include GST.
+- **Steps**
+  1. New sales order for T. Add Soap, Oil and Salt, quantity 2 each. Read the **Price level** box and the three rates.
+  2. In the **Price level** box choose **Retail**.
+  3. Type 91.00 over Soap's rate. Save the draft, close it and open it again.
+  4. Choose **Wholesale** in the box.
+  5. Choose **Customer's usual** in the box. Save.
+  6. New sales order for S with the same three lines. Read the box and the rates; then choose **Wholesale**.
+  7. Change the customer of that order to T.
+  8. On a firm that types its bills directly (Sales order and Delivery note stages off): new sales invoice for T, add Soap and Oil; then choose **Retail**; save.
+  9. On a firm with no price level at all, open a new sales order.
+- **Expect**
+  - Step 1: the box reads **Customer's usual** and the line under it says *Usual for this customer: Wholesale*. Rates 80.00, 150.00 and 40.00 (Salt has no wholesale rate, so its own price).
+  - Step 2: all three rates change at once: 95.00, 190.00, 38.00.
+  - Step 3: the order reopens with **Retail** in the box, Soap at 91.00, Oil 190.00, Salt 38.00.
+  - Step 4: every line is repriced, the typed one too: 80.00, 150.00, 40.00.
+  - Step 5: the same prices (T's usual is Wholesale); the saved order names no level of its own.
+  - Step 6: the line under the box says *This customer has no price level: the product's price*; rates 100.00, 200.00, 40.00; after the switch 80.00, 150.00, 40.00.
+  - Step 7: the box goes back to **Customer's usual**.
+  - Step 8: the bill starts at 80.00 and 150.00; after the switch 95.00 and 190.00; the saved bill is billed at those.
+  - Step 9: there is no **Price level** box and the order behaves as before.
+- **Also true, by the server:** an order naming a level that is not the firm's, or one switched off, is refused in words; a bill of delivery notes that names a level is refused (*This bill takes its prices from the documents it bills*); where a role has a discount limit, a cheaper level named on the order counts as a reduction from the customer's own price and needs somebody allowed that much.
+### TC-SELL-102 — Billing and shipping address: what each document takes and what each print shows
+
+*Added 2026-10-13 (customer task C1, decision D6). **Server side driven over HTTP** that day on a preparation firm (41 checks), reading the text of each PDF; three defects found and fixed (D-SELL-92, 93, 94). The screens were not clicked.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product in stock; customer **A** with a billing address in Alphapur (default billing), a shipping address in Betanagar (default shipping) and a second shipping address in Gammabad; customer **B** with one billing address in Deltapur and nothing else; customer **C** with two billing addresses, the older in Epsilonpet and the newer in Zetaguda marked default billing; customer **D** with one address of kind Office in Etapalli marked default for billing and for shipping.
+- **Steps**
+  1. Sales order for A, one line; leave **Ship to** as it opens. Approve, deliver, bill. Open each document.
+  2. Sales order for A; in **Ship to** choose the Gammabad address. Approve, deliver, bill. Print the order, the challan and the bill.
+  3. Sales order for A at Gammabad; on the delivery note choose Betanagar. Bill the note.
+  4. Sales order for A (default); deliver; on the bill choose Gammabad. Print the bill.
+  5. Sales order for B. Approve, deliver, bill. Print the bill and the challan.
+  6. The same for C. Print the order, the challan and the bill.
+  7. The same for D. Print the bill.
+  8. Take the Gammabad address off customer A. Print the bill of step 2 again.
+- **Expect**
+  - Step 1: all three documents ship to Betanagar.
+  - Step 2: all three ship to Gammabad. Each print shows the Alphapur address on the left block and the Gammabad address under SHIP TO / SHIPPED TO; Betanagar is on none of them.
+  - Step 3: the bill ships to Betanagar: it follows the note, not the order.
+  - Step 4: the bill ships to Gammabad and prints it.
+  - Step 5: both blocks of the bill show the Deltapur address; SHIPPED TO is not a name alone. The challan shows it too.
+  - Step 6: every print shows Zetaguda as the billing address and Epsilonpet on none.
+  - Step 7: both blocks show the Etapalli address.
+  - Step 8: the bill still prints Gammabad: where the goods went stays on the paper.
+- **Also true, by the server:** an order, a note or a bill naming an address of another customer is refused (*The ship-to address must be one of the customer's own addresses.*). A half-page bill prints the two addresses the same way.
+### TC-SELL-103 — A rate typed including GST: what the line and each print show
+
+*Added 2026-10-13 (customer task C2, decision D11). **Server side driven over HTTP** that day on a preparation firm (46 checks), reading the text of each PDF; one defect found and fixed (D-SELL-95), one left open (D-SELL-96). The bill typed directly and the screens were not tried.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product at GST 18% and one at GST 5%, both in stock; a customer in the firm's own state.
+- **Steps**
+  1. Sales order, **Rate includes GST** off: one piece of the 18% product at 100. Approve, deliver, bill. Print the order and the bill.
+  2. Sales order, **Rate includes GST** on: one piece at 100. Print the order. Approve, deliver, bill. Print the challan and the bill.
+  3. Sales order, switch on: 7 of the 18% product at 33.33, 3 of the 5% product at 105, 1 of the 18% product at 99.99.
+  4. Sales order, switch on: one piece at 100 with a discount of 10%. Another: two pieces at 100 with a discount amount of 20.
+  5. A draft order, switch on, one piece at 100. Open it, change the quantity to 3, save. Then turn the switch off and save.
+  6. Quotation, switch on, one piece at 100. Print it. Send, accept, convert to an order.
+  7. A draft order, switch on: 500 pieces at 100.
+- **Expect**
+  - Step 1: taxable 100.00, tax 18.00, total 118.00. Each print has one **Rate** column, 100.00.
+  - Step 2: the order line shows the rate 100 as typed; taxable 84.75, tax 15.25, total 100.00. The order's print has **Rate incl. GST** 100.00 beside **Rate** 84.75. The bill totals 100.00 and its print shows the same two columns (D-SELL-95). The challan shows Rate 84.75 and the total 100.00.
+  - Step 3: the order totals 648.30, the sum of the three figures typed (233.31 + 315.00 + 99.99). The 5% line's rate before tax is 100.
+  - Step 4: 90.00 to pay; 180.00 to pay.
+  - Step 5: after the first save the total is 300.00 and the rate still reads 100. After the second it is 354.00: the same 100 is now before tax.
+  - Step 6: the quotation totals 100.00 and prints both rates; the order it becomes has the switch on and totals 100.00.
+  - Step 7: the total reads 50,000.00 (D-SELL-96, fixed 2026-10-13; TC-SELL-104 covers it in full).
+### TC-SELL-104 — A large line typed including GST totals the figure typed
+
+*Added 2026-10-13 with the fix of D-SELL-96 (customer task F1). **Server side driven over HTTP** that day on a preparation firm (28 checks). The bill typed directly was tried in the unit suite only; the screens were not clicked.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product at GST 18% with 5,000 in stock; a customer in the firm's own state.
+- **Steps**
+  1. Sales order, **Rate includes GST** on: 500 pieces at 100.00. Save.
+  2. The same with 1,000 pieces at 100.00, and with 250 pieces at 45.50.
+  3. Quotation, switch on: 500 pieces at 100.00.
+  4. Sales order, switch **off**: 500 pieces at 84.7458.
+  5. Approve the order of step 1, deliver it in full, and bill the delivery note. Do the same for the two orders of step 2.
+  6. A new order as in step 1; approve, deliver in full, and bill 200 of the 500. Approve the bill and print it.
+- **Expect**
+  - Step 1: taxable 42,372.88, tax 7,627.12, total 50,000.00. The line shows the rate 100 as typed and 84.7458 before tax.
+  - Step 2: 100,000.00 and 11,375.00.
+  - Step 3: 50,000.00.
+  - Step 4: unchanged by this fix: taxable 42,372.90, tax 7,627.12, total 50,000.02, because 84.7458 before tax is what was typed.
+  - Step 5: each delivery note and each bill totals what its order does: 50,000.00, 100,000.00, 11,375.00.
+  - Step 6: the bill totals 20,000.00, before and after approval, and prints 20,000.00.
+### TC-SELL-105 — Round every bill to the nearest rupee
+
+*Added 2026-10-13 (customer task F3, backlog 134). Covered by unit tests and a widget test and driven over HTTP on a preparation firm; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a user who may change the sales settings and raise, approve and return bills; a product in stock at a price that gives a total with paise (for example 3 at 33.33 with GST 18%); a customer in the firm's own state.
+- **Steps**
+  1. With the switch as it starts (off), raise and approve a bill of the product. Read its total.
+  2. Open *Settings > Selling > Sales Stages* and switch on **Round every bill to the nearest rupee**. Save.
+  3. Raise the same bill again. Read the totals before saving, then save and approve.
+  4. Open the bill's journal.
+  5. Print the bill.
+  6. Raise a sales return of everything on the bill of step 3, approve and complete it.
+  7. Read the customer's statement and the Rounding account in the trial balance.
+  8. Switch the setting off and raise the same bill once more.
+- **Expect**
+  - Step 1: the total has its paise (117.99 in the example) and no *Round off*.
+  - Step 3: the totals show *Round off* 0.01 and a total of 118.00 before saving; the saved bill reads the same.
+  - Step 4: Trade Receivables is debited 118.00; Sales and the GST accounts are credited what the lines came to; **Rounding** is credited 0.01.
+  - Step 5: the print has a *Round off* line of 0.01 above the total of 118.00.
+  - Step 6: the return credits 118.00 with *Round off* 0.01.
+  - Step 7: the bill and its return leave the customer owing nothing for them, and Rounding stands where it stood before step 3.
+  - Step 8: the bill is left as worked out again, 117.99.
+### TC-SELL-106 — A shop under a parent is covered by the parent's licence
+
+*Added 2026-10-13 (customer task F8, backlog 139). Covered by unit tests and widget tests and driven over HTTP on a preparation firm; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a licence type (for example *Drug licence*); a product category that needs it and a product in that category, in stock; a second product that needs no licence; a parent customer with two shops under it (TC-CUST-014 makes them), none of the three holding a licence; the firm's own licence of the type, valid; a supplier with a branch (TC-BUY-106 makes them). A user who may change the licence settings, record licences and approve orders.
+- **Steps**
+  1. Open *Settings > Set up > Party lists > Licence Check*. Read the switch **A shop must hold its own licence**. Set Sale to **Block**. Save.
+  2. Raise a sales order of the licensed product for the first shop. Approve it.
+  3. On *Trade Licences* record a valid licence of the type for the **parent**. Approve the order of step 2 and read its history.
+  4. Switch **A shop must hold its own licence** on. Save. Raise the same order again and approve it.
+  5. Switch it off again. Change the parent's licence so that it ended yesterday. Approve the order of step 4.
+  6. Make the parent's licence valid again. Record a licence of the type for the **shop** that ended yesterday. Approve the order.
+  7. Make the shop's licence valid. Approve the order.
+  8. Raise an order of the product that needs no licence for the second shop and approve it.
+  9. Record a valid licence of the type for the supplier's **main office**. Raise a purchase order of the licensed product on the supplier's **branch** and approve it; read its history.
+  10. Put the policy back as it was.
+- **Expect**
+  1. The switch is there and off.
+  2. Refused: the shop holds no licence of the type, *and neither does its parent*, named.
+  3. Approved with no prompt. The history's approval entry says the shop holds none and that its parent's licence, by number, *was used*.
+  4. Refused: the shop holds no licence of the type. The parent is not mentioned.
+  5. Refused: the shop holds none; its parent's licence, by number, expired on yesterday's date.
+  6. Refused: the **shop's** licence, by number, expired yesterday. The parent's valid one does not cover it.
+  7. Approved with no prompt, and the history does not mention the parent.
+  8. Approved; no licence is asked of anybody.
+  9. Approved. The history says the branch holds none and that its main office's licence was used.
+### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
+
+*Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` preparation: the full chain and the direct bill, and both refusals. The screens were not clicked.*
+
+- **Preconditions:** the `selling-firm` preparation (product DET is counted in PIECE, which takes no fraction; 100 in MAIN).
+- **Steps:** (a) Sales order for C01: DET, quantity **5.5**, free **0.5**; approve. Delivery note for the line, 5.5; approve; dispatch. Sales invoice of the note, 5.5; approve. (b) Settings > Selling > Sales Stages: switch all three off. New sales invoice: DET, quantity **1.5**, free **0.5**; approve. (c) New sales invoice: DET, quantity **1.5**, free **0**. (d) New sales invoice: DET, quantity **2**, free **0.5**.
+- **Expect:** (a) every step is taken; the note and the bill read 5.5 with 0.5 free; stock falls by **6**; the bill charges 5.5 (462.00 before the price list's discount) and nothing for the half given. (b) the bill is saved and approved; stock falls by **2**. (c) refused: *PIECE is counted in whole numbers, so 1.5 PIECE cannot be entered.* (d) refused the same way, naming **2.5** PIECE: what leaves must be whole pieces.
+### TC-SELL-107 — A Draft sales return is edited, and a quotation with an offer's free line is saved again
+
+*Added 2026-10-14 (D-UI-39, D-SELL-89, D-UI-56, row G6). The quotation steps were driven over HTTP on a preparation firm; the Edit window is covered by widget tests only and **no screen was clicked**, so those steps are written from the build.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product kept in PIECE at 100.00 with a rule that 1 BOX is 12 PIECE, in stock; a customer; an approved bill of 5 of the product to that customer; an offer *buy 10 get 1 free* for that customer; a second offer with **Only with a coupon** switched on. A user holding `SALES_UPDATE` and one who does not.
+- **Steps**
+  1. Sell > Sales Returns > **New**: choose the bill, return **2**, type a reason. Save draft.
+  2. Select the draft. Press **Edit**. Read the window. Change nothing. Save.
+  3. **Edit** again. Change *Returning* to **3**. Save.
+  4. Approve the return. Select it.
+  5. Sign in as the user without `SALES_UPDATE` and select another Draft return.
+  6. Sell > Quotations > **New**: the customer, **2 BOX** of the product. Save. Open it again, change nothing, Save. Then change the quantity to **5 BOX** and Save.
+  7. Open Pricing > Promotions > Offers.
+- **Expect**
+  1. A Draft return of 2.
+  2. The window is headed *Edit sales return* with the return's own number and date, the bill fixed, 2 on the line and the reason typed. After Save the return's lines and totals are what they were.
+  3. The return reads 3. The reason, the date and the number are unchanged.
+  4. No **Edit** on an Approved return.
+  5. No **Edit** for that user.
+  6. The quotation shows 2 BOX and a line *0 + 2 PIECE free* named for the offer. Saved again it is unchanged. At 5 BOX the free line reads **6 PIECE**.
+  7. The grid has a **Coupon** column: *Only with a coupon* on the second offer, *Not needed* on the first.
+- **Also:** while an edit is typed the credit is not worked out again; the window says it is worked out on saving (D-UI-99). A return against several documents, or with a line typed in another unit, is not opened for Edit and the screen says why.
+### TC-SELL-108 — Orders approved together say what stays on back order, and a list under a document reads itself again
+
+*Added 2026-10-14 (D-UI-26, D-UI-60 to 63, row G7). The back-order report was driven over HTTP on a preparation firm; everything on screen is covered by widget tests only and **no screen was clicked**, so those steps are written from the build.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product with **no stock** in the warehouse used; a customer; three Draft sales orders, two for that product (10 and 7) and one for a product in stock; a second user signed in on another machine or window who can raise a sales order.
+- **Steps**
+  1. Sell > Sales Orders. Tick the three Draft orders. Press **Approve selected**. Close the result.
+  2. Select one Draft order for the product with no stock (raise another) and press **Approve**.
+  3. Open an order in **Edit**, so it is a tab beside the list. Have the second user raise a new order. Click the **Sales Orders** tab.
+  4. With the list on show and no document open, have the second user raise another order. Click the **Sales Orders** tab again, or pick Sales Orders from the menu.
+  5. In a new order, click into the **Customer** drop-down and leave its list closed. Type nothing. Press **Esc**. Then type a remark, click into the drop-down again and press **Esc**.
+  6. Open the drop-down's list and press **Esc** once, then again.
+  7. Pricing > Promotions > Offers > **New**. Flip one switch and nothing else. Press **Cancel**. Choose *Keep editing*, flip it back, press **Cancel**.
+  8. Buy > Principal claims: open **Record payment** on a claim, choose an account, press **Cancel**.
+- **Expect**
+  1. *Approved 3 of 3*. Then one warning: *Not in stock, and staying on back order.* naming the two orders by number, each with *10 of 10* and *7 of 7* of the product. The order in stock is not named.
+  2. The order is approved and the warning names what is short on that order alone.
+  3. The list shows the second user's order without Refresh being pressed.
+  4. The same: the new order is there.
+  5. The first Esc closes the order at once. The second asks **Close without saving?**
+  6. The first Esc closes the list and the order stays; the second asks, or closes an untouched order.
+  7. The question is asked after the switch alone. With the switch back as it was, Cancel closes without asking.
+  8. The question is asked.
+- **Also:** `GET /api/v1/sales-orders/reports/back-orders?order_id=<id>&order_id=<id>` answers those orders' rows alone, each equal to its rows of the whole report; 201 ids is a 422. A screen that draws its own Refresh button is not read again in steps 3 and 4 (D-UI-101).
 
 ## Screen checks
 

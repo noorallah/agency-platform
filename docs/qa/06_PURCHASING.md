@@ -6,7 +6,7 @@ explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
 bar, `Sell > Documents > Proforma` is a screen in the
 Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
-right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+right of the bar. Generated on 2026-10-15 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -246,8 +246,7 @@ Cases TC-BUY-029 onward were written from the code and its automated tests on
 2026-10-05 and have not yet been run by hand. Each stands alone: it names what
 it needs and reads nothing another case left. The new screens are under
 Buy > Documents (**Requests for quotation**, **Rate
-contracts**, **Supplier schemes**, **Bills of entry**), Buy > 
-Money > **Payables by Month**, Accounts > **Fixed
+contracts**, **Supplier schemes**, **Bills of entry**), Buy > Money > **Payables by Month**, Accounts > **Fixed
 assets**, and Settings > Tax > **TDS on purchases (194Q, 194C, 194J)**. The
 journals below name the accounts a firm starts with: 1000 Cash, 1010 Bank,
 1200 Inventory, 1310 Input IGST, 1320 Input CGST, 1330 Input SGST, 1430 TCS
@@ -852,19 +851,234 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 
 *Added 2026-10-09 with inventory round 4 (D-BUY-67). Driven over HTTP by `docs/qa/checks/inventory/p_receipt_free_cap.py`.*
 
-- **Preconditions:** The buying firm described in this section's preparation table.
+- **Preconditions:** A firm administrator of QA01, a vendor `QA-V`, and a product `QA-B` *Bought Item* with nothing on hand.
 - **Also needs:** an approved purchase order for **10** of `QA-B` with **2** free, and a second approved order for 10 with none free.
 - **Steps:** as the prepared **Firm admin**: (a) receive **5** against the first order with Free **2**; complete. (b) receive the other 5 with Free **1**; then with Free empty. (c) against the second order receive 5 with Free **1**. (d) cancel the first receipt and receive 5 with Free 2 again.
 - **Expect:** (a) completed: seven on the shelf. (b) refused: *Line 1 brings in 1 free, and line 1 of PO-... has 0 left to give: 2 free on the order, 2 already received.*; with Free empty it completes and the shelf holds 12. (c) refused: the order promised none. (d) a cancelled receipt gives its free units back, so the two are accepted. A draft receipt counts against the line as a completed one does. Free goods a supplier adds after the order are put on the order first.
-
 ### TC-BUY-100 — A refused import of goods receipts or purchase orders writes nothing
 
 *Added 2026-10-09 with inventory round 7 (D-BUY-73). Driven over HTTP by `docs/qa/checks/inventory/p_receipt_import_free.py`; the order half was driven by hand on both servers (`docs/qa/INVENTORY_API_CHECK_ROUND_7_2026-10-09.md`).*
 
-- **Preconditions:** The buying firm described in this section's preparation table.
+- **Preconditions:** A firm administrator of QA01, a vendor `QA-V`, and a product `QA-B` *Bought Item* with nothing on hand.
 - **Also needs:** an approved purchase order for **10** of `QA-B` with **2** free, nothing received against it.
 - **Steps:** **(HTTP)** as the prepared **Firm admin** (the screens offer no import of goods receipts or purchase orders): note how many receipts the order has. (1) `POST /api/v1/goods-receipts/import` with two records on the order line, **5** each, the first with Free **2** and the second with Free **1**. (2) The same file with Free **1** and **1**; complete both receipts. (3) `POST /api/v1/purchases/import` with two orders, the second naming a product that is not the firm's. (4) The same file with both products right.
 - **Expect:** (1) **422**, "Record 2 of 2: Line 1 brings in 1 free, and line 1 of PO-... has 0 left to give: 2 free on the order, 2 already received. Nothing was imported." The order has the same receipts as before: the good first record was not left behind as a draft. (2) **201**, two draft receipts with their own numbers; completed, the shelf holds 12. (3) **422**, "Record 2 of 2: Selected product is not available in this firm. Nothing was imported.", and no order was written. (4) **201**, two draft orders, numbered one after the other.
+### TC-BUY-101 — Approval switched off for a buying document: one Save completes it, and only for whoever raised it
+
+*Added 2026-10-13 (backlog 120). **Driven over HTTP** that day on a preparation firm (60 checks); the screens were not clicked.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product **P**; a supplier **V**; a warehouse **W**; a second user **B** holding only the **Purchase Executive** role. The firm administrator is **F**.
+- **Steps**
+  1. As B, open *Settings > Buying > Purchase Settings*.
+  2. As F, open *Purchase Settings*. Under **Approval** switch **Purchase orders wait for approval** off. Save.
+  3. As B, new purchase order to V: P, quantity 5 at 60, into W. Press **Save**.
+  4. As F, raise the same order and leave it submitted (by the API, or with the switch on for a moment). As B, open that order.
+  5. As F, switch **Purchase orders wait for approval** on again and save. As B, new purchase order to V: P, quantity 5. Press the save button, then Submit.
+  6. As F, approve B's order of step 5.
+  7. As F, switch **Goods receipts are completed as a step of their own** off. As B, new goods receipt against the order of step 3: P, quantity 3. Press **Save**.
+  8. As F, switch the purchase order and goods receipt stages off, set the default warehouse to W, and switch **Supplier bills wait for approval** off. As B, new supplier bill from V: P, quantity 3 at 60. Press **Save**.
+  9. As F, new supplier bill from V, left as a draft (by the API). As B, open that draft.
+  10. As F, switch **Supplier bills wait for approval** on. As B, new supplier bill from V: P, quantity 3. Press the save button.
+  11. As F, switch everything back as it was.
+- **Expect**
+  - Step 1: B cannot change the settings.
+  - Step 2: the Approval part shows three switches, all on until changed. A line under the heading says that with a switch off Save completes the document, whoever raised it approves it, the checks are still made, and a change applies to documents raised from then on. The goods receipt's switch says a receipt has no approver and that off, Save also completes the receipt and brings the stock in.
+  - Step 3: the window shows one button, **Save**. The order is **Approved**.
+  - Step 4: B is not offered Approve on an order somebody else raised (the server answers *Only whoever raised this purchase order may approve it without PURCHASE_APPROVE*).
+  - Step 5: the order stays **Submitted** and B is not offered Approve (the server answers *This purchase order waits for approval, which needs PURCHASE_APPROVE*). An order B raised while the switch was off, and left submitted, can still be approved by B.
+  - Step 6: approved.
+  - Step 7: one **Save**; the receipt is **Completed** and stock of P in W rises by 3. A receipt raised before the switch went off still shows Save and Complete apart.
+  - Step 8: one **Save**; the bill is **Approved** and stock of P in W rises by 3.
+  - Step 9: B is not offered Approve on a bill somebody else raised.
+  - Step 10: the bill stays a **Draft** and B is not offered Approve (the server answers *This purchase invoice waits for approval, which needs PURCHASE_APPROVE*).
+### TC-BUY-102 — An order on the main office is received from a branch and billed by it
+
+*Added 2026-10-13 (backlog 127). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product and a warehouse.
+- **Steps**
+  1. Open *Buy → Suppliers*. Add a supplier, the main office, with its GST number. Add a second supplier with a GST number of another state and choose the first under **Branch of**. Save.
+  2. Open the main office again and look at **Branches**. Look at the *Main office / branches* column of the list.
+  3. Try to choose the branch as **Branch of** on a third supplier. Try to delete the main office.
+  4. Raise a purchase order on the main office for 10 of the product at 100.00 and approve it.
+  5. Open *Goods Receipts* → new, choose that order. Under **Received from** choose the branch. Receive all 10 and complete it.
+  6. Open the order.
+  7. Raise a supplier bill: choose the branch as the supplier, tick that receipt, save and approve.
+  8. Open *Buy → Money → Payments* → **Record payment**. Choose the main office and look at the list of bills.
+  9. Amount 1,500.00, by bank. Set the bill's full amount against the branch's bill. Save.
+  10. Open the supplier statement of the branch, and of the main office.
+  11. Record a payment to a second branch of the same main office and look at the list of bills.
+  12. Reverse the main office's payment with a reason. Open both statements again.
+- **Expect**
+  - Step 1: saved. The branch keeps the GST number typed on it.
+  - Step 2: the panel lists the main office and the branch with what each is owed and one total; the list shows *Branch of* the main office's code on the branch and *1 branch* on the main office.
+  - Step 3: both refused. The first says the supplier is itself a branch and names its main office; the second says the main office has a branch and names it.
+  - Step 5: **Received from** lists the main office and the branch, the main office chosen first. The receipt is saved in the branch's name.
+  - Step 6: the order is still on the main office and reads Received.
+  - Step 7: saved in the branch's name; the tax is worked out for the branch's state. The branch is owed the bill; the main office is owed nothing.
+  - Step 8: the branch's bill is listed with the branch's code and name under the bill number, and a line above says the bills of the branches under this supplier are listed too.
+  - Step 9: saved as one payment in the main office's name; what was not set against the bill stays on the main office's account.
+  - Step 10: the branch's statement has the bill and a line *Paid by the main office* for the same amount, and closes at nothing. The main office's statement has the payment and a line *Paid for a branch*, and closes at the amount paid ahead.
+  - Step 11: only that branch's own bills are listed; not the first branch's and not the main office's.
+  - Step 12: the branch is owed its bill again, the main office's statement closes at nothing, and both statements keep the earlier lines with a reversal line under each.
+
+### TC-BUY-103 — A supplier is added from the purchase order being typed
+
+*Added 2026-10-13 (backlog 128). Covered by widget tests; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product; a second user who may raise purchase orders but may not add suppliers.
+- **Steps**
+  1. Open *Buy → Purchase Orders* → new. Add a line: the product, quantity 7.
+  2. Press **New vendor** beside the supplier box.
+  3. Type only a name not used before and press **Save vendor**.
+  4. Save the order. Open *Buy → Suppliers*.
+  5. Open a new order, press **New vendor**, type a name and press **Cancel**.
+  6. Press **New vendor** again, type the name used in step 3 and save.
+  7. On a firm that types supplier bills directly (order and receipt stages off): open *Buy → Purchase Invoices* → new and press **New supplier**. Type a name and save.
+  8. Sign in as the second user and open a new purchase order.
+- **Expect**
+  - Step 2: the supplier form opens over the order, on the same tab.
+  - Step 3: the form closes and the order is shown again. The supplier box names the new supplier, and the line with quantity 7 is still there.
+  - Step 4: the order is saved for the new supplier. The supplier is in the list with a code of the firm's series.
+  - Step 5: the order is shown again with no supplier chosen; no supplier was added.
+  - Step 6: a warning lists the supplier that looks the same. Going back keeps the form open with what was typed.
+  - Step 7: the bill is shown again with the new supplier chosen.
+  - Step 8: there is no **New vendor** button.
+
+### TC-BUY-104 — A purchase order for one brand offers only that brand's products
+
+*Added 2026-10-13 (backlog 129). The server steps were driven over HTTP; the screens are covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** two companies under *Set up → Item lists → Principals*, `HUL` and `PG`; three brands under *Brands*: `Surf` and `Lux` of HUL, `Tide` of PG; a product of each brand and one product with no brand; two suppliers, `A` and `B`.
+- **Steps**
+  1. Open *Buy → Suppliers*, open supplier `A`. In **Brands this supplier sells** tick `Surf` and press **Save brands**.
+  2. Open *Buy → Purchase Orders* → new and choose supplier `A`. Open the product box of the first line.
+  3. In the **Brand** box choose **Every product**. Open the product box again.
+  4. Choose the `Tide` product on the line, then set the **Brand** box back to **All brands of this supplier**.
+  5. Choose supplier `B`, which has no brand ticked. Open the product box.
+  6. On supplier `B` tick `Surf` and `Tide` and save. Open a new order for `B` and choose `Tide` in the **Brand** box.
+  7. Open *Set up → Item lists → Brands* and delete `Surf`.
+  8. Open *Sell → Sales Orders* → new. In the **Brand** box choose the entry for company HUL. Open the product box.
+- **Expect**
+  - Step 1: the tick is kept when the supplier is opened again.
+  - Step 2: the **Brand** box reads *All brands of this supplier*. The product box lists only the `Surf` product.
+  - Step 3: the product box lists every product, the one with no brand too.
+  - Step 4: the line still shows the `Tide` product. A new line's product box lists only the `Surf` product.
+  - Step 5: the **Brand** box reads *All products* and the product box lists every product.
+  - Step 6: the product box lists only the `Tide` product. Supplier `B` holds brands of two companies.
+  - Step 7: refused: the brand is still on a product, and when no product carries it, still named on a supplier. The message names the supplier.
+  - Step 8: the product box lists only the `Surf` and `Lux` products.
+
+### TC-BUY-105 — An order planned for a company matches a hand calculation
+
+*Added 2026-10-13 (backlog 130). The server steps were driven over HTTP; the screen is covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a warehouse of its own for the case; a company `HUL` under *Set up → Item lists → Principals* that names supplier `A` as the one it is bought from, with brands `Surf` and `Lux`; three products of those brands, `P1`, `P2`, `P3`, with opening stock of 102, 65 and 60 in that warehouse; one sales order for 100, 45 and 10 of them, dispatched today from that warehouse; a product `Q1` of another company's brand.
+- **Steps**
+  1. Open *Buy → Purchase Orders* → **...** → **Plan an order...**. Choose the warehouse and company `HUL`, type **30** in *Sales of the last ... days* and **30** in *Stock for ... days*, press **Show**.
+  2. Work each row out by hand: sold ÷ 30 × 30, less *In hand*, less *On order*.
+  3. Change *Sales of the last ... days* to **60** and press **Show**.
+  4. Set it back to 30 and press **Show**. Type **60** in the *Order* box of `P1`, leave `P2` ticked, untick anything else, press **Raise draft orders**.
+  5. Open **Plan an order...** again with the same choices and press **Show**.
+  6. Tick `P3` and press **Raise draft orders**.
+  7. Press **Download**.
+- **Expect**
+  - Step 1: three rows, `P1`, `P2`, `P3`; `Q1` is not listed. Sold 100, 45, 10; in hand 2, 20, 50; on order 0. *Order* reads 98, 25 and nothing. `P1` and `P2` are ticked, `P3` is not. The supplier on each row is `A`.
+  - Step 2: the hand sums are 98, 25 and less than nothing, the same as the screen.
+  - Step 3: *Needed* reads 50, 22.5 and 5; *Order* reads 48, 3 and nothing.
+  - Step 4: one draft purchase order on supplier `A` for that warehouse, with 60 of `P1` and 25 of `P2`. Its remarks say it was raised from the order plan.
+  - Step 5: `P1` shows 60 on order and 38 to order; `P2` shows 25 on order and nothing to order.
+  - Step 6: refused, nothing to order for `P3`; no order is raised.
+  - Step 7: an Excel sheet with the rows and figures on the screen.
+
+### TC-BUY-106 — A supplier's GST number is held once; a branch takes its main office's
+
+*Added 2026-10-13 (backlog 136). The server steps were driven over HTTP; the form is covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** two GST numbers nobody in the firm holds, `G1` (state 36) and `G2` (state 29) on one PAN, and a third, `G3`, on another PAN
+- **Steps**
+  1. *Buy → Suppliers* → **New**. Code `MAIN`, GSTIN `G1`. Save.
+  2. **New**. Code `BR1`, **Branch of** `MAIN`, GSTIN left blank. Save, then open it again.
+  3. **New**. Code `BR2`, **Branch of** `MAIN`, GSTIN `G2`. Save.
+  4. **New**. Code `OTHER`, no main office, GSTIN `G1`. Save.
+  5. **New**. Code `OTHER`, no main office, GSTIN `G2`. Save.
+  6. Open `MAIN`, change the GSTIN to `G3` and the PAN to match. Save. Open `BR1` and `BR2`.
+  7. **New**. Code `OTHER`, GSTIN `G1`. Save.
+  8. Open `BR1`, clear **Branch of**. Save.
+  9. Delete `OTHER`. **New**, code `AGAIN`, GSTIN `G1`. Save. Then restore `OTHER`.
+- **Expect**
+  - Step 2: saved. The form opens with the GSTIN box blank and under it "Blank takes the main office's GST number (`G1`)". The **Branches** panel on `MAIN` shows `BR1` with "`G1` (main office's)". The supplier list and any report show `BR1` under `G1`.
+  - Step 3: saved; `BR2` holds `G2` as its own.
+  - Step 4: refused. The message says `G1` is held by `MAIN`, and to make this supplier a branch of `MAIN` and leave its GST number blank.
+  - Step 5: refused, naming `BR2`.
+  - Step 6: `BR1` now shows `G3` and the new PAN; `BR2` still holds `G2`.
+  - Step 7: saved: the number the company gave up is free.
+  - Step 8: `BR1` is a supplier on its own with no GST number; it does not keep `G3`.
+  - Step 9: `AGAIN` is saved with `G1`. Restoring `OTHER` is refused: its GST number is now held by `AGAIN`.
+
+### TC-BUY-107 — A new branch of the supplier is added while the goods are recorded
+
+*Added 2026-10-13 (backlog 140). Covered by widget and unit tests; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** two suppliers, `MAIN` with one branch under it and `ALONE` with none; an approved purchase order on each; a second user who may receive goods but may not add suppliers. For steps 8 to 10, a firm that types orders but no goods receipts, with an approved order on `MAIN`.
+- **Steps**
+  1. Open *Buy → Goods Receipts* → new. Before choosing an order, look for **New branch**.
+  2. Choose the order on `MAIN`. Type a supplier's invoice number.
+  3. Press **New branch**. Look at **Branch of**. Type only a name and save.
+  4. Save the receipt and open it again. Open *Buy → Suppliers*.
+  5. Open a new receipt, choose the order on `ALONE` and press **New branch**. Type a name and save. Save the receipt.
+  6. Open a new receipt, choose the order on `MAIN`, press **New branch**, clear **Branch of**, type a name and save.
+  7. Sign in as the second user, open a new receipt and choose the order on `MAIN`.
+  8. On the firm that types no receipts: open *Buy → Purchase Invoices* → new and choose the order on `MAIN`.
+  9. Press **New branch**, type a name and save. Type the supplier's invoice number and save the bill.
+  10. Open *Buy → Goods Receipts* and find the receipt the bill raised.
+- **Expect**
+  - Step 1: there is no **New branch** button until an order is chosen.
+  - Step 2: **Received from** lists the main office and its branch, and **New branch** is beside it.
+  - Step 3: the supplier form opens over the receipt with **Branch of** naming `MAIN`. After the save the receipt is shown again, **Received from** names the new branch, and the invoice number typed is still there.
+  - Step 4: the receipt is from the new branch. The supplier list shows the new branch as *Branch of MAIN*, with the main office's GST number where it typed none.
+  - Step 5: there is no **Received from** box at first, only the button. After the save the box is there with the new branch chosen, and the receipt is saved as from it. `ALONE` now shows *1 branch*.
+  - Step 6: the supplier is saved. The receipt says it was not saved as a branch of `MAIN` and cannot be received from; **Received from** is unchanged.
+  - Step 7: **Received from** is shown and **New branch** is not.
+  - Step 8: a **Billed by** box lists the offices of `MAIN`, with the main office chosen, and **New branch** is beside it.
+  - Step 9: **Billed by** names the new branch, and the bill is saved in that branch's name. The order is still on `MAIN`.
+  - Step 10: the receipt is from the same branch as the bill.
+
+### TC-BUY-108 — A plan opens on six months, and every quantity is raised at once
+
+*Added 2026-10-13 (backlog 142). The server steps were driven over HTTP; the screen is covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** the warehouse, company `HUL`, supplier `A` and products `P1`, `P2`, `P3` of TC-BUY-105 before any order is raised from its plan (opening stock 102, 65 and 60; 100, 45 and 10 sold today); supplier `A` listing `P3` in its catalogue with an order multiple of 12.
+- **Steps**
+  1. Open *Buy → Purchase Orders* → **...** → **Plan an order...**.
+  2. Click **3 months**, then **1 year**, then **6 months**. Type **45** in the box.
+  3. Click **1 month**, type **30** in *Stock for ... days*, choose the warehouse and `HUL`, press **Show**.
+  4. Type **10** in *Raise all by ... %* and press **Apply**.
+  5. Type **20** and press **Apply**. Then type **0** and press **Apply**. Then **10** and **Apply** again.
+  6. Type **110** in the *Order* box of `P1`.
+  7. Type **-5** in the percentage box, then **abc**.
+  8. Put **10** back without pressing Apply, and press **Raise draft orders**.
+  9. Open the draft order that was raised.
+  10. Open **Plan an order...** again, click **1 month**, type **365** in *Stock for ... days*, choose the same warehouse and company, press **Show**, type **1** in the percentage box and press **Apply**.
+- **Expect**
+  - Step 1: *Sales of the last ... days* reads **180** and **6 months** is marked, whatever the firm's *Reorder planning* days are. *Stock for ... days* reads the firm's figure. **Apply** cannot be pressed: nothing is listed yet.
+  - Step 2: the box reads 90, then 365, then 180, and the choice clicked is the one marked. With 45 typed none is marked.
+  - Step 3: *Order* reads 98, 25 and nothing; `P1` and `P2` are ticked.
+  - Step 4: *Order* reads **108** (98 + 10% is 107.8) and **28** (25 + 10% is 27.5); `P3` is still blank and not ticked. The label reads "Raised by 10%".
+  - Step 5: 118 and 30; then 98 and 25 again; then 108 and 28. A second Apply never compounds the first.
+  - Step 6: the box keeps 110.
+  - Step 7: **Apply** cannot be pressed for either.
+  - Step 8: one draft purchase order on supplier `A`.
+  - Step 9: the order holds 110 of `P1` and 28 of `P2`.
+  - Step 10: the *Order* box of `P3` reads a whole number of dozens before Apply and after it; after Apply it is the next dozen at or above the suggestion plus 1%.
 
 ## Screen checks
 

@@ -6,7 +6,7 @@ explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
 bar, `Sell > Documents > Proforma` is a screen in the
 Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
-right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+right of the bar. Generated on 2026-10-15 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -64,6 +64,14 @@ for a tester with a REST client such as Postman; skip them otherwise.
 - **Preconditions:** signed in as the platform administrator with a firm selected. Since migration `20261002_0231` every firm store already holds the seven southern states' places: first open a customer address on a fresh install and type PIN **600001** (Chennai) -- it must fill without any loading. Then delete nothing and continue.
 - **Steps:** open the geography screen → **Load places from India Post...**. Look at which states are ticked. Untick all but **Lakshadweep** and **Load**. Then open a customer address and type PIN **682554**. Run the load again for Lakshadweep.
 - **Expect:** the seven southern states are ticked by default, each showing its PIN codes and post offices; the source line names India Post and data.gov.in. The Lakshadweep load reports 1 district, 9 towns, 9 PIN codes and 10 localities. PIN 682554 offers town **Chetlat**, district **Lakshadweep District**, state Lakshadweep, and localities Bithra and Chetlat. The second load adds nothing and the counts stay the same.
+
+### TC-TERR-007 — A salesman with no sign-in covers a round
+
+*Added 2026-10-14 (P2, the firm's own list of salesmen). **No screen was clicked**.*
+
+- **Preconditions:** A Wholesale firm with the territories, routes, rounds, salespeople and beat plans described in this section's preparation table. (, plus a salesman entry `Phone order` tied to no user (Settings > Selling > Salesmen).)
+- **Steps:** Settings > Set up > Territories & routes > Territories → the prepared S1 round → **Salespeople** → add `Phone order` (not primary) → Save. Sell > Field sales > **Coverage**, read the salesman view.
+- **Expect:** the assignment is accepted: the picker lists entries of the firm's list, not users. Coverage lists `Phone order` against S1. Over the API, an assignment naming a user's id that is not an entry is refused: "That salesman is not on this firm's list of salesmen. Add him under Salesmen first."
 
 ## Screen checks
 

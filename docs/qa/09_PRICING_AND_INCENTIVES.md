@@ -6,7 +6,7 @@ explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
 bar, `Sell > Documents > Proforma` is a screen in the
 Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
-right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+right of the bar. Generated on 2026-10-15 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -25,6 +25,155 @@ commission uses `commission-firm`:
 | --- | --- |
 | `loyalty-points` | `selling-invoiced` — Vijaya's invoice for 483.21 — plus **200 points** credited to Vijaya by adjustment |
 | `commission-firm` | `territory-firm` plus: firm-wide **4%** of money collected; **Asha 15%** on `QA-P` only; **Bala** a ladder (2% to 50,000 then 4%, nothing below 1,000, 2% bonus when his target is met). Asha sold 20 `-P` (2,360.00) and 30 `-Q` (3,540.00); Bala 40 `-Q` (4,720.00); **all collected** today. This month's targets: Asha 1,000 (met), Bala 100,000 (missed) |
+
+### TC-SELL-109 — Print says which paper the bill needs, and one print can be switched between half and full
+
+*Added 2026-10-14 (backlog 151, row P1). The server was driven over HTTP on a preparation firm; the box on screen is covered by widget tests only and **no screen was clicked**, so those steps are written from the build. Nothing was put through a printer.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a product **P** with stock; two customers, **A** (Bill paper: Firm's setting) and **B**. Where the firm types orders and delivery notes, each bill below continues a note.
+- **Steps**
+  1. With the firm's **Paper** at **A4** under *Print settings*, open customer B, set **Bill paper** to **Half page** and save. Raise and approve a one-line bill for B. Choose *Print*.
+  2. Set **Paper** to **Half page (half of A4)** under *Print settings*. Raise and approve a one-line bill for A. Choose *Print*.
+  3. In the box choose **Full page** and then *Print*.
+  4. Choose *Print* on the same bill again and look at the box.
+  5. Open customer B, set **Bill paper** to **Full page (A4)** and save. Choose *Print* on B's bill.
+  6. In the box choose **Half page** and then *Print*.
+  7. Raise and approve a bill for A with sixty lines. Choose *Print*.
+  8. Choose *Print* on any bill and then *Cancel* in the box.
+  9. Tick A's short bill and B's bill and choose *Print selected*.
+  10. Set **Paper** back to **A4**.
+- **Expect**
+  - Step 1: no box. The bill prints on full A4 pages, though B is set to half a page.
+  - Step 2: a box titled *Print* and the bill's number says the bill prints on a **Half page**, and to check the paper in the printer's tray. **Half page** is chosen, **Full page** is offered.
+  - Step 3: full A4 pages.
+  - Step 4: the box opens on **Half page** again: the choice of step 3 was for that print alone.
+  - Step 5: the box says the bill prints on a **Full page** because this customer's bills are set to a full page. **Full page** is chosen, **Half page** is offered.
+  - Step 6: half pages.
+  - Step 7: the box says the bill prints on a **Full page** because it is too long for half a page. Nothing is offered to choose. It prints on full A4 pages.
+  - Step 8: nothing prints and no message is shown.
+  - Step 9: no box. One file: A's bill on half pages, B's on full pages.
+- **Also true, by the server:** `paper=HALF` asked of a firm on A4 is refused (*The paper is chosen at printing only where the firm prints its bills on half pages.*).
+### TC-SELL-110 — A product that needs two licences is checked for both
+
+*Added 2026-10-14 (backlog 152, row P3). The server was driven over HTTP on a preparation firm; the two forms are covered by widget tests only and **no screen was clicked**, so the screen steps are written from the build.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** two active licence types, **L1** and **L2**; the firm holding a valid licence of each; a product **P** with stock; a customer **C** holding neither; *Licence Check* for sales set to **Block**.
+- **Steps**
+  1. Open product P. Under **Licences needed** choose *Add licence* and pick L1, then again and pick L2. Save.
+  2. Raise a one-line sales order for P to customer C and choose *Approve*.
+  3. Give customer C a valid licence of type L1. Approve the order again.
+  4. Give customer C a licence of type L2 that expired last month. Approve the order again.
+  5. Change C's L2 licence to be valid today. Approve the order again.
+  6. Open product P, remove L2 from **Licences needed** with the cross on its chip, and save. Take C's L2 licence away. Raise and approve another order for P to C.
+  7. Open P's category, tick L1 and L2 under **Licences needed**, and save. Open P, remove L1 so that the list is empty, and save. Raise and approve another order for P to C.
+- **Expect**
+  - Step 1: P shows two chips, L1 and L2, and the helper reads *The buyer must hold every one of these.*
+  - Step 2: refused. The message names both licences: C holds no L1, and C holds no L2.
+  - Step 3: refused. The message names L2 only.
+  - Step 4: refused. The message says C's L2 licence expired, with its number and date.
+  - Step 5: approved, with no licence warning.
+  - Step 6: approved: P now needs L1 alone, as a product naming one licence always did.
+  - Step 7: refused, naming L2: with no list of its own, P takes its category's two.
+- **Also true, by the server:** a licence type on a product's or a category's list cannot be deleted; an edit that does not mention the list leaves it alone; the purchase check asks the supplier for every one the same way and only warns.
+### TC-SELL-111 — A list opens on the financial year, and an older bill is one step back
+
+*Added 2026-10-14 (customer task P6, IMP-3, backlog 155). Covered by widget tests; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Fixture:** a firm with sales bills in two financial years (a demo firm with two years of trading; `ready-firm` holds one year only)
+- **Steps**
+  1. Open *Sales > Sales Invoices* and read the Period button.
+  2. Look for a bill of last year by scrolling to the end of the list.
+  3. Press the arrow to the left of the Period.
+  4. Open the Period and choose **All dates**.
+  5. Open a bill of last year and raise a sales return against it.
+  6. Open *Sales > Sales Orders* from the menu, then go to Home and press **Orders to approve**.
+  7. Open *Reports* and read the From and To dates.
+  8. Open *Sales > Sales Returns* on a firm that has raised none this year.
+- **Expect**
+  - Step 1: the button reads **This financial year** and the list holds this year's bills only.
+  - Step 2: no bill dated before the first day of the year is listed.
+  - Step 3: the list shows last year's bills and the button reads its dates.
+  - Step 4: bills of both years are listed, newest first.
+  - Step 5: the return is taken; nothing asks which year to work in.
+  - Step 6: from the menu the list is on **This financial year**; from Home it shows the drafts over **All dates**.
+  - Step 7: From is the first day of the firm's financial year and To is today.
+  - Step 8: the list says **Nothing in these dates** and how to see older ones, not *No search results*.
+### TC-SELL-112 — The full-page bill carries what the trade's bill carries
+
+*Added 2026-10-14 (customer task P2, PRT-4). Printed over HTTP by the build loop; **no screen was clicked**.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, with a round the customer belongs to, and two batch-tracked products: one received with a manufacture date on its batch, one without)
+- **Steps**
+  1. Under *Sales > Sales Invoices > Print settings > Payment and terms*, type two lines of **Terms** and save.
+  2. Sell and dispatch both products to the customer on his round (say 4 of the first with 1 free, 6 of the second) and raise the bill from the delivery note.
+  3. Print the bill on a full page.
+  4. Set the paper to **Half page** under *Print settings* and print the same bill.
+  5. Print a bill of a product that keeps no batches.
+- **Expect**
+  - Step 3: the particulars name **Market** with the round's name. The lines have a **Mfg** column between Batch and Expiry: the first line reads the month and year its batch was made (`01/26`), the second is blank. The expiry is a whole date and no figure prints over the one beside it. The free goods print under the quantity. Under the lines **Total quantity** reads 10, and names 1 free beside it. Each line states **GST %** and **GST**; CGST and SGST are named in the totals and in the HSN summary. The terms print line by line under **TERMS**.
+  - Step 4: the half page names **Market**, has the **Total quantity** row (10, and 1 under Free), and prints the terms under the amount in words. It has no Mfg column.
+  - Step 5: no Mfg column; **Total quantity** is there; each tax component has its own rate and amount columns as before.
+### TC-SELL-113 — A firm chooses the trade's layout for its bill, after seeing a sample
+
+*Added 2026-10-14 (backlog 143, PRT-5). Built in the attended session; **no screen was clicked**.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, with a customer on a round and a batch-tracked product with an MRP on its batch)
+- **Steps**
+  1. Under *Sales > Sales Invoices > Print settings*, keep the paper on **A4** and open **Bill layout**.
+  2. Choose **Trade (boxed, with MRP and PTR)**, type a line of **Terms**, and press **Preview** without saving.
+  3. Close the sample and the dialog without saving, and print any bill.
+  4. Open *Print settings* again, choose **Trade**, save, and print the same bill.
+  5. Set the paper to **Half page**, and look for **Bill layout**.
+  6. Print a stock transfer or a contra voucher.
+- **Expect**
+  - Step 1: **Bill layout** reads **Standard**.
+  - Step 2: a sample bill opens in the boxed layout, headed *SAMPLE - NOT A TAX INVOICE*, with the firm's own name and address, the line of terms just typed, and the columns M.R.P, D.Price, QTY, Free, P.T.R., Disc., GST%, Net Value, Batch, MfgDt and ExpDt.
+  - Step 3: the bill prints in the standard layout: a preview saves nothing.
+  - Step 4: the bill prints in the boxed layout. D.Price is the rate with its GST (250.00 at 18% reads 295.000); Gross less the discount is the taxable value; CGST and SGST are named in the totals; **Net Payable** is the bill's total. The customer's licences print under his details, not at the foot.
+  - Step 5: no **Bill layout** box: the half page keeps its own layout.
+  - Step 6: the transfer or voucher prints as before.
+### TC-SELL-114 — A salesman with no sign-in, picked on a bill
+
+*Added 2026-10-14 (P2, the firm's own list of salesmen). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Steps:** as the prepared **Firm admin**: Settings > Selling > **Salesmen** → New: name `Phone order`, Signs in as left empty, Earns commission off → Save. Sell > Sales Invoices → New counter bill for `QA-C01`, one line `QA-DET` × 1; open the Salesman box and choose `Phone order` → Save. Open the saved bill.
+- **Expect:** `Phone order` is saved with no user and appears in the list; it is offered in the Salesman box; the saved bill shows `Phone order` as its salesman. No user account was needed.
+
+### TC-SELL-115 — What the Salesman box starts on
+
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** salesman entries `Asha` (tied to the user you sign in as), `Bala` and `Chitra`; `QA-C01` with account manager Bala and on a round whose primary salesman is Chitra; `QA-C02` with no account manager and the same round; a customer with neither.
+- **Steps:** as the user tied to Asha: Sell > Sales Orders → New Order, choose `QA-C01`; read the Salesman box. Change it to Chitra. Repeat as a user tied to no entry with `QA-C01`, then `QA-C02`, then the customer with neither. Finally raise a delivery note and a bill from an order that names Chitra.
+- **Expect:** signed in as Asha's user, the box starts on **Asha** for every customer, and Chitra can be picked instead and saves. As the untied user: `QA-C01` starts on **Bala** (account manager), `QA-C02` on **Chitra** (round's primary salesman), the third customer **blank**. The note and the bill take **Chitra** from the order and do not ask. An inactive entry is never the starting choice.
+
+### TC-SELL-116 — "Salesman required" refuses a save without one
+
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Steps:** as the prepared **Firm admin**: Settings > Selling > Sales Stages → switch **Salesman required** on → Save. Sell > Sales Orders → New Order for a customer with no account manager and no round, Salesman left blank → Create draft. Repeat for a delivery note and a sales bill. Switch the setting off and save each again. Last, with the setting on again, save a quotation with no salesman.
+- **Expect:** with it on, the order, the delivery note and the bill are each refused with "This firm requires a salesman on every order, delivery note and bill. Choose one in the Salesman box." and nothing is saved. With it off, all three save. The quotation saves either way. Documents already saved are untouched by turning the switch on.
+
+### TC-SELL-117 — Order By on the printed bill
+
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Steps:** save a bill naming salesman `Asha` and a second bill with none. Print each as a full-page bill in the **Standard** layout, then in the **Trade** layout. Delete the entry `Asha` (Settings > Selling > Salesmen) and print the first bill again. Print the first bill on the half-page and on the roll.
+- **Expect:** both full-page layouts print an *Order By* row reading **Asha** (the trade layout at the head, the standard one in the particulars); the bill with no salesman prints no *Order By* row at all. After the entry is deleted the first bill still prints *Asha*. The half-page and the roll have no *Order By* row.
+
+### TC-SELL-118 — Two salesmen cannot share a name
+
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Steps:** Settings > Selling > Salesmen: with `Phone order` present, New → name `phone order` → Save. Then New → name `Phone Order 2` → Save; edit it to read `PHONE ORDER` → Save.
+- **Expect:** the first save is refused in words (the name is already on the list, whatever the case) and nothing is added; the second is saved, and the edit to `PHONE ORDER` is refused the same way.
 
 ### TC-INCENT-001 — A price list is a ladder, and a promotion still outranks it
 
@@ -57,8 +206,6 @@ commission uses `commission-firm`:
 - **Expect:** under the line's blank box "Last priced at **7.5**% by a promotion" (BULK5); the **Discount on the whole order** box blank with "Last taken off: 200 by a promotion." (BIGORDER). CLEARANCE (1% at 40+, priority 30) did **not** apply: BIGORDER (priority 20) ends the stack. Both survive the unchanged save.
 ### TC-INCENT-005 — Loyalty: the scheme, a balance, and spending points settles a bill
 
-*Corrected on 2026-10-07 from the pricing pass (ten rounds driven over HTTP: `docs/qa/PRICING_API_CHECK_ROUND_1_2026-10-06.md` to `docs/qa/PRICING_API_CHECK_ROUND_10_2026-10-07.md`). The earlier text named figures the product does not give; this text is what it does give. The steps are not yet re-driven on screen.*
-
 - **Preconditions:** As *selling-invoiced*, plus 200 loyalty points credited to the first customer.
 - **Steps**
   1. Settings > Set up > Pricing > **Loyalty**. Reports > Financial → **Loyalty balances**.
@@ -67,39 +214,32 @@ commission uses `commission-firm`:
   4. Use points again, 5000.
   5. Reports > Operational → **Points about to lapse**.
 - **Expect**
-  - Step 1: the banner "2 points per 100, worth 1 each and expire after 24 months. At least 50 before any can be spent." The 50 is a **balance to reach** before any can be spent, not the smallest redemption: a customer holding 109.66 can spend 40. The balances report lists Vijaya with **209.6642** points worth 209.66: the 200 credited and **9.6642 earned by approving her invoice of 483.21** (2 per 100). It has a **lapsed** column, 0 here.
+  - Step 1: the banner "2 points per 100, worth 1 each and expire after 24 months. At least 50 before any can be spent."; the balances report lists Vijaya with **200** points worth 200.00 — **more if your build ran the loyalty scheme setup before approving her invoices**: points are earned at approval, not credited afterward, so an invoice approved while the scheme was already on adds its own 2 per 100 on top of the 200 credited here.
   - Step 2: "100 points used on SI-…".
-  - Step 3: Dr **2600 Loyalty Payable 100.00** / Cr **1100 Trade Receivables 100.00**. Outstanding **383.21**, 100 lower; the invoice's total and tax unchanged: the bill is **settled**, not discounted.
-  - Step 4: refused outright: "That customer holds **109.6642** points, not 5000.0000." No journal.
-  - Step 5: **empty**: nothing in this store is within 90 days of lapsing. *(WHOLE01's aged batches, and the oldest-first spending they showed, need points two years old; a preparation cannot age them. Lapsed points are TC-INCENT-017.)*
+  - Step 3: Dr **2600 Loyalty Payable 100.00** / Cr **1100 Trade Receivables 100.00**. Outstanding **383.21** — 100 lower; the invoice's total and tax unchanged: the bill is **settled**, not discounted.
+  - Step 4: refused outright: "That customer holds 100.0000 points, not 5000.0000." No journal.
+  - Step 5: **empty** — nothing in this store is within 90 days of lapsing. *(WHOLE01's aged batches, and the oldest-first spending they showed, need points two years old; a preparation cannot age them.)*
 ### TC-INCENT-006 — Commission blends rates per line, and a ladder's floor is a round number
-
-*Corrected on 2026-10-07 from the pricing pass (ten rounds driven over HTTP: `docs/qa/PRICING_API_CHECK_ROUND_1_2026-10-06.md` to `docs/qa/PRICING_API_CHECK_ROUND_10_2026-10-07.md`). The earlier text named figures the product does not give; this text is what it does give. The steps are not yet re-driven on screen.*
 
 - **Preconditions:** As *territory-firm*, plus commission rules, targets and three collected sales, as in the preparation table.
 - **Steps:** as the prepared **Firm admin**, Sell > Incentives > **Commission** → **Collected** view, from `2026-04-01` to the end of this month → **Show**. Then Sell > Incentives > **Targets** → **Achievement** for this month.
 - **Expect**
-  - **Commission is on net sales**: tax and freight earn nothing. Collected and invoiced stay the money itself (5,900.00 and 4,720.00).
-  - **Asha**: collected **5,900.00**, commission **420.00**: 15% of her 2,000.00 net on `-P` plus 4% of 3,000.00 on the rest, **8.4% of her net sales of 5,000.00**, neither of the two rates that govern her. Target **Met**.
-  - **Bala**: collected **4,720.00**, commission **80.00**: exactly **2.00% of his net sales of 4,000.00**, the bottom band; above the 1,000 floor; target **Missed**, so no bonus.
+  - **Asha**: collected **5,900.00**, commission **495.60** — 15% of 2,360 on `-P` plus 4% of 3,540 on everything else: **8.4%**, neither of the two rates that govern her. Target **Met**.
+  - **Bala**: collected **4,720.00**, commission **94.40** — exactly **2.00%**, the bottom band; above the 1,000 floor; target **Missed**, so no bonus.
   - Achievement: Asha 1,000 target achieved; Bala 100,000 wanted, 4,720 invoiced (4.72%), 95,280 short.
-- **Needs a clean firm.** The figures are the preparation's own: a `commission-firm` that has had other sales or returns reads other totals (Asha read 8,260.00 collected on a used one). Run it on a fresh preparation.
 ### TC-INCENT-007 — Payouts: accrue, approve, pay, cancel
 
-*Corrected on 2026-10-07 from the pricing pass (ten rounds driven over HTTP: `docs/qa/PRICING_API_CHECK_ROUND_1_2026-10-06.md` to `docs/qa/PRICING_API_CHECK_ROUND_10_2026-10-07.md`). The earlier text named figures the product does not give; this text is what it does give. The steps are not yet re-driven on screen.*
-
-- **Preconditions:** As *territory-firm*, plus commission rules, targets and collected sales, as in the preparation table, **but the sales must be dated before today**. A period must have ended before it can be accrued, and the preparation dates its three sales today, so on the day it is built the case cannot run: date the sales yesterday, or run the case the day after the preparation.
-- **Also needs:** three people: one who accrues (the Firm admin), a **Firm Manager** to approve, an **Accountant** to pay.
+- **Preconditions:** As *territory-firm*, plus commission rules, targets and three collected sales, as in the preparation table.
 - **Steps**
-  1. Commission → **Payouts** → **Accrue period** for the 1st of the month to **yesterday** → Accrue. Try this month as well.
-  2. On Bala's DRAFT look for Pay. As the Firm admin who accrued, try **Approve**. Sign in as the Firm Manager and **Approve**. As the Firm Manager try **Pay**; sign in as the Accountant and **Pay** (paid on a day from the approval to today, from `1000 Cash`).
+  1. Commission → **Payouts** → **Accrue period** for this month → Accrue.
+  2. On Bala's DRAFT look for Pay; **Approve**; then **Pay** (paid on today, from `1000 Cash`).
   3. **Cancel** Asha's draft.
   4. Accrue the same period again.
 - **Expect**
-  - Step 1: "2 payout(s) accrued.", both DRAFT; the figures follow the sales you dated (in the check, Asha 190.00 and Bala 40.00). This month is refused: "That period has not ended…" and the date it can be accrued from.
-  - Step 2: no Pay on a draft (**(HTTP)** paying it: 422, "Only an approved payout can be paid. Approve it first, which is what recognises the debt."). **The person who accrued cannot approve**: 403 "The person who accrued a payout cannot approve it…". The Firm Manager approves: "… approved. The cost and the debt are on the ledger." **The person who approved cannot pay**: 403. The Accountant pays: "… paid." Journal Entries: `COMM-YYYYMM-<first 8 characters of the id>` (Dr Commission Expense / Cr Commission Payable, dated the accrual day) and the same reference with `-PAY` (Dr Commission Payable / Cr Cash). **(HTTP)** paying a paid payout: 422 "This payout has already been paid on DD-MM-YYYY. It cannot be paid a second time."; a paid-on date before the approval or after today is refused.
-  - Step 3: "… cancelled. The period is free to accrue again.", nothing posted, because a draft had no journal.
-  - Step 4: refused with a **409**: "A commission payout already covers part of that period for this salesman (…)." Bala's paid payout still holds it; accruing for Asha alone would succeed.
+  - Step 1: "2 payout(s) accrued." — Asha **495.60**, Bala **94.40**, both DRAFT.
+  - Step 2: no Pay on a draft (**(HTTP)** paying it: 422, "Only an approved payout can be paid. Approve it first, which is what recognises the debt."). Approve: "… approved. The cost and the debt are on the ledger."; Pay: "… paid." Journal Entries: `COMM-YYYYMM-<id>` (Dr Commission Expense / Cr Commission Payable) and `COMM-YYYYMM-<id>-PAY` (Dr Commission Payable / Cr Cash).
+  - Step 3: "… cancelled. The period is free to accrue again." — nothing posted, because a draft had no journal.
+  - Step 4: refused — "A commission payout already covers part of that period for this salesman (…)." Bala's paid payout still holds it; accruing for Asha alone would succeed.
 ### TC-INCENT-008 — Whoever states a debt must not move the cash
 
 - **Preconditions:** As *territory-firm*, plus commission rules, targets and three collected sales, as in the preparation table.
@@ -115,12 +255,11 @@ commission uses `commission-firm`:
 - **Expect:** (a) the discount is on **whole groups only**: 3 units make one group (the third unit at half price of what that unit has left after other discounts), 6 make two, 1 makes none; a cap limits the total and is shared across the lines in proportion. (b) each **complete set** across the lines sells for the combo amount and the saving (the sets' normal value less 150) is spread across the lines by value; DET × 2 with Q × 2 is two sets, DET × 2 with Q × 1 is one set and the leftover DET is at its normal price. The offer editor shows the benefit and its fields.
 ### TC-INCENT-010 — Bonus loyalty points, customer history and day-and-time conditions
 
-*Corrected on 2026-10-07 from the pricing pass (ten rounds driven over HTTP: `docs/qa/PRICING_API_CHECK_ROUND_1_2026-10-06.md` to `docs/qa/PRICING_API_CHECK_ROUND_10_2026-10-07.md`). The earlier text named figures the product does not give; this text is what it does give. The steps are not yet re-driven on screen.*
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** As *selling-invoiced*, plus 200 loyalty points credited to the first customer.
-- **Also needs:** a second customer `QA-C02` (the order-count and days-since conditions are read on a customer with a history).
-- **Steps:** as the prepared **Firm admin**: Settings > Set up > Pricing > **Promotions** → New *Bonus loyalty points* with a multiplier of **3** (the benefit stands alone on its offer), dated today. Raise and approve a bill for Vijaya and read her balance (Settings > Set up > Pricing > Loyalty). Try multipliers of 11, 0 and 1. Then make a second points offer with a multiplier of 2 and bill again. Try adding a discount to a points offer. Next, New promotion with a 5% discount and the condition **Customer order count** = 0 (first order), another with **Days since last order** *at least* 30. Then New promotion 5% with **Days of the week** = Sat and Sun, and another with **Time of day** between 16:00 and 18:00. Try a time window crossing midnight, and a weekday outside 1-7 through the API. Quote a bill on a weekday morning, on a Saturday, and inside the window.
-- **Expect:** an approved bill earns points at the scheme's rate **times the largest multiplier** among the live points offers whose conditions hold on the bill's date (a bill of 485.688 earns 29.1413, three times 9.7138, with the audit row naming the offer and the multiplier; with both ×3 and ×2 live it earns the larger, not 6); the offer is passed over by the discount engine with a trace note. **A multiplier must be above 1 and at most 10: 0, 1 and 11 are refused**, and a multiplier beside a discount on one offer is refused. **Customer order count counts approved bills**: an approved order with no bill is still a first order, so a customer with no approved bill has count 0 and gets the first-order offer until the first bill is approved. **Days since last order: use *at least* 30**: no at 29, yes at 30 and 35 (*equals* 30 applies on the thirtieth day only). A weekend-only or dated offer is tested with the quotation's date, so a quotation dated Saturday takes it and one dated Tuesday does not; a time window is tested at the moment the quotation is raised, and the trace says yes at 16:00 and 18:00 and no at 15:59 and 18:01 (India time). **The last step depends on the time of day**: inside the offer's window the quotation reads the offer's 5%, outside it the customer's own price list (9.25% for `QA-C02`). A window that crosses midnight, a weekday outside 1-7 and a minute of 1440 are refused when the condition is written.
+- **Steps:** as the prepared **Firm admin**: Settings > Set up > Pricing > **Promotions** → New *Bonus loyalty points* with a multiplier of **3** (the benefit stands alone on its offer), dated today. Raise and approve a bill for Vijaya and read her balance (Settings > Set up > Pricing > Loyalty). Try a multiplier of 11 or 0. Next, New promotion with a 5% discount and the condition **Customer order count** = 0 (first order), another with **Days since last order** = 30. Then New promotion 5% with **Days of the week** = Sat and Sun, and another with **Time of day** between 16:00 and 18:00. Try a time window crossing midnight, and a weekday outside 1-7 through the API. Quote a bill on a weekday morning, on a Saturday, and inside the window.
+- **Expect:** an approved bill earns points at the scheme's rate **times the largest multiplier** among the live points offers whose conditions hold on the bill's date; the audit row names the offer and the multiplier; the offer is passed over by the discount engine with a trace note. A multiplier outside 1-10 is refused. Order-count and days-since-last-order conditions are tested against the customer's approved and closed bills on or before the date (a customer with none has count 0). Weekend-only and time-window offers apply only inside their day or window (time is India time, taken from the quotation's or order's own creation time); a window that crosses midnight and a weekday outside 1-7 are refused when the condition is written.
 ### TC-INCENT-011 — Bulk coupon codes, and copying an offer with new dates
 
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
@@ -130,63 +269,143 @@ commission uses `commission-firm`:
 - **Expect:** 50 random codes `DIWALI-XXXXXXXX` are made from an alphabet without look-alike characters, each usable **once** and once per customer, all or nothing; 6,000 is refused (limit 5,000). The export is a CSV of the offer's codes with their uses. A code already used cannot be redeemed again. The copy is a **DRAFT** at version one with code `…-NOV`, the same conditions and benefits and the new window; its coupons are **not** copied; the audit trail has *promotion.copied* naming the source. The grid selects one offer at a time (the API takes up to 100).
 ### TC-INCENT-012 — Claims to the principal
 
-*Corrected on 2026-10-07 from the pricing pass (ten rounds driven over HTTP: `docs/qa/PRICING_API_CHECK_ROUND_1_2026-10-06.md` to `docs/qa/PRICING_API_CHECK_ROUND_10_2026-10-07.md`). The earlier text named figures the product does not give; this text is what it does give. The steps are not yet re-driven on screen.*
+*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
-- **Also needs:** a principal (Settings > Set up > Item lists > Principals) and a brand under it on `QA-DET`; a promotion the principal funds (principal and **share %** on the promotion editor) that was claimed on an approved bill; an expiry write-off of a DET batch; a sales return of DET completed with damaged goods. A vendor to be the principal's supplier account, **and an approved supplier bill from that vendor, open for at least the credit note's amount**: a credit note is set against what the firm owes that supplier, and without such a bill it is refused ("… open bills add up to 0 …").
-- **Steps:** as the prepared **Firm admin**: Buy > Money > **Principal Claims** → New → pick the principal and the period → Preview. Raise the claim. Raise it again for the same period. Then record the principal's **credit note** (Accounts > Books > Party Adjustments, kind *Principal claim*) against it, and a payment into the bank for the rest. Reverse one receipt. Cancel the credit note, then the claim, in a second run and raise it again. Print. Try to cancel the claim while a part of it is settled.
-- **Expect:** the preview gathers each source **once**: scheme redemptions (at the principal's share of the benefit, one line naming the **bill** the offer was given on), free goods given on a bill (TC-INCENT-014), expiry write-offs of its products (at book value) and damaged or scrapped lines of completed sales returns (at the taxable rate credited). In the check: scheme 25.20 (60% of 42.00), expiry 120.00, breakage 81.90, total 227.10; a claim also carries a **Rate difference** figure, 0.00 here (TC-INCENT-015). Raising posts Dr *Claims Receivable from Principals* and Cr promotional expense (schemes) or inventory adjustment (stock). A second claim over the same sources is refused ("Nothing is left to claim from Principal …"). Settlement by credit note and by bank payment moves the status RAISED → PART_SETTLED → SETTLED, a payment beyond what is left is refused, and reversing a receipt moves it back. **Cancelling is refused while any part is settled**: "Part of this claim is settled; reverse its payments and cancel its credit notes first." Cancelling a raised claim frees the sources to be claimed again. **Access**: PURCHASE_MANAGER may raise and receive money; PURCHASE_EXECUTIVE and VIEWER read only; ACCOUNTANT and SALES_MANAGER are refused (403) on everything; receipts are recorded by whoever holds PURCHASE_APPROVE.
-### TC-INCENT-013 — An offer's budget, in money and in free units
+- **Also needs:** a principal (Settings > Set up > Item lists > Principals) and a brand under it on `QA-DET`; a promotion the principal funds (principal and **share %** on the promotion editor) that was claimed on an approved bill; an expiry write-off of a DET batch; a sales return of DET completed with damaged goods. A vendor to be the principal's supplier account.
+- **Steps:** as the prepared **Firm admin**: Buy > Money > **Principal Claims** → New → pick the principal and the period → Preview. Raise the claim. Raise it again for the same period. Then record the principal's **credit note** (Accounts > Books > Party Adjustments, kind *Principal claim*) against it, and a payment into the bank for the rest. Reverse one receipt. Cancel the claim in a second run and raise it again. Print.
+- **Expect:** the preview gathers each source **once**: scheme redemptions (at the principal's share of the benefit), expiry write-offs of its products (at book value) and damaged or scrapped lines of completed sales returns (at the taxable rate credited). Raising posts Dr *Claims Receivable from Principals* and Cr promotional expense (schemes) or inventory adjustment (stock). A second claim over the same sources is refused or empty (one live claim per source). Settlement by credit note and by bank payment moves the status RAISED → PART_SETTLED → SETTLED; reversing a receipt moves it back. Cancelling frees the sources to be claimed again. Reading needs PURCHASE_VIEW, writing PURCHASE_APPROVE. Free quantity on a bill line is not claimed yet.
+### TC-INCENT-013 — A commission slab pays a fixed amount or a percentage
 
-*Added 2026-10-07 from the pricing pass; driven over HTTP in round 2, and again in every later round (`docs/qa/PRICING_API_CHECK_ROUND_2_2026-10-06.md`); **not yet driven through the screens**, so correct the on-screen steps as you go.*
+*Added 2026-10-13 (backlog 110, customer task S5). Driven over HTTP on a preparation firm; the screen steps were not clicked.*
 
-- **Preconditions:** The selling firm described in this section's preparation table. A product at 100.00 with no price list for the customer.
-- **Steps:** as the prepared **Firm admin**: Settings > Set up > Pricing > **Promotions** → New. (a) A discount of **10%** on the line, benefit kind scheme, with the **most benefit** box (money) at **50**. Activate. Raise two orders of 4 for different customers, Approve the first, then Approve the second. Raise an order of 2, then an order of 1. Cancel the first order and quote 4 again. (b) New offer *buy 2 get 1* with the **most free units** box at **3**. Two orders of 4 (2 free each); approve the first, then the second; re-save the second; raise an order of 2. Return the free unit of the first. (c) Edit a live offer and leave both budget boxes as they are, then clear one, then set 0 and -5. **(HTTP)** approve two orders for the last 40.00 at the same moment.
-- **Expect:** (a) each order of 4 quotes 40.00 off. Approving the first reads 40.00 claimed and 10.00 left. Approving the second is refused: "Promotion … has 10.00 left of its budget of 50.00, and this document would take 40.00. Re-save the document to price it without." Re-saved, it prices at 472.00 (400.00 and 18% tax) with no discount and approves. While 10.00 is left an order of 4 and an order of 2 are quoted no discount, an order of 1 is quoted 10.00 and claims it, and after that the trace reads "This offer's budget of 50.00 has all been given." Cancelling the first order gives its 40.00 back and a new order of 4 is quoted again. A sale that comes back through a return or a credit note gives the offer's money back too. (b) the second order is refused in the same words for free units ("… has 1 left of its budget of 3 free units, and this document would take 2 …") and re-saves without free goods; an order of 2 (1 free) fits; the next is not quoted ("… budget of 3 free units has all been given."); a free unit that comes back on a return gives the offer its unit back, and the charged units coming back move nothing. (c) editing without the budget boxes keeps them and the count; clearing one lifts that budget; 0 and -5 are refused. **(HTTP)** of several approvals sent at once for the last of a budget, exactly one succeeds and the rest are refused; the losers stay DRAFT. The offer's performance report shows the budgets, what is claimed and what is left, beside the free units.
-### TC-INCENT-014 — Free goods are claimed from the principal, at cost
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. ((any firm with one member to be the salesman, a stock item and a customer))
+- **Steps:** as the **Firm admin**, Sell > Incentives > **Commission** → **Rates** → **Add rule**: Applies to the salesman, Paid on *Invoiced value*, In force from the first to the last day of **last month**. **Add slab** three times: From `0` To `1000`, Pays **Amount**, Sum `50`; From `1000` To `5000`, Pays **Amount**, Sum `300`; From `5000` To blank, Pays **Percent**, Rate `5`. How the slabs read: the *band reached* choice. Save. Then sell 20 of an item at 100 with 18% GST to a customer, dated the 10th of last month and tagged to the salesman: order, approve; delivery note, approve, dispatch; invoice from the note, approve (2,360.00). Commission → **Collected**, last month → Show. **Payouts** → Accrue last month for the salesman. Repeat in another ended month with the *each band* choice.
+- **Expect**
+  - Choosing **Amount** turns the slab's Rate box into **Sum**; there is one box, so a slab cannot be typed with both.
+  - Band reached: invoiced **2,360.00**, commission **300.00** — the amount of the second slab and nothing of the first. The draft payout earns and owes **300.00**.
+  - Each band: the same bill pays **350.00** — 50 for the first slab and 300 for the second.
+  - A bill whose total is above 5,000 pays 5% of the whole total on the band-reached rule; on the each-band rule it pays 50 + 300 + 5% of what is above 5,000. (Not driven.)
+  - Over HTTP, a slab sent with both `percentage` and `fixed_amount` is refused 422 ("A slab pays a percentage or a fixed amount, not both"), and so is a slab with neither. Reading the rule answers `fixed_amount` on each slab, null on a percentage slab.
+  - Editing the first slab back to **Percent** clears its amount.
+### TC-INCENT-014 — A commission period is a start date and a number of days
 
-*Added 2026-10-07 from the pricing pass; driven over HTTP in rounds 2 and 3 (`docs/qa/PRICING_API_CHECK_ROUND_2_2026-10-06.md`); **not yet driven through the screens**, so correct the on-screen steps as you go.*
+*Added 2026-10-13 (backlog 111, customer task S6). Driven over HTTP on a preparation firm; the screen steps were not clicked.*
 
-- **Preconditions:** As *selling-delivered*, with the principal and brand of TC-INCENT-012 on `QA-DET`, held at a cost of 60.00. The note stages may be off.
-- **Also needs:** an offer *buy 2 get 1* funded by the principal at a **share of 50%**.
-- **Steps:** a counter bill of 4 DET with a free quantity of **1 typed on it** (no offer). A second bill of 4 with nothing typed, so the offer gives 2 free. Buy > Money > **Principal Claims** → New → the principal and this month → Preview → raise → raise again → cancel it.
-- **Expect:** the typed unit is not an offer's. The preview has a **scheme** figure of 60.00 (the offer's 2 free units at 60.00, at the principal's 50% share) as one line "Free goods under …", 2 units, naming the bill; and a **free goods** figure of 60.00 for the typed unit as one line "Free goods given on the bill", 1 unit; total 120.00. Raising posts Dr *Claims Receivable from Principals* 120.00 / Cr *Cost of Goods Sold* 120.00; raising again is refused ("Nothing is left to claim from Principal …"); cancelling posts the mirror and the lines are proposed again; the print has a "Free goods" row. **Not claimed from the principal:** the free goods of a product branded to another principal, of a product held at a cost of 0, on a draft bill, or under an offer the firm funds itself. **A free unit that comes back after the claim was raised** comes off the next claim as a negative line, and a claim never goes below zero. A scheme line is claimed off what was **billed**, net of returns and credit notes, not off the order: an undelivered or closed order is not claimed. A discount that an offer gives on a line with free units is shared over the charged units only (a claim of 60.00, not 55.38).
-### TC-INCENT-015 — A principal's price cut, claimed on the stock in hand
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. ((any firm with one member to be the salesman, a stock item and a customer))
+- **Steps:** as the **Firm admin**, Sell > Incentives > **Commission** → **Rates** → **Add rule**: Applies to the salesman, Paid on *Invoiced value*, Rate `10`, in force for 30 days that have all passed, starting on a day `D`. Bill the customer 2 of an item at 100 with 18% GST (236.00), tagged to the salesman, four times: dated `D+4`, `D+12`, `D+20` and `D+28` (order, approve; delivery note, approve, dispatch; invoice from the note, approve). **Payouts** → **Accrue period**: Starts on `D`, Number of days `10` → Accrue. Accrue period again and read what is offered. Accept it but change the days to `17` → Accrue. Then try Starts on `D+9`, 17 days.
+- **Expect**
+  - The form has **Starts on** and **Number of days**, and under them "Ends on …": 10 days from `D` end on `D+9`, because the start day is counted. Typing either box moves the end date at once.
+  - The first payout runs `D` to `D+9`, measures **236.00** and owes **20.00** (10% of the 200.00 before tax); it is booked on its last day.
+  - Opened again, the form offers the day after the last period (`D+10`) and the same number of days (10). After a whole calendar month it offers the next whole month instead, with that month's own number of days.
+  - The second payout, 17 days, runs `D+10` to `D+26`, measures **472.00** (two bills) and owes **40.00**: what the *Collected* report says for the same days. Where `D` is past the 14th it crosses a month end.
+  - A period starting on `D+9` is refused: "A commission payout already covers part of that period for this salesman (`D` to `D+9`)."
+  - A number of days that is blank, 0, above 366 or not a whole number is refused on the form before anything is sent. A period whose last day is today or later is refused by the server, naming the first day it can be accrued.
+  - Over HTTP, `period_end` and `period_days` sent together are refused 422 ("Give either period_end or period_days …"), and so is neither. A period said by `period_end` alone still works, as before.
+---
 
-*Added 2026-10-07 from the pricing pass; driven over HTTP in round 3 (`docs/qa/PRICING_API_CHECK_ROUND_3_2026-10-06.md`); **not yet driven through the screens**, so correct the on-screen steps as you go.*
+## Offers chosen on the bill line
 
-- **Preconditions:** As *selling-delivered*, with a principal and a brand on a product `QA-RD`, and **100 in stock from an opening entry dated before today at a cost of 60.00**.
-- **Steps:** on the product, add a price revision with a **purchase price of 55.00 from today**. Buy > Money > **Principal Claims** → New → **Price cut (rate difference)** → the principal, the effective date (today) and the claim date → Preview. Receive 10 more today at 55.00 and sell 5 today, and preview again. Edit the grid: type a new rate of 54, then add a product. Try a new rate of 60 and of 61, the principal's other product, a product with no stock, and a cut dated tomorrow. Raise it. Raise it again. Cancel it, raise it again, and record a bank receipt of 200.00, then 300.00, then 1.00 more. Try to cancel while part is settled.
-- **Expect:** the preview is **one line**: 100 at the old rate 60.00 and the new rate 55.00, **500.00**, "Price cut from … on stock at the close of the day before". The stock is the close of the **day before** the cut, from the stock ledger, so a receipt and a sale **today do not move it**. Typing 54 reads 600.00, "rates as typed". The refusals name the product: "the new rate 60 is not lower than the old rate 60.00, so there is nothing to claim."; not the principal's product; no stock at the close of the day before; the product twice; "A claim is raised on or after its period starts."; no effective date. A rate difference claim **stands alone**: ticking it with the period's kinds is refused, and it takes no period. Raising posts **Dr 1420 Claims Receivable from Principals 500.00 / Cr 5400 Purchase Price Variance 500.00**; no tax; **the stock and its valuation are not revalued**. Raising again is refused ("Nothing is left to claim from Principal … for the price cut of …"), as is a typed line for the same stock (it names the claim to cancel). The print has "New rates effective …", "Rate difference 500.00" and the table of item, batch, quantity, old rate, new rate and amount. Cancel posts the mirror and the line is proposed again. 200.00 reads PART_SETTLED with 300.00 outstanding, 300.00 SETTLED, 1.00 more is refused, and cancelling a part-settled claim is refused. **By batch** (a pharmacy preparation): the batches that held stock the day before appear as their own lines, each at its own old rate, and a batch received today does not.
-### TC-INCENT-016 — Points spent on a bill are put back, and cancelling the bill puts them back
+While a sales line is typed, the side panel lists every offer and standing discount that could act on it, with what each gives, why it is or is not applied, a "buy N more" hint and, for an offer that allows it, a part share; the bill maker may tick a different set and the server prices the line again. `docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md` (sections 1, 3 and 6) is the reference; what was built is the L7 row of `docs/CUSTOMER_BUILD_TASKS.md`.
 
-*Added 2026-10-07 from the pricing pass; driven over HTTP in rounds 1 and 2 (`docs/qa/PRICING_API_CHECK_ROUND_2_2026-10-06.md`); **not yet driven through the screens**, so correct the on-screen steps as you go.*
+The kept scripts are `docs/qa/checks/offers/` (`setup.py` once, then `python docs/qa/checks/run.py offers`); each makes a fresh scene, so any case runs alone and twice. Results: `docs/qa/OFFERS_ON_THE_LINE_API_CHECK_2026-10-15.md`. The steps are the HTTP calls the screens make (`POST /api/v1/sales-orders/preview` is what the side panel shows); the screens themselves were not clicked.
 
-- **Preconditions:** As *selling-invoiced*, plus 200 loyalty points credited to the first customer, and 100 of them spent on the invoice as in TC-INCENT-005.
-- **Steps:** Settings > Set up > Pricing > **Loyalty** → the customer's redemption → **Put points back**, with a reason (try it with none, then as a Sales Executive, then as the Sales Manager). Try again. Spend 10 points again on the same bill, then cancel the bill. Spend points on another bill that also has a receipt recorded against it, and try to cancel that bill.
-- **Expect:** no reason is refused (422); a Sales Executive is refused (403); the Sales Manager with a reason: "Points put back." and a journal with the redemption's reference ending `-REV` (Dr 1100 / Cr 2600). A second time: "Those points were already put back, on …." A redemption not found, one that is not a redemption and another firm's: "Redemption not found." The ledger row says which redemption it reverses and whether it has been reversed. Points spent again on the same bill post a second redemption (`…-2`) and **cancelling the bill reverses that one too**. The bill with a receipt: "SI-… cannot be cancelled while it has money applied from RC-…. Reverse or cancel those first.", and the points stay spent.
-### TC-INCENT-017 — Points past their date cannot be spent
+### TC-OFR-001 — A line's candidates and reasons in the preview
 
-*Added 2026-10-07 from the pricing pass; driven over HTTP in rounds 1 and 2 (`docs/qa/PRICING_API_CHECK_ROUND_2_2026-10-06.md`); **not yet driven through the screens**, so correct the on-screen steps as you go.*
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
 
-- **Preconditions:** As *selling-invoiced*. **Needs points that have already lapsed**: a batch of points dated more than the scheme's expiry (24 months) ago. A preparation cannot age points, so build this by crediting a dated adjustment on a firm made for the purpose (the check used 70.8000 points lapsed, 2.3600 earned today and 100 given today).
-- **Steps:** Settings > Set up > Pricing > **Loyalty** → the customer's page, then **Use points** on a bill for 103, then for 60. Run the sweep: `agency-server loyalty-expire` on the server, or **(HTTP)** `POST /api/v1/loyalty/expire`. Take points back with a **negative adjustment** larger than what can be spent.
-- **Expect:** the customer's page shows the points, a **lapsed** figure (70.8000) and *redeemable* false until live points exist. Spending more than the live points is refused: "That customer holds 2.3600 points, not 70.0000. 70.8000 more ran out of time on … and can no longer be spent." (live points only). Spending 60 within the live points is taken, and the same request posts the redemption (Dr 2600 60.00 / Cr 1100 60.00) **and** the expiry of the lapsed batch (Dr 2600 70.80 / Cr 5700 70.80) with an EXPIRED entry "Earned …, lapsed …." The sweep takes only what other customers still held. Loyalty Payable before anything is spent equals the live points' worth plus the lapsed worth. A negative adjustment or a take-back after a return is **bounded by the points that can be spent**, never taken out of lapsed ones. Two batches credited the same day are spent **oldest first**. Loyalty Payable and the balances report agree to the paisa after redemptions, returns and expiries.
-### TC-INCENT-018 — A customer's credit set against another bill
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11; the setting *Combine as each offer allows* (`COMBINE`).
+- **Steps:** (1) **(HTTP)** `POST /api/v1/sales-orders/preview` with one line of 9 pieces and no discount typed. Read the line's `candidates` and the order's line. (2) The same with 11 pieces. (3) List the customer's orders.
+- **Expect:** (1) TEA-5 applied, worth 45.00, "5% off", its key the offer's `version_group_id`; TEA-11 not applied, "11 + 1 free", combines; CITY (key: the list's id) worth 36.00 and the standing rate (key `CUSTOMER`) worth 18.00, neither applied, each "An offer gives this line its discount."; the coupon offer WELCOME listed, not available, saying no coupon was presented. The line: 45.00 off from a promotion, taxable 855.00, GST 102.60, amount 957.60, nothing free; no choice refused. (2) TEA-5 applied at 55.00 and TEA-11 applied: 55.00 off, 1 free, taxable 1,045.00, GST 125.40, amount 1,170.40. (3) None: a preview saves nothing.
+### TC-OFR-002 — The "buy N more" hint
 
-*Added 2026-10-07 from the pricing pass; driven over HTTP in rounds 7 to 10 (`docs/qa/PRICING_API_CHECK_ROUND_9_2026-10-06.md`); **not yet driven through the screens**, so correct the on-screen steps as you go.*
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
 
-- **Preconditions:** As *selling-invoiced*. A bill of 24 at 100.00 (2,832.00 with tax) **paid in full**; 7 of it returned and the return completed, which leaves **826.00 of credit**; and a second bill of 12 (1,416.00), approved and unpaid.
-- **Steps:** Sell > Receipts → **Customer credits** (the toolbar button) → the customer → the 826.00 credit → apply it to the second bill. Open the statement and Receivables. **(HTTP)** reverse the application. Apply 300.00, then try to **refund** 526.01 and 526.00 naming the credit. Cancel the return. Try to cancel the second bill while a credit is applied. Try an amount above the credit, above what the bill owes, and a future date. Sign in as a Viewer.
-- **Expect:** the credit is listed as 826.00 available. Applied: the second bill reads 826.00 allocated and **590.00 outstanding**; the customer shows 590.00 and 0.00 held; **no journal is posted and Trade Receivables does not move**; the statement has an `ADVANCE_APPLY` row and closes at 590.00; a receipt of 590.01 is refused and 590.00 clears the bill. Reversing the application puts every figure back; a blank reason or a second reversal is refused; reversing it after the first bill's receipt was reversed still leaves the customer's account equal to the bills and the credits held. Part applied, the refund of 526.01 is refused ("… has only 526.00 of credit left to be paid back") and 526.00 goes out (Dr 1100 / Cr bank); a refund names its source or takes the oldest held credit. Cancelling the source return withdraws the application and the second bill owes 1,416.00 again; cancelling the target bill is refused: "SI-… cannot be cancelled while it has credit applied from SR-…. Reverse that application first." Refusals by name: "SR-… has only 826.00 of credit left to set against a bill.", "SI-… owes only 354.00.", "A credit cannot be applied on a future date." A credit note on a paid bill applies the same way and is withdrawn when the note is cancelled. An applied credit counts as **collected** for commission and targets on the bill it was applied to (once), and a loyalty redemption is capped at what the bill owes after it. A Viewer reads and cannot apply, reverse or refund (403). *On screen the panel applies a credit; reversing an application, a notice in Record Receipt that the customer holds credit, and a refund naming its source are not built yet (`docs/BACKLOG.md`), so do those steps over HTTP.*
-### TC-INCENT-019 — A line bought or sold by the box
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11, and CITY with a second break: 6% from 10 pieces.
+- **Steps:** **(HTTP)** preview a line of (1) 9 pieces, (2) 3 pieces, (3) 9 pieces with a discount of 0% typed.
+- **Expect:** (1) TEA-11 `needs_more` 2, `then_gives` "1 free"; CITY `needs_more` 1, "6% off"; TEA-5 (applied) no hint; at most two hints on the line. (2) TEA-5 `needs_more` 2, "5% off", listed but not available; no hint from TEA-11 (8 short, more than the 3 typed) or CITY (7 short). (3) No hint at all, and every candidate says "A discount is typed on this line."
+### TC-OFR-003 — A choice on an order line
 
-*Added 2026-10-07 from the pricing pass; driven over HTTP in rounds 2 to 5 (`docs/qa/PRICING_API_CHECK_ROUND_3_2026-10-06.md`); **not yet driven through the screens**, so correct the on-screen steps as you go.*
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
 
-- **Preconditions:** As *ready-firm* for buying, *selling-invoiced* for selling. A product **kept in PIECE** with a conversion rule **1 BOX = 12 PIECE**, a purchase price of 60.00 a piece, GST 18%, a selling price of 100.00 a piece.
-- **Also needs:** a unit with **no rule** (CARTON) to try the refusal.
-- **Steps (buying, on screen):** Buy > Purchase Orders → New → the product, **2 BOX**, price blank → approve → receive in full → bill it. Return **1 BOX** off the receipt. Try 2 CARTON. **(HTTP)** the same with the unit named in other ways (no unit; BOX and PIECE both named; a price of 720.00 typed), and a receipt line typed in another unit than its order line. **(HTTP, selling; the sales editors have no unit box yet, D-PRC-53)** an order, a quotation and a counter bill for 2 BOX; a delivery note line naming another unit than its order line; a bill line typed in pieces; an offer *buy 10 get 1* on 2 BOX; a price list break "from 2 boxes".
-- **Expect (buying):** the order line reads BOX, factor 12, 24 pieces, **720.00 a box**, gross 1,440.00, total 1,699.20. After the receipt **24 on hand at 60.00 (1,440.00)**: Dr 1200 1,440.00 / Cr 2300 1,440.00. After the bill: Dr 2300 1,440.00, Dr 1320 129.60, Dr 1330 129.60 / Cr 2100 1,699.20, **nothing to Purchase Price Variance**, and the stock valuation, the stock account and goods received not invoiced agree. Every way of naming the unit gives the same figures. The return of 1 BOX sends **12 pieces** out (Dr 2100 849.60 / Cr 1200 720.00 / Cr 1320 64.80 / Cr 1330 64.80). 2 CARTON: "… no active conversion rule converts CARTON to PIECE. Add one under Units -> Conversion Rules, or enter the quantity in PIECE." A receipt line in BOX against an order in PIECE: "Line 1 is received in BOX where PO-… orders it in PIECE. Receive it in the order's unit." **Expect (selling):** the order reads **1,200.00 a box** (a blank price is the piece price times the factor) and **24 pieces reserved**; the discount limit judges the line as a box; a delivery note line in another unit than its order line is refused by name; a bill line typed in pieces is capped, priced and judged in the note's unit; *buy 10 get 1* on 2 BOX gives **2 PIECE free, 26 ship**; a break "from 2 boxes" is taken by 24 pieces and not by 23. Selling 5 pieces costs 300.00 (60.00 a piece). Pieces that are not whole boxes are priced, moved and returned as pieces. A product kept in BOX and sold in PIECE needs its own PIECE-to-BOX rule (BACKLOG).
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`; a Sales executive of the firm (holds `SALES_OFFER_CHOOSE`).
+- **Steps:** As the Sales executive: (1) **(HTTP)** preview a line of 11 with `offer_choice` `{"discount_from": <CITY's id>, "offers": [<TEA-11's key>]}`. (2) Save the order the same way; read the audit trail for `sales_order.offer_chosen` on it. (3) Save another order whose choice is the start: `{"discount_from": "offers", "offers": [TEA-5, TEA-11]}`; read its audit trail.
+- **Expect:** (1) CITY applied and chosen, worth 44.00; TEA-5 neither applied nor chosen. The line: 44.00 off from the price list, 1 free, taxable 1,056.00, GST 126.72, amount 1,182.72. (2) Saved (201). The line's `offers` rows: CITY APPLIED chosen 44.00; TEA-11 APPLIED chosen, 1 free; TEA-5 REFUSED (passed over) at 55.00. The discount box is the server's 44.00. One audit row, by the Sales executive. (3) Saved; stored as the server's: TEA-5 and TEA-11 APPLIED, neither chosen, nothing passed over; no audit row.
+### TC-OFR-004 — A choice refused on save, reported in a preview
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`.
+- **Steps:** **(HTTP)** save an order with (1) a line of 11, 3% typed, and a choice of CITY + TEA-11; (2) a line of 3 choosing TEA-5 (a key chosen at 9, then the quantity lowered); (3) a line of 11 choosing an offer key, and then an arrangement key, that no candidate carries. (4) List the customer's orders. (5) Preview the order of (2) with a second line of 11 choosing CITY + TEA-11.
+- **Expect:** (1) 422, "two answers on one line". (2) 422, "Line 1: offer TEA5-... does not apply to this line any more. Choose again." (3) 422 each, "does not apply to this line any more". (4) None saved. (5) The preview answers 200: line 1's `choice_refused` carries the words of (2) and the line is priced from the start (CITY 4% of 300.00 = 12.00); line 2's choice stands: 44.00 off and 1 free.
+### TC-OFR-005 — An offer that does not combine
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** a scene with SOLO-3 (3% off a line of 5 or more, does **not** combine, priority 5) and TEA-5 (priority 10); `COMBINE`.
+- **Steps:** **(HTTP)** (1) preview a line of 9. (2) Save it choosing SOLO-3 and TEA-5. (3) Save it choosing TEA-5 alone.
+- **Expect:** (1) SOLO-3, first, applied (27.00), `combines` false; TEA-5 not applied, "Does not combine with SOLO3-..."; the line takes 27.00. An offer that does not combine ends the stack where it applies, so one ranked **before** it still combines with it. (2) 422, "TEA5-... does not combine with SOLO3-...". (3) Saved: 45.00 off by TEA-5, chosen; SOLO-3 REFUSED (passed over) at 27.00.
+### TC-OFR-006 — Without SALES_OFFER_CHOOSE
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`; a user of a firm role holding the Sales executive's codes less `SALES_OFFER_CHOOSE`, and a Sales executive.
+- **Steps:** As the user without the permission, **(HTTP)** (1) preview a line of 11; (2) preview it choosing CITY + TEA-11; (3) save it so; (4) save it sending back the start (TEA-5 + TEA-11). (5) As the Sales executive, save the choice of (3).
+- **Expect:** (1) The candidates are listed. (2) `choice_refused` names `SALES_OFFER_CHOOSE`; the line is priced from the start (55.00 off). (3) **403** naming the permission; nothing saved. (4) Saved: the start is not a choice. (5) Saved.
+### TC-OFR-007 — One line under the three settings
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11; the Firm admin, to change the setting and put it back.
+- **Steps:** **(HTTP)** a line of 11 under each setting: (1) `COMBINE`: preview. (2) `BEST_OFFER`: preview. (3) Save choosing TEA-5 and TEA-11. (4) Save choosing TEA-5. (5) `ASK`: preview. (6) Save choosing TEA-5 and TEA-11. Put the setting back.
+- **Expect:** (1) 55.00 off by TEA-5 and 1 free by TEA-11. (2) TEA-11 alone (1 free is worth 100.00 against 55.00) with CITY's 4% beside it: 44.00 off from the price list, 1 free; TEA-5 listed, not applied, with a reason. (3) 422, "the firm gives the best one offer a line". (4) Saved: 55.00 off, nothing free; TEA-11 kept as passed over, 1 free. (5) As under best one only: 44.00 by CITY and 1 free. (6) Saved: 55.00 off and 1 free, both offers applied and chosen.
+### TC-OFR-008 — A part share of "11 + 1"
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11; a second scene whose TEA-11 does not allow a part share; `COMBINE`.
+- **Steps:** **(HTTP)** (1) preview lines of 6 and of 4 and read TEA-11's `part_share`. (2) Save a line of 5.5 with `offer_choice` `{"part_share": <TEA-11's key>}`. (3) Save the same with 5 pieces; with 0.5 free typed; with TEA-5 as the part share. (4) In the second scene, preview 6 and save 5.5 with its TEA-11 as the part share.
+- **Expect:** (1) 6 is 5.5 charged + 0.5 free; 4 is 3.6667 + 0.3333. (2) Saved: 5.5 + 0.5 free, TEA-5 27.50 off, taxable 522.50, GST 62.70, amount 585.20. Rows: TEA-11 APPLIED, chosen, 0.5 free, `part_share` true; TEA-5 APPLIED 27.50, **not chosen** (the server applied it; nobody chose it; **fails, D-SELL-101**). (3) 422 each: "PIECE is counted in whole numbers, so 5.4545 PIECE cannot be entered"; "cannot be billed as a part share" (free typed); the same for a discount offer. (4) No `part_share` on the candidate; the save is refused, "cannot be billed as a part share".
+### TC-OFR-009 — A counter bill carries the choice to its order
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11 and 50 pieces in MAIN; `COMBINE`; for (1)-(4) the order and delivery-note stages switched off (put back after).
+- **Steps:** **(HTTP)** (1) `POST /api/v1/sales-invoices/preview`: a bare line of 11 choosing CITY + TEA-11. (2) Save the bill. (3) Read the order raised behind it. (4) Read TEA-11's `free_quantity_claimed`; approve the bill; read it again. (5) With the stages on, raise an order of 2, a delivery note, dispatch it, and bill the note with an `offer_choice` on the line.
+- **Expect:** (1) The candidates are listed; CITY applied and chosen; nothing refused. (2) Saved: 44.00 off, 1 free; the bill line carries its order line's rows (CITY and TEA-11 chosen, TEA-5 passed over at 55.00). (3) One order, holding the same rows. (4) 0 before approval, 1 after. (5) 422: "what a line takes is chosen where its price is set".
+### TC-OFR-010 — A converted quotation hands its choice over
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`.
+- **Steps:** **(HTTP)** (1) `POST /api/v1/quotations/preview`, a line of 11 choosing CITY + TEA-11. (2) Save the quotation. (3) Send it, accept it, convert it; read the order.
+- **Expect:** (1) CITY applied and chosen. (2) 44.00 off and 1 free; rows CITY and TEA-11 chosen, TEA-5 passed over at 55.00. (3) The order line: 44.00 off from the price list, 1 free, the same rows.
+### TC-OFR-011 — Saved rows, and an edit that keeps or clears the choice
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11; `COMBINE`.
+- **Steps:** **(HTTP)** (1) Save an order of 11 choosing CITY + TEA-11 and read it. (2) `PUT` it with the line sent **without** `offer_choice`. (3) `PUT` it with `"offer_choice": null`.
+- **Expect:** (1) Rows: CITY and TEA-11 APPLIED and chosen, TEA-5 REFUSED at 55.00. (2) The choice is kept: the same rows, 44.00 off. (3) The line follows the server again: TEA-5 55.00 and TEA-11 1 free, neither chosen, nothing passed over.
+### TC-OFR-012 — The discount reports
+
+*Added 2026-10-15 (L7 step 10). Driven over HTTP 2026-10-15*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the scene with TEA-5 and TEA-11 and 50 pieces in MAIN; `COMBINE`; the order and delivery-note stages off while billing.
+- **Steps:** **(HTTP)** (1) Approve two counter bills of 11: one choosing CITY + TEA-11, one with no choice. (2) `GET /api/v1/sales-invoices/reports/discount-by-product` for today; read the item's row. (3) `GET /api/v1/sales-invoices/reports/discount-by-offer-product` for today; read the item's rows.
+- **Expect:** (2) 2 lines, gross 2,200.00, arranged 44.00, by offer 55.00; `chosen_lines` 1, `chosen_discount` 44.00, `passed_over` 1, `passed_over_amount` 55.00. (3) TEA-11 on 2 lines, 2 free; TEA-5 on 1 line, 55.00.
 ---
 
 ## Screen checks

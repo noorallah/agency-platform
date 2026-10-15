@@ -6,7 +6,7 @@ explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
 bar, `Sell > Documents > Proforma` is a screen in the
 Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
-right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+right of the bar. Generated on 2026-10-15 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -55,7 +55,113 @@ that an edit changes what it names and nothing else.
 - **Steps**
   1. As the prepared **Firm admin**, edit `QA-CM`: credit limit `1` → Save.
   2. Sell > Sales Orders → New: customer `QA-CM`, one line `QA-P` quantity 2 at 100 → Create draft → **Approve**.
-- **Expect:** a warning names the exposure — "Master Check qa would be at …% of a 1.00 credit limit, leaving … available." — and the order **is approved**. QA01 is in warn mode (no policy row), so nothing blocks.
+- **Expect:** a question headed **Credit limit** names the exposure — "Master Check qa would be at …% of a 1.00 credit limit, … over it." — with **Approve anyway** and **Cancel**. Nothing is approved while it is open; **Cancel** leaves the order a draft; Approve again and **Approve anyway** approves it. QA01 is in warn mode (no policy row), so nothing blocks.
+### TC-CUST-011 — The two credit modes, on an order and on a bill
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. ((a firm of its own, because the case changes the firm's credit policy))
+- **Also needs:** a stock item at 100 with GST 18% and 100 in stock; a customer with **Credit limit** `1000` and nothing owed. Seven pieces come to 826 (82.6%), ten to 1,180 (118%).
+- **Steps**
+  1. Settings > Credit Control: **Warn**, warn at 80, block at 100 → Save.
+  2. Orders of 5, 7 and 10 pieces → **Approve** each.
+  3. Credit Control: **Warn, then block** → Save. New orders of 7 and 10 → **Approve** each.
+  4. Ship the order of 7 from step 2 in full, bill the note → **Approve**. Then ship and bill the order of 5 → **Approve**.
+  5. Credit Control: **Warn** → Save → **Approve** the second bill again.
+- **Expect:** (2) the order of 5 is approved with no question; 7 asks ("… would be at 82.6% of a 1000.00 credit limit, leaving 174.00 available.") and 10 asks ("… 118.0% …, 180.00 over it."); **Approve anyway** approves both. (3) 7 asks and is approved; 10 asks nothing and is **refused** ("… would be at 118.0% of a 1000.00 credit limit. Collect payment or raise the limit before continuing.") and stays a draft. (4) the first bill asks at 82.6% and is approved, 826 is owed; the second is refused at 141.6% and stays a draft. (5) the same bill now asks, and **Approve anyway** approves it; 1,416 is owed.
+### TC-CUST-012 — Two parties of one name are told apart by area and city
+
+- **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
+- **Also needs:** two customers both named `Sri Balaji Medicals QA`, one with a billing address in area `Abids`, city `Hyderabad`, the other in `Kavadiguda`, `Secunderabad`; two suppliers both named `Sri Balaji Agencies QA`, each with a primary address picked from the place ladder in a different city; a third supplier of the same name with no address.
+- **Steps**
+  1. Sell > Sales Orders > **+ New** → type `Sri Balaji` in **Customer**.
+  2. Money > Receipts > **+ New** → type `Sri Balaji` in **Received from**.
+  3. Buy > Purchase Orders > **+ New** → type `Sri Balaji` in **Supplier**.
+  4. Money > Payments > **+ New** → type `Sri Balaji` in **Paid to**.
+  5. Masters > Customers, then Masters > Suppliers → search `Sri Balaji`.
+  6. Approve and print a sales order for one of the two customers.
+- **Expect:** (1) two lines, "Sri Balaji Medicals QA — <code> · Abids, Hyderabad" and "… · Kavadiguda, Secunderabad". (2) the same two places after the code and the name. (3) and (4) the two placed suppliers end "· <area>, <city>" and the third shows its name and code alone. (5) the **Area, city** column reads the same places; it is blank for the supplier with no address. (6) the print shows the customer's address as it always did and no "· area, city" after the name.
+### TC-CUST-013 — The customer account as a table: the last entries, and a receipt added as a row
+
+*Added 2026-10-13 (backlog 121). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a customer with two approved sales bills, both unpaid (say 118.00 and 236.00), and a user who holds `CUSTOMER_VIEW` without `RECEIPT_CREATE`.
+- **Steps**
+  1. Open *Sell → Customer Statements*, double-click the customer in the ageing, then choose **Account**.
+  2. In the last row leave the date, choose the first bill under **Against**, and look at the amount.
+  3. Press **Add**.
+  4. Open *Sell → Receipts* and find the receipt; open its journal entry from the ledger.
+  5. Back on the account, choose **Show 50**, then **Show 20**.
+  6. In the last row choose the second bill, type an amount larger than it owes and press **Add**.
+  7. Choose **On account**, type 50 and press **Add**.
+  8. Choose **Statement** for the same customer over a period that holds every entry.
+  9. Sign in as the user without `RECEIPT_CREATE` and open the same customer's **Account**.
+- **Expect**
+  - Step 1: the two bills as rows, oldest first, each with its balance; the caption says "All 2 entries"; no *Opening balance* row.
+  - Step 2: the amount fills with what the bill owes (118.00).
+  - Step 3: a message names the receipt; the receipt is the last row with 118.00 under Credit and the balance at 236.00; the first bill is no longer offered under **Against**.
+  - Step 4: the receipt is listed against the first bill, and its journal entry is posted for 118.00.
+  - Step 5: the table is read again each time and shows the same rows.
+  - Step 6: a line by the row says the bill owes 236.00 and the amount cannot be applied; nothing is recorded and what was typed stays.
+  - Step 7: one more row, 50.00 under Credit; the second bill still owes 236.00.
+  - Step 8: the statement's closing balance equals the last balance of the table.
+  - Step 9: the rows are shown and the last row for adding a receipt is not.
+
+### TC-CUST-015 — The customer's Account view: the whole account, the download, the choice remembered
+
+*Added 2026-10-13 (backlog 141). Covered by unit and widget tests, and the pages driven over HTTP; **no screen was clicked** and no sheet was opened in Excel, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a customer with more than 100 entries on the account (bills, receipts, returns) and one with fewer than 20; a second user who may read customers.
+- **Steps**
+  1. Open *Sell → Customer Statements*, double-click the busy customer in the ageing, then choose **Account**.
+  2. Press **Download** and open the sheet.
+  3. Choose **Show all**.
+  4. Scroll the rows to their end, and again until the caption says all the entries are shown.
+  5. Choose **Statement** for the same customer over a period that holds every entry, then go back to **Account**.
+  6. Press **Download** and open the sheet.
+  7. Sign out, sign in again as the same user and open the same customer's **Account**.
+  8. Sign in as the second user on the same computer and open the same customer's **Account**.
+  9. Open the customer with few entries, choose **Show all**.
+- **Expect**
+  - Step 1: the last 20 entries, an *Opening balance* row above them, the caption "The last 20 of N entries".
+  - Step 2: the sheet is titled with the customer's name, says "The last 20 of N entries", and holds the *Opening balance* row and the same 20 rows, with Debit, Credit and Balance as numbers.
+  - Step 3: the table shows the account from its first entry with no *Opening balance* row; the caption says "The first 100 of N entries"; a line under the rows says more are being read; there is no row for adding a receipt yet.
+  - Step 4: each time the end is reached 100 more entries are added. When all are shown the caption says "All N entries" and the row for adding a receipt follows the last entry.
+  - Step 5: the last balance of the table equals the Statement's closing balance. Back on Account, **Show all** is still chosen.
+  - Step 6: the sheet says "All N entries" and holds every entry, the first row being the account's first entry and the last balance the Statement's closing balance, whether or not the rows had been scrolled to their end.
+  - Step 7: the Account view opens on **Show all**.
+  - Step 8: the Account view opens on **Show 20**.
+  - Step 9: one read shows every entry, "All N entries", with the row for adding a receipt.
+### TC-CUST-014 — A parent buyer with three shops; the GST number typed once
+
+*Added 2026-10-13 (backlog 125). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a valid GST number nobody on the firm holds (say `36AAACD1234M1Z5`), and a second one for another state (`29AAACD1234M1Z3`).
+- **Steps**
+  1. Open *Masters → Customers* → **New customer**. Code `DMART`, name *DMart*, GST number the first one. Save.
+  2. **New customer**: code `DM-KUK`, name *DMart*. Under **Shop of** choose `DMART`. Leave the GST number blank. Save. Do the same for `DM-MIY` and `DM-GAC`.
+  3. Open `DM-KUK` again and look at the GST number box and the line under it.
+  4. **New customer**: code `DMART2`, name *DMart*, the same GST number, no parent. Save.
+  5. **New customer**: code `DM-BLR`, **Shop of** `DMART`, GST number the second one. Save.
+  6. Open `DMART` and look at **Shop of** and at **Shops**.
+  7. On `DMART` change the GST number to another valid number and save. Open `DM-KUK` and `DM-BLR`.
+  8. On the customer list, look at the *Parent / shops* column.
+  9. **New customer**: code `DEEP`, **Shop of**: search for `DM-KUK`.
+  10. Delete `DMART`.
+  11. Open `DM-GAC`, clear **Shop of**, save, and open it again.
+- **Expect**
+  - Step 2: each shop saves.
+  - Step 3: the box is empty and the line reads "Blank takes the parent's GST number (…)" with the parent's number.
+  - Step 4: refused. The message says the number is held by `DMART DMart` and to make this customer a shop of `DMART` with the GST number left blank. Nothing is saved.
+  - Step 5: saved with its own number.
+  - Step 6: **Shop of** cannot be changed and says the customer is the parent of 4 shops. **Shops** lists `DMART` marked as the parent and the four shops, three with the number marked as the parent's and `DM-BLR` with its own, each with what it owes, and a last line *Total outstanding*.
+  - Step 7: `DM-KUK` is billed under the new number (its box is still empty and the line names the new number); `DM-BLR` keeps its own.
+  - Step 8: `DMART` reads "4 shops"; each shop reads "Shop of DMART".
+  - Step 9: `DM-KUK` is not offered, because it is a shop itself.
+  - Step 10: refused: `DMART` is the parent of 4 shops.
+  - Step 11: `DM-GAC` has no parent and no GST number.
+
 ### TC-CUST-005 — Statement and ageing agree with the account
 
 - **Preconditions:** As *invoiced*, with the invoice of 590.00 and a receipt of 200.00 applied to it. (Fixture Buyer qa owes 590 on one invoice and has paid 200 against it.)
@@ -146,6 +252,23 @@ that an edit changes what it names and nothing else.
   - Step 1: the list of opening bills opens and reads the 5,000.00; **Add opening bill**, **Cancel** and **Import opening bills** are not offered.
   - Step 2: each is refused with **403**: "Recording a customer's opening bill needs the manage customer settings permission (CUSTOMER_MANAGE_SETTINGS)."; "Cancelling a customer's opening bill needs the manage customer settings permission (CUSTOMER_MANAGE_SETTINGS)."; and for the import, the file check and the file apply, "Importing customers' opening bills needs the manage customer settings permission (CUSTOMER_MANAGE_SETTINGS)." After each the customer owes what it owed (0.00 and 5,000.00) and no journal is written. A Customer Support user is refused the two import routes earlier, with "You do not have permission to perform this action.", because the job cannot import customers at all.
   - Step 3: the bill dated today saves and posts (Dr 1100 Trade Receivables 900.00); the one dated tomorrow is refused: "An opening bill is one raised before the books here start, so its date cannot be after <today>.", where today is the firm's own day. The cancel reverses the journal. The file check reports one bill to create and writes nothing; Apply posts it. The same date rule holds for a supplier's opening bill.
+### TC-CUST-011 — Shipping address: the same as billing, or different
+
+*Added 2026-10-14, asked for by the owner. Built in the attended session; **no screen was clicked**.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Steps**
+  1. *Masters > Customers > New*, open **Address**, press **Add address** and fill it in.
+  2. Save, and raise and print a bill for the customer.
+  3. Edit the customer, choose **Shipping address: Different**, fill in the address that opens, save, and raise and print another bill.
+  4. Edit the customer again and choose **Same as billing**; save.
+  5. Press **Add address** once more on any customer that has an address.
+- **Expect**
+  - Step 1: the address is ticked **Default billing** and **Default shipping**, and the choice reads **Same as billing**.
+  - Step 2: the bill names the one address as Sold To and ships to it.
+  - Step 3: a second address opens ticked **Default shipping**; the first keeps **Default billing** only. The bill's Sold To is the first address and Shipped to the second, and the order and delivery note start on the second as their *Ship to*.
+  - Step 4: the first address is ticked for both again; the second address stays on the customer, ticked for neither.
+  - Step 5: the new address is ticked for neither.
 ---
 
 ## Vendors, products, branches and warehouses
@@ -401,6 +524,22 @@ warehouse rename its capability flags.
 - **Also needs:** a product `PK-SOAP` with its own barcode `PK-OWN` and stock in the counter's warehouse; a product `PK-TEA` with none. Under Masters > Packaging Levels, on `PK-SOAP`: a level *Carton*, unit BOX, 24 to the base unit, barcode `PK-CTN`, EAN `PK-EAN`. A cash customer.
 - **Steps:** as the **Firm admin**: (a) Packaging Levels: scan `PK-CTN`, then `PK-OWN`. (b) Sales > new counter bill: scan `PK-OWN`, then `PK-CTN`, then `PK-CTN` again, then `PK-OWN`. (c) On a new counter bill scan `PK-CTN` first. (d) Scan a code nothing carries. (e) New sales order: click the first line's product box, type `PK-CTN`, press Enter; do the same on a quotation, a sales invoice, a purchase order and a supplier bill. (f) Masters > Products: search `PK-CTN`, then `PK-EAN`. (g) Give `PK-TEA` a level *Box* with barcode `PK-BOTH` and `PK-SOAP` a level *Pallet* with UPC `PK-BOTH`; scan `PK-BOTH` on the counter bill, then search it under Products. (h) Delete the *Carton* level; scan `PK-CTN` on the counter bill. As the **Sales manager**: (i) scan `PK-EAN` on a counter bill; try to add a level under Packaging Levels. As another firm's administrator: (j) scan `PK-CTN`.
 - **Expect:** (a) *Carton* of `PK-SOAP`, one scan is 24 base units; then the product itself, one base unit. (b) the one line of `PK-SOAP` reads 1, then 25, then 49, then 50; after each carton the line beside the scan field reads *Carton (BOX) of PK-SOAP: 24 ... added.* and after the single piece it is gone; no second line appears, and the scan field keeps the focus throughout. (c) a new line of `PK-SOAP` with quantity 24. (d) *No product has the barcode ...*, the bill unchanged. (e) on each of the five documents the line takes `PK-SOAP`; its quantity is left for the person to type. (f) each search lists `PK-SOAP` alone. (g) the scan is refused in the server's words -- *2 products or packaging levels carry the code PK-BOTH* -- and nothing is added; the product search lists both products. (h) *No product has the barcode "PK-CTN"*. (i) the scan adds 24; the sales manager is refused a new level (403). (j) not found: another firm's pack answers nothing.
+### TC-MAST-033 — A product always has a brand, and a brand a company
+
+*Added 2026-10-13 (backlog 138). The server steps were driven over HTTP; the two forms and the filter are covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A firm administrator of QA01, and a product `QA-PM` *Slot Check*: category *Shelf*, tax profile group GST_18_LOCAL, base, inventory and sales unit PIECE, purchase unit BOX, and a *Case* barcode.
+- **Also needs:** nothing. The names below are this case's own; add a suffix if they are taken.
+- **Steps:** as the **Firm admin**: (a) *Set up → Item lists → Brands* → **New**, name `B33`, **Company** left empty, Save. (b) *Principals* → **New**, code `C33`, name `Company 33`, Save; back on *Brands*, **New**, name `B33`, Company `Company 33`, Save. (c) *Masters → Products* → **New**: fill code and name, leave **Brand** as it is, Save. (d) Choose brand `B33`, Save; open the product again. (e) Open *Import*, download the template and read its *Lists* sheet; check a file of two new products, one with Brand `b33` and one with Brand left blank; then one with Brand `Nobody`. (f) Import a file holding only the first row. (g) Import a file that names the product of (d) with a new selling price and a blank Brand. (h) **Copy** the product of (d). (i) On *Brands*, delete `B33`. (j) On the product list open *Filters* and press **Unbranded**.
+- **Expect:** (a) refused on the form: *Company is required: choose one.*; nothing is saved. (b) both saved; the brand shows its company. (c) refused: *Choose a brand.*; nothing is sent. (d) saved; the Brand box reads `B33 (Company 33)` and the list's Brand column reads `B33`. (e) the Lists sheet has a *Brand* column listing `B33`; the check reports the blank row on column Brand as *is required.* and `Nobody` as *not one of the firm's brands; add it under its company first.*; the `b33` row has no problem. Nothing is written by a check. (f) the product is created with brand `B33`, spelt as the brand is. (g) the price changes and the brand stays `B33`. (h) the copy has brand `B33`. (i) refused, naming a product that still carries it. (j) the Brand filter reads `Unbranded` and the list shows the products filed under that brand: on a firm the migration settled, every product that had no brand; on this preparation, none unless one was put there.
+### TC-MAST-034 — Pieces per pack on a product import makes a new item's box
+
+*Added 2026-10-15 (L5 step 12, gap G4 of `docs/SWATHI_IMPORT_PLAN.md`). Driven over HTTP the same day (`docs/qa/checks/goods_types/tc_mast_034.py`); the import screen was not clicked, so the steps are written from the build.*
+
+- **Preconditions:** A firm administrator of QA01, and a product `QA-PM` *Slot Check*: category *Shelf*, tax profile group GST_18_LOCAL, base, inventory and sales unit PIECE, purchase unit BOX, and a *Case* barcode.
+- **Also needs:** a category in use for Medicine; the shared unit set *Strip, box of 10*; one product `PP-OLD` kept in Piece with no box. The names below are this case's own; add a suffix if they are taken.
+- **Steps:** as the **Firm admin**: *Masters → Products → Import*, download the template and read its headings. Build a file headed `Code, Name, Category, Unit, UnitSet, Pieces per case, PackUnit` with (1) `PP-9`, Unit `PIECE`, `2.5`; (2) `PP-8`, Unit `PIECE`, `12`, PackUnit `CRATEX`; (3) `PP-7`, Unit `PIECE`, `12`, PackUnit `PIECE`. Check. Then a second file with (1) `PP-1`, no Unit, `12`; (2) `PP-2`, Unit `STRIP`, `10`, PackUnit `CASE`; (3) `PP-3`, Unit `PIECE`, `1`; (4) `PP-4`, no Unit, UnitSet `Strip, box of 10`, `6`; (5) `PP-OLD`, `24`; (6) `PP-5`, Unit `PIECE`, no size, PackUnit `BOX`. Check with *Update existing*, then Import. Open `PP-1`, `PP-2`, `PP-4` and `PP-OLD`, and their units.
+- **Expect:** the template has *PiecesPerPack* and *PackUnit* columns. The first check names three problems: row 2 on PiecesPerPack (*'2.5' is not a whole number of one or more.*), row 3 on PackUnit (*'CRATEX' is not a unit on this system.*) and row 4 on PackUnit (*is the stock unit; a box is another unit than the piece.*); the heading *Pieces per case* is read as PiecesPerPack. The second check has no problem and three warnings, each *is passed over*: `PP-4` (the unit set fills the units and the pack), `PP-OLD` (a pack size fills a new product only) and `PP-5` (PackUnit with no size). After Import: `PP-1` is kept, sold in Piece and bought in Box, with its own rule 1 Box = 12 Piece, and answers a selling and a buying pack of 12 Box; `PP-2` has 1 Case = 10 Strip; `PP-3` is pieces only, no rule; `PP-4` has the set's 1 Box = 10 Strip, not 6; `PP-OLD` keeps its units and gains no rule. Where the firm has boxes and pieces switched on, a new sales order line for `PP-1` opens its Box and Pcs cells.
 ---
 
 ## Screen checks
