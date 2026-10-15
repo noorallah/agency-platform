@@ -22,11 +22,12 @@ list.
 from collections.abc import Callable
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.business.models.framework import BusinessProfile
+from app.core.context import STORE_FIRM_SESSION_KEY
 from app.core.security.authorization import Principal
 from app.firms.models import Firm
 from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserTemplate
@@ -39,6 +40,9 @@ from app.settings_sections.services.steps import (
     SettingsStep,
     counted,
 )
+
+#: What the profiles step says when no firm is open to read them in.
+NO_CATALOGUE = "Kept in each firm: open a firm to count them"
 
 PlatformSectionReader = Callable[[Session, Session, UUID | None], list[SettingsStep]]
 
@@ -151,6 +155,27 @@ def people_section(
     return steps
 
 
+def _profiles_step(store: Session) -> SettingsStep:
+    """Count the live business profiles in ``store``.
+
+    With no ``X-Firm-ID`` the store is the platform's, which holds no business
+    catalogue once provisioned, so the step says to open a firm rather than
+    raising for the missing table, as the profile reads do (D-CFG-26).
+    """
+    if store.info.get(STORE_FIRM_SESSION_KEY) is None and not inspect(
+        store.connection()
+    ).has_table(BusinessProfile.__tablename__):
+        return SettingsStep("business-profiles", OPTIONAL, NO_CATALOGUE)
+    profiles = _count(
+        store,
+        BusinessProfile,
+        BusinessProfile.is_deleted.is_(False),
+        BusinessProfile.status == "ACTIVE",
+    )
+    detail = counted(profiles, "profile", "profiles") if profiles else NONE_YET
+    return SettingsStep("business-profiles", OPTIONAL, detail)
+
+
 def firms_section(
     session: Session, store: Session, firm_id: UUID | None
 ) -> list[SettingsStep]:
@@ -162,19 +187,9 @@ def firms_section(
     table, and reading it on the platform session answered 503.
     """
     del firm_id
-    profiles = _count(
-        store,
-        BusinessProfile,
-        BusinessProfile.is_deleted.is_(False),
-        BusinessProfile.status == "ACTIVE",
-    )
     firms = _count(session, Firm, Firm.is_deleted.is_(False), Firm.is_active.is_(True))
     return [
-        SettingsStep(
-            "business-profiles",
-            OPTIONAL,
-            counted(profiles, "profile", "profiles") if profiles else NONE_YET,
-        ),
+        _profiles_step(store),
         SettingsStep(
             "firms",
             DONE if firms else TODO,

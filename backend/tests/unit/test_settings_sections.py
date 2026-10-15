@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -85,6 +85,7 @@ from app.settings_sections.api.router import (
 )
 from app.settings_sections.schemas import SettingsSectionStateResponse
 from app.settings_sections.services import SECTIONS
+from app.settings_sections.services.platform import NO_CATALOGUE
 from app.tax.models import GstComplianceSettings, TaxProfile, TaxRule
 from app.tax.schemas import TaxProfileWrite, TaxStatus, TaxSystemWrite
 from app.tax.services import TaxFrameworkService, gst_template
@@ -1493,3 +1494,16 @@ def test_platform_sections_refuse_who_is_not_offered_them(session: Session) -> N
         _platform_state(session, "people", _caller({"ROLE_VIEW"}), None)
     with pytest.raises(ResourceNotFoundError):
         _platform_state(session, "tax", _caller(set(), platform_admin=True), None)
+
+
+def test_firms_without_a_catalogue_says_to_open_a_firm(session: Session) -> None:
+    """A platform store holds no business profiles; it is not a 503 (D-CFG-28)."""
+    _firm(session, "LIVE01")
+    session.execute(text("DROP TABLE business_profiles"))
+
+    state = _platform_state(session, "firms", _caller(set(), platform_admin=True), None)
+
+    assert _details(state) == {
+        "business-profiles": ("OPTIONAL", NO_CATALOGUE),
+        "firms": ("DONE", "1 firm"),
+    }
