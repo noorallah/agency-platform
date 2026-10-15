@@ -147,9 +147,9 @@ commission uses `commission-firm`:
 *Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
-- **Also needs:** salesman entries `Asha` (tied to the user you sign in as), `Bala` and `Chitra`; `QA-C01` with account manager Bala and on a round whose primary salesman is Chitra; `QA-C02` with no account manager and the same round; a customer with neither.
+- **Also needs:** salesman entries `Asha` (tied to the user you sign in as), `Bala` and `Chitra`; `QA-C01` with account manager Bala and on a round whose primary salesman is Chitra and which Bala also covers (not primary); `QA-C02` with no account manager and the same round; a customer with neither.
 - **Steps:** as the user tied to Asha: Sell > Sales Orders → New Order, choose `QA-C01`; read the Salesman box. Change it to Chitra. Repeat as a user tied to no entry with `QA-C01`, then `QA-C02`, then the customer with neither. Finally raise a delivery note and a bill from an order that names Chitra.
-- **Expect:** signed in as Asha's user, the box starts on **Asha** for every customer, and Chitra can be picked instead and saves. As the untied user: `QA-C01` starts on **Bala** (account manager), `QA-C02` on **Chitra** (round's primary salesman), the third customer **blank**. The note and the bill take **Chitra** from the order and do not ask. An inactive entry is never the starting choice.
+- **Expect:** signed in as Asha's user, the box starts on **Asha** for every customer, and Chitra can be picked instead and saves. As the untied user: `QA-C01` starts on **Bala** (account manager), `QA-C02` on **Chitra** (round's primary salesman), the third customer **blank**; a customer whose account manager does not cover the customer's round starts on the round's primary salesman, since the account manager would be refused on save. The note and the bill take **Chitra** from the order and do not ask. An inactive entry is never the starting choice.
 
 ### TC-SELL-116 — "Salesman required" refuses a save without one
 
@@ -224,8 +224,8 @@ commission uses `commission-firm`:
 - **Preconditions:** As *territory-firm*, plus commission rules, targets and three collected sales, as in the preparation table.
 - **Steps:** as the prepared **Firm admin**, Sell > Incentives > **Commission** → **Collected** view, from `2026-04-01` to the end of this month → **Show**. Then Sell > Incentives > **Targets** → **Achievement** for this month.
 - **Expect**
-  - **Asha**: collected **5,900.00**, commission **495.60** — 15% of 2,360 on `-P` plus 4% of 3,540 on everything else: **8.4%**, neither of the two rates that govern her. Target **Met**.
-  - **Bala**: collected **4,720.00**, commission **94.40** — exactly **2.00%**, the bottom band; above the 1,000 floor; target **Missed**, so no bonus.
+  - **Asha**: collected **5,900.00**, commission **420.00** — earned on the sale net of tax: 15% of 2,000 on `-P` plus 4% of 3,000 on everything else: **8.4%**, neither of the two rates that govern her. Target **Met**.
+  - **Bala**: collected **4,720.00**, commission **80.00** — exactly **2.00%** of 4,000 net of tax, the bottom band; above the 1,000 floor; target **Missed**, so no bonus.
   - Achievement: Asha 1,000 target achieved; Bala 100,000 wanted, 4,720 invoiced (4.72%), 95,280 short.
 ### TC-INCENT-007 — Payouts: accrue, approve, pay, cancel
 
@@ -236,7 +236,7 @@ commission uses `commission-firm`:
   3. **Cancel** Asha's draft.
   4. Accrue the same period again.
 - **Expect**
-  - Step 1: "2 payout(s) accrued." — Asha **495.60**, Bala **94.40**, both DRAFT.
+  - Step 1: "2 payout(s) accrued." — Asha **420.00**, Bala **80.00**, both DRAFT.
   - Step 2: no Pay on a draft (**(HTTP)** paying it: 422, "Only an approved payout can be paid. Approve it first, which is what recognises the debt."). Approve: "… approved. The cost and the debt are on the ledger."; Pay: "… paid." Journal Entries: `COMM-YYYYMM-<id>` (Dr Commission Expense / Cr Commission Payable) and `COMM-YYYYMM-<id>-PAY` (Dr Commission Payable / Cr Cash).
   - Step 3: "… cancelled. The period is free to accrue again." — nothing posted, because a draft had no journal.
   - Step 4: refused — "A commission payout already covers part of that period for this salesman (…)." Bala's paid payout still holds it; accruing for Asha alone would succeed.
