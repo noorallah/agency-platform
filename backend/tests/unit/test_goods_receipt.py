@@ -627,11 +627,12 @@ def test_cancelling_the_receipt_walks_the_order_back() -> None:
     assert _order_status(session, fixture.order.id) == "APPROVED"
 
 
-def test_a_cancelled_order_is_never_revived_by_a_receipt() -> None:
-    """Only an order already in the receiving part of its life is moved.
+def test_an_order_with_a_live_receipt_cannot_be_cancelled() -> None:
+    """A draft receipt names the order, so the order is not cancelled under it.
 
-    Receiving against a cancelled order is a different problem; quietly
-    reviving one here would hide it.
+    The twin of D-SELL-11 (buying round 1, 2026-10-15): cancelling read
+    CANCELLED while the receipt stood. Cancel the receipt first, then the
+    order.
     """
     session = _session_factory()()
     fixture = _Fixture(session, "GRN-DEAD")
@@ -642,18 +643,64 @@ def test_a_cancelled_order_is_never_revived_by_a_receipt() -> None:
         firm_id=fixture.firm.id,
         actor_id=fixture.actor_id,
     )
-    PurchaseService(session).cancel_order(
+    orders = PurchaseService(session)
+
+    with pytest.raises(ValidationError, match="cannot be cancelled while goods receipt"):
+        orders.cancel_order(
+            fixture.order.id,
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            reason="no longer needed",
+        )
+    session.rollback()
+
+    service.cancel_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="not coming",
+    )
+    orders.cancel_order(
         fixture.order.id,
         firm_scope=fixture.firm.id,
         actor_id=fixture.actor_id,
         reason="no longer needed",
     )
+    assert _order_status(session, fixture.order.id) == "CANCELLED"
 
+
+def test_a_part_received_order_is_closed_not_cancelled() -> None:
+    """Six of ten arrived: the order refuses a cancel and accepts a close."""
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-PART")
+    _approve(fixture)
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("6"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
     service.complete_receipt(
         receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
     )
+    orders = PurchaseService(session)
 
-    assert _order_status(session, fixture.order.id) == "CANCELLED"
+    with pytest.raises(ValidationError, match="close the order"):
+        orders.cancel_order(
+            fixture.order.id,
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            reason="supplier out of stock",
+        )
+    session.rollback()
+
+    orders.close_order(
+        fixture.order.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="supplier out of stock",
+    )
+    assert _order_status(session, fixture.order.id) == "CLOSED"
 
 
 def test_an_unapproved_order_cannot_be_received_against() -> None:
