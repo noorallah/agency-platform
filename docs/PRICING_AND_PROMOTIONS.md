@@ -168,7 +168,15 @@ gives nothing (another offer won the line under best one only, or its budget
 cannot cover the fraction). Charged and free together must make whole pieces
 where the unit is counted whole: the order's own check of charged plus free.
 The line's offer row carries `part_share`, an edit keeps the choice, and the
-claim and the free-unit budget take the fraction.
+claim and the free-unit budget take the fraction. **Such a line moves whole**
+where the unit is counted whole (`counts_in_whole_numbers`; the marking is
+read once per document by `part_share_order_lines` in
+`app/sales_order/services/part_share.py`): a delivery note ships all of it at
+once, charged and free, and a bill states all of its source line, or each is
+refused ("it is delivered whole, all 6 at once"). A return of part of it with
+no free figure typed comes back in the line's own proportion -- 3 of 5.5 +
+0.5 is 2.75 charged and 0.25 free -- since charged first would credit more
+than was paid; a typed free figure still wins.
 
 **Combine mode may cap one line** (backlog 59 item 3,
 `sales_workflow_settings.max_line_discount_percent`, migration
