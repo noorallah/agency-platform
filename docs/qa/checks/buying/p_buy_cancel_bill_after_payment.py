@@ -1,0 +1,30 @@
+"""Probe: a bill that was paid or had goods returned cannot be cancelled; an unpaid one can, and frees the receipt."""
+import pathlib, sys; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+from _buy import *
+
+c = Check("p_buy_cancel_bill_after_payment")
+a = admin()
+sc = Scene(a)
+vid = sc.vendor["id"]
+order = sc.order(qty="10")
+rc = sc.receive(order, "6")
+bill = sc.bill(rc)
+c.eq(sc.pay("300", bill)[0], 201, "part paid")
+refused = a.post(f"{PI}/{bill['id']}/cancel", {"reason": "check"})
+c.ok(refused[0] == 422, "a part-paid bill cannot be cancelled", (refused[0], message(refused[1])[:200]))
+c.eq(must(a.get(f"{PI}/{bill['id']}"), "bill")["status"], "APPROVED", "it is still approved")
+c.eq(owing(a, vid, bill["id"]), D(408), "and still owes 408.00")
+rc2 = sc.receive(order, "4")
+b2 = sc.bill(rc2)
+done = a.post(f"{PI}/{b2['id']}/cancel", {"reason": "check"})
+c.eq(done[0], 200, "an unpaid bill cancels")
+c.eq(owing(a, vid, b2["id"]), D(0), "it no longer owes")
+again = a.post(PI, sc.bill_body(rc2))
+c.eq(again[0], 201, "the receipt can be billed again")
+rc3 = sc.receive(sc.order(qty="5"), "5")
+b3 = sc.bill(rc3)
+sc.ret(b3, "1", kind="PURCHASE_INVOICE")
+withret = a.post(f"{PI}/{b3['id']}/cancel", {"reason": "check"})
+c.ok(withret[0] == 422, "a bill with a return against it cannot be cancelled", (withret[0], message(withret[1])[:200]))
+c.done()
