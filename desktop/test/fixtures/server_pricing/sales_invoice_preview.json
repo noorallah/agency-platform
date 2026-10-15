@@ -113,6 +113,7 @@
         "margin_amount": null,
         "margin_percent": null,
         "net_amount": "551.6500",
+        "offers": [],
         "order_uom_id": null,
         "pack_size": null,
         "pack_uom_id": null,
