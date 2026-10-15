@@ -39,7 +39,7 @@ from app.delivery_note.services.delivery_note_service import DeliveryNoteService
 from app.inventory.services.lots import costs_by_lot
 from app.pricing.services.unit_price import UnitPriceResolver
 from app.products.models import Product
-from app.promotions.schemas import OfferCandidate
+from app.promotions.schemas import OfferCandidate, OfferChoice
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -77,6 +77,27 @@ def refuse_coupon_on_documents(data: SalesInvoiceCreate) -> None:
         )
 
 
+def refuse_choice_on_documents(data: SalesInvoiceCreate) -> None:
+    """Refuse an offer choice on a bill of documents already raised (L7 step 6).
+
+    Their lines were priced by the order they continue, so the choice is the
+    order's to make; the bill shows the order's list read-only. Taken quietly
+    and ignored, it would look like a choice made.
+    """
+    named = [
+        line.line_number
+        for line in data.lines
+        if "offer_choice" in line.model_fields_set
+    ]
+    if named:
+        raise ValidationError(
+            f"Line {named[0]}: what a line takes is chosen where its price is "
+            "set: on the order, or on a bill typed straight in. This bill "
+            "continues documents already priced, so it cannot take a choice.",
+            details={"field": "lines"},
+        )
+
+
 class SalesChainService:
     """Synthesise the sales documents a firm's configuration skips."""
 
@@ -99,6 +120,9 @@ class SalesChainService:
         #: what priced them (L7 step 3). Empty for a bill of documents.
         self.line_candidates: dict[int, list[OfferCandidate]] = {}
         self.bill_candidates: list[OfferCandidate] = []
+        #: Why a previewed bare line's choice was not taken, by line number
+        #: (L7 step 6). Empty on a save, which refuses instead.
+        self.choice_refusals: dict[int, str] = {}
 
     def ensure_invoice_source(
         self,
@@ -108,6 +132,9 @@ class SalesChainService:
         actor_id: UUID,
         inclusive: InclusiveRates | None = None,
         inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
+        may_choose: bool = False,
+        lenient_choice: bool = False,
+        handed_choices: Mapping[int, OfferChoice] | None = None,
     ) -> SalesInvoiceCreate:
         """Return an invoice payload whose every line names a delivery note.
 
@@ -122,11 +149,19 @@ class SalesChainService:
         ``inherited_packs`` is the pack each bare line keeps, by line number
         with its product: a draft counter bill raised again keeps the pack
         its lines were first written at (L5, design 3.3).
+
+        A bare line's ``offer_choice`` is carried to the order raised behind
+        it, which judges it (L7 step 6): ``may_choose`` is whether the person
+        holds ``SALES_OFFER_CHOOSE``, ``lenient_choice`` marks a preview, and
+        ``handed_choices`` are, by line number, the choices of the order a
+        draft counter bill raised before -- kept when the line says nothing.
+        A bill of documents refuses a choice.
         """
         settings = SalesWorkflowService(self._session).settings_for(firm_id)
         bare = [line for line in data.lines if line.source_document_line_id is None]
         if not bare:
             refuse_coupon_on_documents(data)
+            refuse_choice_on_documents(data)
             if data.price_level_id is not None:
                 raise ValidationError(
                     "This bill takes its prices from the documents it bills, "
@@ -148,6 +183,9 @@ class SalesChainService:
             settings=settings,
             inclusive=inclusive,
             inherited_packs=inherited_packs,
+            may_choose=may_choose,
+            lenient_choice=lenient_choice,
+            handed_choices=handed_choices,
         )
 
     def _order_and_note(
@@ -159,6 +197,9 @@ class SalesChainService:
         settings: SalesWorkflowSettings,
         inclusive: InclusiveRates | None = None,
         inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
+        may_choose: bool = False,
+        lenient_choice: bool = False,
+        handed_choices: Mapping[int, OfferChoice] | None = None,
     ) -> SalesInvoiceCreate:
         """Raise the order and the delivery note a bare bill implies."""
         if settings.sales_order_stage or settings.delivery_note_stage:
@@ -177,7 +218,9 @@ class SalesChainService:
         )
         if inclusive is not None:
             data = inclusive(data, branch_id, warehouse_id)
-        orders = SalesOrderService(self._session)
+        orders = SalesOrderService(self._session).choosing(
+            may_choose=may_choose, lenient=lenient_choice
+        )
         order = orders.stage_order(
             SalesOrderCreate(
                 customer_id=data.customer_id,
@@ -242,6 +285,13 @@ class SalesChainService:
                         # Checked against the item's pack on the order, which
                         # the note and the bill then carry (L5).
                         pack_size=line.pack_size,
+                        # Only as sent: an explicit null is a decision, and
+                        # silence lets a handed choice stand (L7 step 6).
+                        **(
+                            {"offer_choice": line.offer_choice}
+                            if "offer_choice" in line.model_fields_set
+                            else {}
+                        ),
                     )
                     for line in data.lines
                 ],
@@ -259,10 +309,12 @@ class SalesChainService:
                 data, firm_id=firm_id, on=data.invoice_date
             ),
             inherited_packs=inherited_packs,
+            handed_choices=handed_choices,
         )
         self._refuse_above_chosen_mrp(order, data.lines)
         self.raised_orders.append(order)
         self.line_candidates, self.bill_candidates = orders.offer_candidates()
+        self.choice_refusals = orders.choice_refusals()
         # Checked for licences at the bill's approval, not here (backlog 54).
         SalesOrderService(self._session).stage_approval(
             order.id,

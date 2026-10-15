@@ -90,8 +90,9 @@ from app.loyalty.services.redemption_reversal import RedemptionReversalService
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.products.services.free_issue import assert_not_sold_at_a_price
-from app.promotions.schemas import OfferCandidate
+from app.promotions.schemas import OfferCandidate, OfferChoice
 from app.promotions.services import RedemptionService
+from app.promotions.services.offer_choice import same_choice
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.document_preview import line_companions, with_candidates
 from app.sales.services.scope_resolution import (
@@ -145,6 +146,7 @@ from app.sales_invoice.services.line_units import (
 from app.sales_invoice.services.output_tax import invoice_tax_by_component
 from app.sales_invoice.services.sales_chain_service import (
     SalesChainService,
+    refuse_choice_on_documents,
     refuse_coupon_on_documents,
 )
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -361,6 +363,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         #: on its whole bill, as the order behind it priced them (L7 step 3).
         self._line_candidates: dict[int, list[OfferCandidate]] = {}
         self._bill_candidates: list[OfferCandidate] = []
+        #: Why a previewed bare line's choice was not taken (L7 step 6).
+        self._choice_refusals: dict[int, str] = {}
 
     def list_invoices(
         self,
@@ -502,10 +506,21 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
 
     def create_invoice(
-        self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: SalesInvoiceCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_choose: bool = False,
     ) -> SalesInvoice:
-        """Create one sales invoice and commit it."""
-        row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+        """Create one sales invoice and commit it.
+
+        ``may_choose`` is whether the person holds ``SALES_OFFER_CHOOSE``,
+        which a bare line's choice of offers needs (L7 step 6).
+        """
+        row = self.stage_invoice(
+            data, firm_id=firm_id, actor_id=actor_id, may_choose=may_choose
+        )
         if data.attributes:
             document_attributes.store(
                 self._session,
@@ -538,14 +553,27 @@ class SalesInvoiceService(TransactionalDocumentService):
         return row
 
     def preview_invoice(
-        self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: SalesInvoiceCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_choose: bool = False,
     ) -> SalesInvoicePreview:
         """Price an invoice exactly as saving it would, then save nothing.
 
         See `SalesOrderService.preview_order`: staged, read back, rolled back.
+        A bare line's choice a save would refuse is reported on the line and
+        dropped (L7 step 6).
         """
         try:
-            row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+            row = self.stage_invoice(
+                data,
+                firm_id=firm_id,
+                actor_id=actor_id,
+                may_choose=may_choose,
+                lenient_choice=True,
+            )
             response = self.invoice_response(row)
             interstate = (
                 self._tax.outward_transaction_type(
@@ -573,12 +601,18 @@ class SalesInvoiceService(TransactionalDocumentService):
         return SalesInvoicePreview(
             invoice=response,
             interstate=interstate,
-            lines=with_candidates(lines, self._line_candidates),
+            lines=with_candidates(lines, self._line_candidates, self._choice_refusals),
             bill_candidates=list(self._bill_candidates),
         )
 
     def stage_invoice(
-        self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: SalesInvoiceCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_choose: bool = False,
+        lenient_choice: bool = False,
     ) -> SalesInvoice:
         """Create one sales invoice without committing it.
 
@@ -626,9 +660,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             firm_id=firm_id,
             actor_id=actor_id,
             inclusive=before_tax if rate_includes_tax else None,
+            may_choose=may_choose,
+            lenient_choice=lenient_choice,
         )
         self._line_candidates = chain.line_candidates
         self._bill_candidates = chain.bill_candidates
+        self._choice_refusals = chain.choice_refusals
         # The chain numbers the order, the note and the bill's lines after the
         # lines typed, so the line number finds the note line each one bills.
         entered_rates = {
@@ -859,8 +896,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         *,
         firm_id: UUID,
         actor_id: UUID,
+        may_choose: bool = False,
     ) -> SalesInvoice:
-        """Replace one sales invoice."""
+        """Replace one sales invoice.
+
+        ``may_choose`` is whether the person holds ``SALES_OFFER_CHOOSE``: a
+        draft counter bill's lines may change what they take (L7 step 6).
+        """
         assert_feature_fields(
             self._session,
             firm_id,
@@ -903,6 +945,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 sent=sent,
                 firm_id=firm_id,
                 actor_id=actor_id,
+                may_choose=may_choose,
             )
         )
         entered_rates: dict[UUID, tuple[Decimal, Decimal]]
@@ -927,8 +970,11 @@ class SalesInvoiceService(TransactionalDocumentService):
                     "and no product_id."
                 )
             # An edit bills the documents the first save raised, at their
-            # prices.
+            # prices. A counter bill's own lines may restate the choice they
+            # hold; only a changed one raises the order again (L7 step 6).
             refuse_coupon_on_documents(data)
+            if counter is None:
+                refuse_choice_on_documents(data)
             own_notes = self._notes_raised_by(row)
             data = self._restate_own_serials(
                 data, row=row, own_notes=own_notes, firm_id=firm_id, actor_id=actor_id
@@ -2245,6 +2291,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         sent: frozenset[str],
         firm_id: UUID,
         actor_id: UUID,
+        may_choose: bool = False,
     ) -> (
         tuple[SalesInvoiceCreate, frozenset[UUID], dict[UUID, tuple[Decimal, Decimal]]]
         | None
@@ -2272,6 +2319,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         edit that ships the same used to refuse a coupon the quantity edit
         took.
 
+        A line's ``offer_choice`` is read the same way (L7 step 6): one the
+        order's line does not already hold raises the order again with it,
+        an explicit null clears it, and silence hands the order's choice to
+        the order raised again, judged afresh there without asking for the
+        permission a second time.
+
         Args:
             row: The draft counter bill.
             data: The edit, its header already filled from the bill.
@@ -2280,6 +2333,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             sent: The fields the request itself named.
             firm_id: The firm.
             actor_id: Who is editing.
+            may_choose: Whether they hold ``SALES_OFFER_CHOOSE``.
 
         Returns:
             The payload rebound to the new note, that note's id, and the
@@ -2327,6 +2381,10 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
             ).all()
         }
+        # The choices the order's lines hold, by order line (L7 step 6).
+        kept = SalesOrderService(self._session).choices_of_lines(
+            list(order_lines.values())
+        )
         held = next((order.coupon_code for order in orders if order.coupon_code), None)
         coupon = normalized_coupon(data.coupon_code) if "coupon_code" in sent else held
         # The price level, likewise (backlog 131): the bill is where its order
@@ -2348,6 +2406,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             coupon == held
             and level == held_level
             and not spent
+            and not self._choice_moved(data, note_lines, kept)
             and self._ships_as_raised(data, note_lines, picked)
             and all(
                 self._charges_as_raised(
@@ -2361,8 +2420,14 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
         ):
             return None
-        bare = self._as_product_lines(
-            row, data, note_lines, picked, order_lines=order_lines, billed=billed
+        bare, handed = self._as_product_lines(
+            row,
+            data,
+            note_lines,
+            picked,
+            order_lines=order_lines,
+            billed=billed,
+            kept=kept,
         )
         restated = data.model_copy(
             update={
@@ -2414,6 +2479,8 @@ class SalesInvoiceService(TransactionalDocumentService):
                 for line in bare
                 if line.product_id is not None and line.product_id in first_packs
             },
+            may_choose=may_choose,
+            handed_choices=handed,
         )
         for note in chain.raised_notes:
             note.raised_by_sales_invoice_id = row.id
@@ -2552,6 +2619,29 @@ class SalesInvoiceService(TransactionalDocumentService):
             return typed and self._q(was.discount_amount) == held
         return True
 
+    @staticmethod
+    def _choice_moved(
+        data: SalesInvoiceCreate,
+        note_lines: Mapping[UUID, DeliveryNoteLine],
+        kept: Mapping[UUID, OfferChoice],
+    ) -> bool:
+        """Say whether an edit's lines choose other than their order's do (L7).
+
+        Only a choice sent counts: silence keeps the order's. A product line
+        sending one is always a change, since it names no order line.
+        """
+        for line in data.lines:
+            if "offer_choice" not in line.model_fields_set:
+                continue
+            if line.source_document_line_id is None:
+                return True
+            note_line = note_lines[line.source_document_line_id]
+            if not same_choice(
+                line.offer_choice, kept.get(note_line.sales_order_line_id)
+            ):
+                return True
+        return False
+
     def _as_product_lines(
         self,
         row: SalesInvoice,
@@ -2561,7 +2651,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         *,
         order_lines: Mapping[UUID, SalesOrderLine],
         billed: Mapping[UUID, SalesInvoiceLine],
-    ) -> list[SalesInvoiceLineWrite]:
+        kept: Mapping[UUID, OfferChoice],
+    ) -> tuple[list[SalesInvoiceLineWrite], dict[int, OfferChoice]]:
         """Restate a counter bill's edit as the product lines it stands for.
 
         A line sent as a product is taken as typed. One sent back by its
@@ -2574,8 +2665,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         arrangement is resolved again. A gift an offer added is dropped so
         the offer is judged afresh on the new quantities. Batches and units
         are kept where the quantity is the same and nothing new was said.
+
+        Returned beside the lines, by their new number: the choice each line
+        sent back by its source fields hands the order raised again, where it
+        sent none of its own -- its order line's (L7 step 6).
         """
         lines: list[SalesInvoiceLineWrite] = []
+        handed: dict[int, OfferChoice] = {}
         for line in data.lines:
             number = len(lines) + 1
             if line.source_document_line_id is None:
@@ -2637,7 +2733,14 @@ class SalesInvoiceService(TransactionalDocumentService):
                     )
             batches, serials = picked[note_line.id]
             free_quantity = line.free_quantity
-            if free_quantity is None and same_quantity and note_line.free_quantity:
+            # Free goods an offer gave are the offer's to give again: carried
+            # as typed, they shut out the offer a choice names (L7 step 6).
+            if (
+                free_quantity is None
+                and same_quantity
+                and note_line.free_quantity
+                and (order_line is None or order_line.free_promotion_id is None)
+            ):
                 free_quantity = self._q(note_line.free_quantity)
             if line.current_invoice_quantity <= ZERO and not (
                 free_quantity is not None and free_quantity > ZERO
@@ -2659,6 +2762,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 if batches and same_quantity
                 else None
             )
+            sent_choice = "offer_choice" in line.model_fields_set
+            if not sent_choice and note_line.sales_order_line_id in kept:
+                handed[number] = kept[note_line.sales_order_line_id]
             lines.append(
                 SalesInvoiceLineWrite(
                     product_id=note_line.product_id,
@@ -2685,11 +2791,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                         else (serials or None)
                     ),
                     batches=line.batches if line.batches is not None else kept_batches,
+                    **({"offer_choice": line.offer_choice} if sent_choice else {}),
                 )
             )
         if not lines:
             raise ValidationError("A bill must keep at least one line.")
-        return lines
+        return lines, handed
 
     def _notes_in_boxes(self, source_rows: list[dict[str, object]]) -> bool:
         """Say whether any note a new bill bills was saved in boxes and pieces.

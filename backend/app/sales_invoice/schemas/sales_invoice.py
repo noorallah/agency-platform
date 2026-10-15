@@ -12,7 +12,7 @@ from app.batch_serial.schemas import PickedSerial
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import NumberedOnce
 from app.delivery_note.schemas.delivery_note import DeliveryNoteBatchPick
-from app.promotions.schemas import OfferCandidate
+from app.promotions.schemas import OfferCandidate, OfferChoice
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -217,6 +217,12 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
     pack_size: Decimal | None = Field(
         default=None, gt=1, max_digits=18, decimal_places=4
     )
+    #: What the bill maker chose for the line (L7 step 6, design 3.3). Read
+    #: only on a bill typed straight in, whose lines carry it to the order
+    #: raised behind them, and on a counter bill's own lines on an edit: left
+    #: out there, a line keeps its order's choice; an explicit null clears
+    #: it. A bill of documents already priced refuses one.
+    offer_choice: OfferChoice | None = None
 
     @model_validator(mode="after")
     def _one_provenance(self) -> "SalesInvoiceLineWrite":
