@@ -300,3 +300,67 @@ def test_a_first_write_that_does_not_name_the_switch_leaves_it_off() -> None:
         )
 
         assert written.round_bills_to_rupee is False
+
+
+def _part_return(setup: _Dispatch, bill: SalesInvoice, *, charges: str) -> SalesReturn:
+    """Complete a return of one unit the bill charged, with some of its charges."""
+    line = setup.session.scalar(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == bill.id)
+    )
+    assert line is not None
+    payload = setup.payload(quantity=Decimal("1"))
+    payload.additional_charges = Decimal(charges)
+    payload.lines[0].source_document_type = SalesReturnSourceType.SALES_INVOICE
+    payload.lines[0].source_document_id = bill.id
+    payload.lines[0].source_document_line_id = line.id
+    service = SalesReturnService(setup.session)
+    row = service.create_return(payload, firm_id=setup.firm.id, actor_id=setup.actor_id)
+    service.approve_return(row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    return service.complete_return(
+        row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+
+
+def test_a_bill_returned_in_parts_is_credited_exactly_what_it_billed() -> None:
+    """On: each part rounds on the running total, so the parts sum to the bill.
+
+    D-SELL-102: rounded one by one, 100.50 three times and 100.48 credited
+    101 + 101 + 101 + 100 = 403.00 against a bill of 402.00, and the extra
+    rupee sat on the customer as an advance. Rounded on the running total
+    they credit 101, 100, 101 and 100.
+    """
+    with _session_factory()() as session:
+        setup = _setup(session, rounds=True)
+        bill = _bill(setup, charges="1.98")
+        assert bill.grand_total == Decimal("402")
+
+        parts = [
+            _part_return(setup, bill, charges=charges)
+            for charges in ("0.50", "0.50", "0.50", "0.48")
+        ]
+
+        assert [part.grand_total for part in parts] == [
+            Decimal("101"),
+            Decimal("100"),
+            Decimal("101"),
+            Decimal("100"),
+        ]
+        for part in parts:
+            worked_out = part.grand_total - part.round_off
+            assert abs(part.round_off) < Decimal("1")
+            assert part.grand_total == worked_out + part.round_off
+        assert sum((part.grand_total for part in parts), Decimal("0")) == Decimal("402")
+        assert _account_movement(session, setup.firm.id, "Receivable") == Decimal("0")
+        assert _account_movement(session, setup.firm.id, "Rounding") == Decimal("0")
+        assert _owed(setup) == Decimal("0")
+        assert setup.customer.unapplied_advance_balance == Decimal("0")
+
+        # Cancelling a part gives back exactly what it took, in both books.
+        SalesReturnService(session).cancel_return(
+            parts[-1].id,
+            firm_scope=setup.firm.id,
+            actor_id=setup.actor_id,
+            reason="Returned in error.",
+        )
+        assert _owed(setup) == Decimal("100")
+        assert _account_movement(session, setup.firm.id, "Receivable") == Decimal("100")

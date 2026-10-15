@@ -1,0 +1,40 @@
+"""TC-SELL-015: a sales return is capped at what was dispatched."""
+import pathlib, sys; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+from _sell import *
+
+c = Check("tc_sell_015")
+a = admin()
+sc = Scene(a, stock="100")
+pid = sc.product["id"]
+order = new_order(sc, "12", approve=True, line={"unit_price": "84", "discount_percent": "2.5"})
+note = new_note(sc, order, "5", dispatch=True)
+bill = bill_note(sc, note, "5")
+c.eq(owed(a, sc.customer["id"]), D("483.21"), "precondition: owes 483.21")
+over = a.post(SR, return_body(sc, bill, "9"))
+c.refused(over, 422, "exceeds what was dispatched", "9 against 5 is refused")
+c.ok("5" in message(over[1]) and "sent" in message(over[1]), "and says how many went out", message(over[1]))
+made = must(a.post(SR, return_body(sc, bill, "2")), "return 2")
+c.eq(made["status"], "DRAFT", "draft")
+c.eq(must(a.post(f"{SR}/{made['id']}/approve", {}), "approve")["status"], "APPROVED", "approved")
+c.eq(stock(a, pid)[0], D(95), "approval moves nothing")
+done = must(a.post(f"{SR}/{made['id']}/complete", {}), "complete")
+c.eq(done["status"], "COMPLETED", "completed")
+c.eq(D(done["credited_amount"]).quantize(D("0.01")), D("193.28"), "193.28 credited")
+c.eq(stock(a, pid)[0], D(97), "two back on the shelf")
+c.eq(owed(a, sc.customer["id"]), D("483.21") - D("193.28"), "outstanding down by 193.28")
+back = [r for r in ledger(a, pid) if r["transaction_type"] == "SALES_RETURN"]
+c.eq([D(r["current_quantity_delta"]) for r in back], [D(2)], "ledger SALES_RETURN +2")
+# a return against a note nobody billed: stock and cost only
+order2 = new_order(sc, "4", approve=True)
+note2 = new_note(sc, order2, "4", dispatch=True)
+before = owed(a, sc.customer["id"])
+r2 = must(a.post(SR, return_body(sc, note2, "3", kind="DELIVERY_NOTE")), "return of unbilled")
+r2 = complete_return(a, r2)
+c.eq(r2[0], 200, "unbilled return completes")
+got = data(r2[1])
+c.eq(D(got["credited_amount"]), D(0), "credits nothing")
+c.eq(D(got["lines"][0]["unbilled_quantity"]), D(3), "unbilled_quantity 3")
+c.eq(owed(a, sc.customer["id"]), before, "outstanding does not move")
+c.eq([e["reference_number"] for e in journal(a, got["return_number"]) if not e["reference_number"].endswith("-COST")], [], "no SR credit journal (only the cost entry)")
+c.done()

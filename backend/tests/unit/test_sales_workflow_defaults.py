@@ -219,7 +219,7 @@ def test_the_stages_are_audited_by_name() -> None:
     """D-SELL-24: the stages were audited as bare CREATE / UPDATE."""
     setup = _setup()
     _save(setup)
-    _save(setup, delivery_note_stage=True)
+    _save(setup, sales_order_stage=True, delivery_note_stage=True)
 
     actions = setup.session.scalars(
         select(AuditLog.action).where(AuditLog.entity_type == "sales_workflow_settings")
@@ -270,3 +270,26 @@ def test_the_line_discount_cap_is_left_by_an_omission_and_cleared_by_null() -> N
 
     with pytest.raises(PydanticValidationError):
         _write(max_line_discount_percent="101")
+
+
+def test_a_delivery_note_without_a_sales_order_is_refused_at_save() -> None:
+    """D-SELL-103: order off with the note on left nothing that could be typed.
+
+    A note is raised from an order's lines and nothing raises the order behind
+    a note typed alone, so the pair is refused where it is chosen, naming both
+    stages, and the stored stages are left as they were.
+    """
+    setup = _setup()
+    _save(setup, sales_order_stage=True, delivery_note_stage=True)
+
+    with pytest.raises(ValidationError) as refused:
+        _save(setup, sales_order_stage=False, delivery_note_stage=True)
+
+    assert "Delivery note" in refused.value.message
+    assert "Sales order" in refused.value.message
+    setup.session.rollback()
+    kept = SalesWorkflowService(setup.session).settings_for(setup.firm.id)
+    assert (kept.sales_order_stage, kept.delivery_note_stage) == (True, True)
+    # The other mixed pair, and both off, are still accepted.
+    _save(setup, sales_order_stage=True, delivery_note_stage=False)
+    _save(setup, sales_order_stage=False, delivery_note_stage=False)

@@ -4275,7 +4275,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Fixture:** `selling-firm`
 - **Also needs:** the masters above; the Sales order and Delivery note stages **on**; a GST number on the firm for the GSTR-1 step. For `<SUFFIX>-C03`, all of `<SUFFIX>-CTR` at 100, Discount % `0`: (A) an order of 10, delivered and **billed** (1,180.00, approved); (B) an order of 4, delivered, with **3** billed (354.00, approved); (C) an order of 5, delivered and **never billed**.
 - **Steps:** as the fixture's **Firm admin**: Sell > Sales Returns → New Return: (1) against bill A, quantity **2** → Create draft → Approve → Complete. (2) against **delivery note** B, quantity **2** → Create draft → Approve → Complete. (3) against delivery note C, quantity **5** → Create draft; read Reports > Operational → **Sales return register** and the returns summary; then Approve → Complete and read them again. Then Reports > Financial → **GST sales register**; Masters > Customers; Sell > Sales Invoices → New Invoice → *Bill this delivery note*; GST Returns → GSTR-1.
-- **Expect:** (1) credited **236.00**: Dr 4100 Sales Returns 200.00 / Dr 2220 Output CGST 18.00 / Dr 2230 Output SGST 18.00 / Cr 1100 Trade Receivables 236.00, and the cost entry. (2) the unbilled unit is taken first: unbilled quantity **1**, credited **118.00** for the one billed unit, cost entered for both; the return names bill B under *Against invoice*. (3) cost entry only: unbilled quantity **5**, credited **0.00**, no `SR-…` credit journal, and the customer's Outstanding does not move. While return C is a draft it adds its stated total, 590.00, to **pending return value** and nothing to **total return value**; completed, it leaves pending and adds nothing. With all three completed, total return value is **354.00**, equal to the register's credited total. The GST sales register has rows of -200.00 and -100.00 taxable and **no** row for C; GSTR-1 CDNR lists the same two, each against its bill. Delivery note C has nothing left to bill, and note B's left-to-bill is down by the unbilled unit returned. Header charges or rounding on a return that credited nothing add 0 to the summary.
+- **Expect:** (1) credited **236.00**: Dr 4100 Sales Returns 200.00 / Dr 2220 Output CGST 18.00 / Dr 2230 Output SGST 18.00 / Cr 1100 Trade Receivables 236.00, and the cost entry of 120.00. (2) the unbilled unit is taken first: unbilled quantity **1**, credited **118.00** for the one billed unit, cost entered for both; the return names bill B under *Against invoice*. (3) cost entry only: unbilled quantity **5**, credited **0.00**, no `SR-…` credit journal, and the customer's Outstanding does not move. While return C is a draft it adds its stated total, 590.00, to **pending return value** and nothing to **total return value**; completed, it leaves pending and adds nothing. With all three completed, total return value is **354.00**, equal to the register's credited total. The GST sales register has rows of -200.00 and -100.00 taxable and **no** row for C; GSTR-1 CDNR lists the same two, each against its bill. Delivery note C has nothing left to bill, and note B's left-to-bill is down by the unbilled unit returned. Header charges or rounding on a return that credited nothing add 0 to the summary.
 - **Leaves:** three completed returns.
 
 ### TC-SELL-095 — Reservations are held batch by batch, and a cancel frees only its own
@@ -4410,7 +4410,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   - Step 2: the Approval part shows three switches, all on until changed. A line under the heading says that with a switch off Save completes the document, whoever raised it approves it, the checks are still made, and a change applies to documents raised from then on.
   - Step 3: the window shows one button, **Save**, and no *Save & approve*. The bill is **Approved**; stock of P falls by 1.
   - Step 4: S is not offered Approve on a bill somebody else raised (the server answers *Only whoever raised this sales invoice may approve it without SALES_APPROVE*).
-  - Step 5: refused in words (not enough stock); the bill stays a draft in the open window.
+  - Step 5: refused in words (not enough stock); the bill stays a draft in the open window. (Today the draft also keeps the 500 reserved, which blocks other bills until it is cancelled: D-SELL-104, open. Cancel it before going on.)
   - Step 6: the button reads **Save draft**; the bill stays a **Draft** and S is not offered Approve (the server answers *This sales invoice waits for approval, which needs SALES_APPROVE*). A bill S raised before the switch went back on, and left as a draft, can still be completed by S.
   - Step 7: approved.
   - Step 8: one **Save**; the order is **Approved** and holds its stock.
@@ -4514,7 +4514,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   5. Approve the order of step 1, deliver it in full, and bill the delivery note. Do the same for the two orders of step 2.
   6. A new order as in step 1; approve, deliver in full, and bill 200 of the 500. Approve the bill and print it.
 - **Expect**
-  - Step 1: taxable 42,372.88, tax 7,627.12, total 50,000.00. The line shows the rate 100 as typed and 84.7458 before tax.
+  - Step 1: taxable 42,372.88, tax 7,627.12, total 50,000.00 (held to four places, 42,372.8814 and 7,627.1186). The line shows the rate 100 as typed and 84.7458 before tax.
   - Step 2: 100,000.00 and 11,375.00.
   - Step 3: 50,000.00.
   - Step 4: unchanged by this fix: taxable 42,372.90, tax 7,627.12, total 50,000.02, because 84.7458 before tax is what was typed.
@@ -4540,7 +4540,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   8. Switch the setting off and raise the same bill once more.
 - **Expect**
   - Step 1: the total has its paise (117.99 in the example) and no *Round off*.
-  - Step 3: the totals show *Round off* 0.01 and a total of 118.00 before saving; the saved bill reads the same.
+  - Step 3: the totals show *Round off* 0.01 and a total of 118.00 before saving; the saved bill reads the same (the document holds the round-off to four places, 0.0118 in the example; it shows, prints and posts 0.01).
   - Step 4: Trade Receivables is debited 118.00; Sales and the GST accounts are credited what the lines came to; **Rounding** is credited 0.01.
   - Step 5: the print has a *Round off* line of 0.01 above the total of 118.00.
   - Step 6: the return credits 118.00 with *Round off* 0.01.
