@@ -906,3 +906,34 @@ def test_a_long_batch_number_wraps_in_its_own_cell(paper: str) -> None:
     # Split over two runs of the cell, never one run spilling past it.
     assert "SXHWCNJVB12" not in printed
     assert "SXHWCNJVB12" in printed.replace(" | ", "")
+
+
+def test_the_full_page_names_the_offer_under_the_item() -> None:
+    """L7 step 9: "Offer: TEA-11" under the item, a part share as figures.
+
+    A part share prints "5.5" and "+0.5 free" as they are, not rounded; the
+    half page and the roll print the free goods and the discount as before,
+    and no offer.
+    """
+    document = _document()
+    line = replace(
+        document.lines[0],
+        quantity=Decimal("5.5"),
+        free_quantity=Decimal("0.5"),
+        offers=("TEA-11", "TEA-5"),
+    )
+    bill = replace(document, lines=(line,))
+
+    full = _text_of(InvoicePdfRenderer().render(bill))
+    assert "Offer: TEA-11, TEA-5" in full
+    assert "5.5 | +0.5 free" in full
+
+    for paper in ("HALF", "THERMAL80"):
+        printed = _text_of(
+            InvoicePdfRenderer(TemplateSettings(page_size=paper)).render(bill)
+        )
+        assert "Offer:" not in printed, paper
+
+
+def test_a_line_given_no_offer_prints_no_offer_line() -> None:
+    assert "Offer:" not in _text_of(InvoicePdfRenderer().render(_document()))

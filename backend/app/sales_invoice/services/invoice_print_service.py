@@ -51,6 +51,11 @@ from app.sales_invoice.services.invoice_pdf import (
     render_together,
     settled_paper,
 )
+from app.sales_invoice.services.order_line_offers import (
+    offers_behind,
+    order_lines_behind,
+    printed_offer_codes,
+)
 from app.sales_invoice.services.upi_qr import UpiPayment, upi_payment
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.trade_licences.services import TradeLicenceService
@@ -626,7 +631,11 @@ class SalesInvoicePrintService:
                 if line.source_document_type == "DELIVERY_NOTE"
             ],
         )
-        typed_on_order = self._typed_on_the_order(lines)
+        # The order line behind each bill line, read once for the rate it
+        # was typed at and the offers it was given (L7 step 9).
+        of_order_line = order_lines_behind(self._session, lines)
+        typed_on_order = self._typed_on_the_order(lines, of_order_line)
+        offers = offers_behind(self._session, of_order_line)
         printed: list[InvoiceLineBlock] = []
         for line in lines:
             product = products.get(line.product_id)
@@ -679,6 +688,7 @@ class SalesInvoicePrintService:
                     unit_id=said.uom_id,
                     product=product,
                 ),
+                offers=printed_offer_codes(offers.get(line.id, [])),
             )
             printed.extend(
                 per_batch(whole, batches, sum((qty for _, qty in batches), ZERO))
@@ -797,7 +807,9 @@ class SalesInvoicePrintService:
         )
         return [("Market", name)] if name else []
 
-    def _typed_on_the_order(self, lines: list[SalesInvoiceLine]) -> dict[UUID, Decimal]:
+    def _typed_on_the_order(
+        self, lines: list[SalesInvoiceLine], of_order_line: Mapping[UUID, UUID]
+    ) -> dict[UUID, Decimal]:
         """Return the GST-inclusive rate each line's order was typed at (D-SELL-95).
 
         A firm that types an order before its bill types the shelf price
@@ -805,34 +817,9 @@ class SalesInvoicePrintService:
         order's print showed both rates and the tax invoice only the second,
         so the one figure the buyer agreed to was missing from the one paper
         the buyer keeps. A line whose price the bill changed is left out: the
-        typed rate is no longer the one it charges.
+        typed rate is no longer the one it charges. ``of_order_line`` is
+        `order_lines_behind`'s answer for ``lines``.
         """
-        of_order_line: dict[UUID, UUID] = {
-            line.id: line.source_document_line_id
-            for line in lines
-            if line.source_document_type == "SALES_ORDER"
-        }
-        from_notes = {
-            line.id: line.source_document_line_id
-            for line in lines
-            if line.source_document_type == "DELIVERY_NOTE"
-        }
-        if from_notes:
-            order_line_of = {
-                note_line_id: order_line_id
-                for note_line_id, order_line_id in self._session.execute(
-                    select(
-                        DeliveryNoteLine.id, DeliveryNoteLine.sales_order_line_id
-                    ).where(DeliveryNoteLine.id.in_(list(from_notes.values())))
-                )
-            }
-            of_order_line.update(
-                {
-                    line_id: order_line_of[note_line_id]
-                    for line_id, note_line_id in from_notes.items()
-                    if note_line_id in order_line_of
-                }
-            )
         if not of_order_line:
             return {}
         typed = {

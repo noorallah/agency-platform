@@ -164,6 +164,7 @@ def _per_batch(
                 # read as one line taken from several batches.
                 number=whole.number if index == 0 else 0,
                 description=whole.description if index == 0 else "",
+                offers=whole.offers if index == 0 else (),
                 batch=_printed_number(batch),
                 expiry=batch.expiry_date.isoformat() if batch.expiry_date else None,
                 manufactured=made_in(batch.manufacturing_date),

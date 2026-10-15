@@ -12,7 +12,7 @@ from app.batch_serial.schemas import PickedSerial
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import NumberedOnce
 from app.delivery_note.schemas.delivery_note import DeliveryNoteBatchPick
-from app.promotions.schemas import OfferCandidate, OfferChoice
+from app.promotions.schemas import LineOfferResponse, OfferCandidate, OfferChoice
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -602,6 +602,11 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     #: The batches the note line behind it takes: chosen, or after dispatch
     #: what left (backlog 79). Empty where nobody chose and nothing shipped.
     batches: list[DeliveryNoteBatchPick] = Field(default_factory=list)
+    #: The arrangements the order line behind it was priced by (L7 step 9),
+    #: APPLIED then REFUSED, as the order lists them: the bill keeps none of
+    #: its own. Empty for a line with no order behind it, or one saved
+    #: before L7.
+    offers: list[LineOfferResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     #: The tax rule that decided the line and its version; null when the

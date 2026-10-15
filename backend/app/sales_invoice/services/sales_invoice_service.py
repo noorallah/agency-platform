@@ -90,7 +90,7 @@ from app.loyalty.services.redemption_reversal import RedemptionReversalService
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.products.services.free_issue import assert_not_sold_at_a_price
-from app.promotions.schemas import OfferCandidate, OfferChoice
+from app.promotions.schemas import LineOfferResponse, OfferCandidate, OfferChoice
 from app.promotions.services import RedemptionService
 from app.promotions.services.offer_choice import same_choice
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
@@ -142,6 +142,10 @@ from app.sales_invoice.schemas import (
 )
 from app.sales_invoice.services.line_units import (
     unit_of_a_line_billing_a_document,
+)
+from app.sales_invoice.services.order_line_offers import (
+    offers_behind,
+    order_lines_behind,
 )
 from app.sales_invoice.services.output_tax import invoice_tax_by_component
 from app.sales_invoice.services.sales_chain_service import (
@@ -3697,11 +3701,22 @@ class SalesInvoiceService(TransactionalDocumentService):
             if told
             else set()
         )
+        # What priced each line, read through the order line behind it
+        # (L7 step 9): one read for the page, and one more only where a
+        # line bills a delivery note's.
+        offers = offers_behind(
+            self._session, order_lines_behind(self._session, every_line)
+        )
         for response in answer:
             response.attributes = fields.get(response.id, [])
             response.attached_file_count = files.get(response.id, 0)
             if response.id in typed_on_own_order:
                 response.bill_discount_source = "typed"
+            for line_response in response.lines:
+                line_response.offers = [
+                    LineOfferResponse.model_validate(item)
+                    for item in offers.get(line_response.id, [])
+                ]
         if show_cost:
             # Cost and margin per line and in total, for the screen only
             # (L3 step 4): one costing for the whole page.

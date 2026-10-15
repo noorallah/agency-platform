@@ -192,6 +192,9 @@ class InvoiceLineBlock:
     #: pieces layout (L5): 41 pieces of a box of 12 print "3/5 (x12)". None
     #: prints the plain quantity, as every other line does.
     pack_size: Decimal | None = None
+    #: The codes of the offers that gave the line a discount or free goods
+    #: (L7 step 9), printed under the item on the full page: "Offer: TEA-11".
+    offers: tuple[str, ...] = ()
 
     @property
     def packed_quantity(self) -> str | None:
@@ -812,7 +815,7 @@ class InvoicePdfRenderer:
                 # Zero marks a continuation row: the same line from another
                 # batch (backlog 79).
                 str(line.number) if line.number else "",
-                Paragraph(line.description, self._body),
+                Paragraph(self._described(line, size), self._body),
                 line.hsn or "",
                 self._quantity_cell(line, room, size),
                 line.uom or "",
@@ -873,6 +876,21 @@ class InvoicePdfRenderer:
         style.add("VALIGN", (0, 0), (-1, -1), "MIDDLE")
         table.setStyle(style)
         return table
+
+    @staticmethod
+    def _described(line: InvoiceLineBlock, size: float) -> str:
+        """Return the item's words, with the offers it was given under them.
+
+        A print states the deal, not the choice (L7 step 9): the offers'
+        codes only, never a price list, a candidate or who chose.
+        """
+        if not line.offers:
+            return line.description
+        offers = escape(", ".join(line.offers))
+        return (
+            f"{line.description}<br/>"
+            f'<font size="{size - 1:.1f}">Offer: {offers}</font>'
+        )
 
     @staticmethod
     def _quantity_cell(line: InvoiceLineBlock, room: float, size: float) -> str:

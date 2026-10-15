@@ -178,6 +178,24 @@ no free figure typed comes back in the line's own proportion -- 3 of 5.5 +
 0.5 is 2.75 charged and 0.25 free -- since charged first would credit more
 than was paid; a typed free figure still wins.
 
+**What a choice passed over, and where it shows** (L7 step 9, design 4 and
+5). Where a person's choice leaves out an arrangement the start applied, the
+line keeps a `REFUSED` row for it after its `APPLIED` ones: what the start
+would have given (discount, free goods in stock units), `chosen` false. Only
+`APPLIED` rows add up to the line and only they are read back as the choice,
+so a line with no choice keeps none. A bill line carries the `offers` of the
+order line behind it (through a delivery note's line; the order's figures,
+not the bill's share), read in one statement for the page. The full-page tax
+invoice prints "Offer: TEA-11" under an item an offer discounted or gave free
+goods; the half page and the roll do not, and no print names a price list, a
+candidate or who chose. The three Discount given reports add `chosen_lines`,
+`chosen_discount`, `passed_over` (REFUSED rows on the billed lines' orders)
+and `passed_over_amount` (pro-rated by the quantity billed, so an order
+billed twice is not counted twice); **Discount by offer and product**
+(`/sales-invoices/reports/discount-by-offer-product`, backlog 100 step 4)
+reads the APPLIED offer rows behind billed lines, pro-rated the same way.
+Lines priced before L7 carry no rows and add nothing.
+
 **Combine mode may cap one line** (backlog 59 item 3,
 `sales_workflow_settings.max_line_discount_percent`, migration
 `20261001_0193`; null is no cap). After the stack, a line whose offer discount

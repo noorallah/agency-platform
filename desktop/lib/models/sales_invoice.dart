@@ -102,6 +102,7 @@ class BillableLine {
     this.trackSerial = false,
     this.warehouseId = '',
     this.packSize = '',
+    this.offers = const <dynamic>[],
   });
 
   final String sourceDocumentLineId;
@@ -132,6 +133,11 @@ class BillableLine {
   /// L5: the box the source line was typed in, empty where it holds none.
   final String packSize;
 
+  /// L7 step 9: the offers the line was priced with, read from the order
+  /// line behind it -- each `{source, code, state, chosen, discount_amount,
+  /// free_quantity, part_share, ...}`; empty where none reached it.
+  final List<dynamic> offers;
+
   String get label {
     final String name =
         description.isEmpty ? 'Line $lineNumber' : description;
@@ -157,6 +163,9 @@ class BillableLine {
         freeQuantity: stringValue(json['free_quantity']).isEmpty
             ? '0'
             : stringValue(json['free_quantity']),
+        offers: json['offers'] is List
+            ? json['offers'] as List<dynamic>
+            : const <dynamic>[],
       );
 }
 

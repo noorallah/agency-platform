@@ -1066,6 +1066,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         remainingQuantity: '${own + elsewhere}',
         unitPrice: '${line['unit_price'] ?? '0'}',
         discountPercent: '${line['discount_percent'] ?? '0'}',
+        offers: line['offers'] is List
+            ? line['offers'] as List<dynamic>
+            : const <dynamic>[],
       ));
     }
 

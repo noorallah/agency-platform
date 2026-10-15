@@ -156,6 +156,25 @@ const List<ReportDefinition> reportCatalog = [
           key: 'free_quantity', label: 'Free units given', numeric: true),
     ],
   ),
+  ReportDefinition(
+    id: 'discount-by-offer-product',
+    label: 'Discount by offer and product',
+    description: 'What each offer gave on each product in the dates, on '
+        'billed lines.',
+    path: '/api/v1/sales-invoices/reports/discount-by-offer-product',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'code', label: 'Code'),
+      ReportColumn(key: 'name', label: 'Offer'),
+      ReportColumn(key: 'product_code', label: 'Product code'),
+      ReportColumn(key: 'product_name', label: 'Product'),
+      ReportColumn(key: 'lines', label: 'Lines', numeric: true),
+      ReportColumn(key: 'discount_amount', label: 'Discount', numeric: true),
+      ReportColumn(key: 'free_quantity', label: 'Free units', numeric: true),
+    ],
+  ),
   // The Targets screen's Achievement view, listed here too so it is found
   // beside the other by-salesman reports (BL-31.15). Its route checks only
   // SALES_TARGET_VIEW, not REPORT_VIEW.
@@ -1763,6 +1782,12 @@ const List<ReportColumn> _discountColumns = [
   ReportColumn(key: 'bill_discount', label: 'Bill discount', numeric: true),
   ReportColumn(key: 'total_discount', label: 'Total', numeric: true),
   ReportColumn(key: 'discount_percent', label: '% of gross', numeric: true),
+  // L7 step 9: what a person's choice among the offers decided.
+  ReportColumn(key: 'chosen_lines', label: 'Lines chosen', numeric: true),
+  ReportColumn(key: 'chosen_discount', label: 'Discount chosen', numeric: true),
+  ReportColumn(key: 'passed_over', label: 'Offers passed over', numeric: true),
+  ReportColumn(
+      key: 'passed_over_amount', label: 'Passed over worth', numeric: true),
 ];
 
 /// The collection reports' figures (67 row 9), after what each row is for.
