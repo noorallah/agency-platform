@@ -366,6 +366,10 @@ Cases TC-SELL-005 to 108 (twenty of them) and six probes; results in `docs/qa/SE
 | --- | --- | --- | --- | --- | --- |
 | D-SELL-104 | 2026-10-15 | **A draft bill reserves more than is in stock, and blocks every other sale until it is cancelled.** With approval switched off for bills and the order and note stages off, a bill of 500 against a stock of 50 was refused at approval for stock (right) and stayed a draft (as TC-SELL-100 step 5 says), but the draft kept 500 reserved: reserved 502 on a stock of 50, and the next bill's approval was refused *Insufficient available stock* until the draft was cancelled. Drafts of a counter bill reserve by design (TC-SELL-091); a reservation past what is on hand is not. Needs a decision on the fix (refuse the draft for stock, or reserve only what is free); next selling round. | Medium | Live | `docs/qa/checks/selling/tc_sell_100.py` step 5; the check file's *Observed* |
 
+### Collections round 1 -- found driving receipts, refunds, cheques and parent-and-shop payments over HTTP, 2026-10-16
+
+Cases TC-SELL-013, 014, 073, TC-FIN-013, 014, 015, 028, 030 to 033, 037, 039, 041 and TC-CASH-002 (server halves) and six probes, among them D-FIN-30's refund drawing on its receipt and a shop and its parent each paying; results in `docs/qa/COLLECTIONS_API_CHECK_ROUND_1_2026-10-16.md`, kept scripts in `docs/qa/checks/collections/` (21 checks, all clean). **No defect found.** Case text corrected for TC-FIN-015 (marking a second bank account to print moves the mark, it is not refused) and TC-FIN-033 (bill totals carry GST; the parent's on-account money is the statement's *held on account* figure, not an amount on the receipt line). A receipt's reversal reason is optional on the server (`SettlementReverseRequest.reason`), as in Tally and Zoho Books; not a defect.
+
 ### Buying round 1 -- found driving order to receipt to bill to return over HTTP, 2026-10-15
 
 Cases TC-BUY-001 to 102 (twenty-six of them) and seven probes; results in `docs/qa/BUYING_API_CHECK_ROUND_1_2026-10-15.md`, kept scripts in `docs/qa/checks/buying/` (33 checks). Nothing is open: D-BUY-77 is under Fixed and D-BUY-78 under Not a defect.
