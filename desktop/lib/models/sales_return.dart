@@ -238,6 +238,7 @@ class SalesReturn {
     this.roundOff = '',
     this.attachments = const [],
     this.notes = const [],
+    this.boxAndPieceEntry = false,
   });
 
   final String id;
@@ -303,6 +304,10 @@ class SalesReturn {
   final List<Json> attachments;
   final List<Json> notes;
 
+  /// L5: whether the return was saved typed as boxes and pieces; it reopens
+  /// so.
+  final bool boxAndPieceEntry;
+
   bool get isDraft => status == 'DRAFT';
   bool get isApproved => status == 'APPROVED';
   bool get isCompleted => status == 'COMPLETED';
@@ -361,6 +366,7 @@ class SalesReturn {
           'attachment_kind',
         ]),
         notes: _written(json['notes'], const ['note_type', 'note']),
+        boxAndPieceEntry: json['box_and_piece_entry'] == true,
       );
 
   /// Each record of [raw] with only [keys], and those only where it has a
@@ -390,6 +396,7 @@ class ReturnableDocument {
     required this.lines,
     this.customerName = '',
     this.status = '',
+    this.boxAndPieceEntry = false,
   });
 
   final String id;
@@ -409,6 +416,11 @@ class ReturnableDocument {
   /// credit.
   final String status;
 
+  /// L5: whether the note or bill was saved typed as boxes and pieces. A
+  /// new return against it opens so, as the server takes it when the
+  /// return says nothing.
+  final bool boxAndPieceEntry;
+
   /// Number, date and whose it is. The picker mixes every customer's notes
   /// and invoices, and with number and date alone a return was raised
   /// against another customer's note and credited them (plan item 9.22,
@@ -426,6 +438,7 @@ class ReturnableDocument {
         customerId: stringValue(json['customer_id']),
         customerName: stringValue(json['customer_name']),
         status: stringValue(json['status']),
+        boxAndPieceEntry: json['box_and_piece_entry'] == true,
         lines: _lines(json, 'current_delivery_quantity'),
       );
 
@@ -438,6 +451,7 @@ class ReturnableDocument {
         customerId: stringValue(json['customer_id']),
         customerName: stringValue(json['customer_name']),
         status: stringValue(json['status']),
+        boxAndPieceEntry: json['box_and_piece_entry'] == true,
         lines: _lines(json, 'current_invoice_quantity'),
       );
 
@@ -462,12 +476,17 @@ class ReturnableLine {
     required this.unitPrice,
     this.freeQuantity = '0',
     this.discountPercent = '',
+    this.packSize = '',
   });
 
   final String id;
   final int lineNumber;
   final String productId;
   final String description;
+
+  /// L5: the pack the line went out at ('' where it had none): what a
+  /// return of it counts boxes in.
+  final String packSize;
 
   /// The rate of discount the line went out at, which a return of it takes
   /// unless one is typed. Read so an edited Draft can tell a discount
@@ -520,5 +539,6 @@ class ReturnableLine {
             ? '0'
             : stringValue(json['free_quantity']),
         discountPercent: stringValue(json['discount_percent']),
+        packSize: stringValue(json['pack_size']),
       );
 }

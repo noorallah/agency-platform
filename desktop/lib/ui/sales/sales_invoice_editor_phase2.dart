@@ -10,9 +10,29 @@ part of 'sales_invoice_editor_dialog.dart';
 extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
   List<DocumentColumn> get _documentColumns => [
     const DocumentColumn('#', 28),
-    const DocumentColumn('Item', 0),
-    const DocumentColumn('Left to bill', 84, numeric: true),
-    const DocumentColumn('Bill qty', 78, numeric: true),
+    DocumentColumn(
+      'Item',
+      0,
+      // L5 step 10: the toggle above the billed notes' lines, where the
+      // firm's switch is on. A saved counter bill taking more products has
+      // it above the products instead, so it is drawn once.
+      minWidth: _togglesNoteLines ? 300 : DocumentLineTable.minFlexWidth,
+      heading: _togglesNoteLines
+          ? BoxPieceToggle(
+              key: const ValueKey('sales-invoice-note-box-and-pieces'),
+              label: 'Item',
+              value: _boxAndPieces,
+              onChanged: _saving ? null : _setBoxAndPieces,
+            )
+          : null,
+    ),
+    // "3 x 12 + 5" is wider than a figure.
+    DocumentColumn('Left to bill', _boxAndPieces ? 92 : 84, numeric: true),
+    // L5 step 10: typed as boxes and pieces, Bill qty becomes the two boxes.
+    if (_boxAndPieces)
+      ...boxPieceColumns.take(2)
+    else
+      const DocumentColumn('Bill qty', 78, numeric: true),
     _rateColumn,
     const DocumentColumn('Disc %', 60, numeric: true),
     const DocumentColumn('Taxable', 96, numeric: true),
@@ -24,6 +44,31 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       DocumentColumn('Margin', 124, numeric: true),
     ],
   ];
+
+  /// L5 step 10: whether the billed notes' table carries the toggle.
+  bool get _togglesNoteLines => _offersBoxes && !_direct && !_addsProducts;
+
+  /// L5 step 10: a quantity of a billed note line, read as boxes where the
+  /// bill is typed so.
+  String _noteFigure(String value, BillableLine line) => _boxAndPieces
+      ? boxesAndPieces(value, _notePackSize(line))
+      : documentQuantity(value);
+
+  /// L5 step 10: refill a billed note line's box cells where its figure in
+  /// pieces was moved by something other than the cells. Compared as
+  /// figures, so the cells being typed in are never rewritten under them.
+  BoxPieceEntry _noteBoxesOf(BillableLine line, double? pack) {
+    final String id = line.sourceDocumentLineId;
+    final BoxPieceEntry entry = _noteBoxes.putIfAbsent(id, BoxPieceEntry.new);
+    final String figure = _quantities[id]?.text ?? '';
+    final String cells = entry.quantityText(pack);
+    final double? a = double.tryParse(cells.trim());
+    final double? b = double.tryParse(figure.trim());
+    final bool same =
+        a != null && b != null ? a == b : cells.trim() == figure.trim();
+    if (!same) entry.load(quantity: figure, free: '', pack: pack);
+    return entry;
+  }
 
   /// Whether the saved lines carry Cost and Margin columns: only where the
   /// server sent the saved bill's cost, which it does only to a holder of
@@ -1019,6 +1064,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       line.productId,
     );
     final String already = line.alreadyInvoicedQuantity;
+    final double? pack = packOf(_notePackSize(line));
     return DocumentLineRow(
       key: ValueKey<String>('sales-invoice-line-$index'),
       columns: _documentColumns,
@@ -1044,8 +1090,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               key: ValueKey<String>('sales-invoice-line-typed-unit-$index'),
               '${_isTypedInOtherUnit(line.sourceDocumentLineId) ? 'Typed in ${_typedUnitCode(line.sourceDocumentLineId)}, kept as typed  ·  ' : ''}'
               '${_extraDocuments.isEmpty ? '' : '${document.sourceDocumentNumber}  ·  '}'
-              'dispatched ${documentQuantity(line.sourceQuantity)}'
-              '${already.isEmpty || already == '0' ? '' : ', already billed ${documentQuantity(already)}'}'
+              'dispatched ${_noteFigure(line.sourceQuantity, line)}'
+              '${already.isEmpty || already == '0' ? '' : ', already billed ${_noteFigure(already, line)}'}'
               '${companion == null ? '' : '  ·  stock ${documentQuantity(companion.availableQuantity)}'}',
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
@@ -1055,13 +1101,40 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             ),
           ],
         ),
-        Text(documentQuantity(line.remainingQuantity), style: text),
-        _cellBox(
-          context,
-          _quantities[line.sourceDocumentLineId],
-          readOnly: _isTypedInOtherUnit(line.sourceDocumentLineId),
-          validator: (value) => _billableQuantity(value, line),
+        Text(
+          _noteFigure(line.remainingQuantity, line),
+          key: ValueKey<String>('sales-invoice-line-left-$index'),
+          style: text,
         ),
+        if (_boxAndPieces)
+          // L5 step 10: the two boxes; the line has no free cell of its own.
+          ...boxPieceCells(
+            context,
+            entry: _noteBoxesOf(line, pack),
+            pack: pack,
+            readOnly: _isTypedInOtherUnit(line.sourceDocumentLineId),
+            keyPrefix: 'sales-invoice-line-$index',
+            // Zero takes the line off the bill.
+            chargedRequired: false,
+            onChanged: () {
+              final BoxPieceEntry entry =
+                  _noteBoxes[line.sourceDocumentLineId]!;
+              _setState(() {
+                _quantities[line.sourceDocumentLineId]?.text =
+                    entry.quantityText(pack);
+                _current = index;
+                _addedFocus = false;
+              });
+              _schedulePreview();
+            },
+          ).take(2)
+        else
+          _cellBox(
+            context,
+            _quantities[line.sourceDocumentLineId],
+            readOnly: _isTypedInOtherUnit(line.sourceDocumentLineId),
+            validator: (value) => _billableQuantity(value, line),
+          ),
         // The note's own price and discount: a bill continues the document
         // it bills rather than repricing it. A draft typed with GST in its
         // rates shows the rate as typed (backlog 64 row 4).
@@ -2166,9 +2239,20 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               ? '${trimDiscountRate(source.discountPercent)}%'
               : '–',
         ),
-        DocumentSidePair('Dispatched', documentQuantity(source.sourceQuantity)),
+        DocumentSidePair('Dispatched', _noteFigure(source.sourceQuantity, source)),
         DocumentSidePair(
-            'Left to bill', documentQuantity(source.remainingQuantity)),
+            'Left to bill', _noteFigure(source.remainingQuantity, source)),
+        if (_boxAndPieces && packOf(_notePackSize(source)) != null)
+          DocumentSideNote(
+            boxPieceSummary(
+              packSize: _notePackSize(source),
+              quantity:
+                  _quantities[source.sourceDocumentLineId]?.text ?? '',
+              free: '',
+              rate: source.unitPrice,
+            ),
+            key: const ValueKey('sales-invoice-side-note-boxes'),
+          ),
         ...documentTaxLines(
           taxable: documentLineTaxable(
                   priced?['net_amount'], priced?['tax_amount']) ??

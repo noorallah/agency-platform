@@ -12,6 +12,7 @@ import '../../models/sales_return.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/desktop_framework.dart';
 
 part 'sales_return_editor_phase2.dart';
@@ -162,6 +163,11 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog>
   int _previewSerial = 0;
   bool _phase2 = false;
 
+  /// L5 step 10: whether the lines are typed as boxes and pieces. A new
+  /// return follows the note or bill it is raised against; a saved one
+  /// reopens as it was saved.
+  bool _boxAndPieces = false;
+
   void _setState(VoidCallback change) => setState(change);
 
   @override
@@ -217,6 +223,9 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog>
     _customerNumber.dispose();
     _reason.dispose();
     _remarks.dispose();
+    for (final _ReturnLineDraft draft in _drafts) {
+      draft.boxes.dispose();
+    }
     super.dispose();
   }
 

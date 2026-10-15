@@ -108,6 +108,10 @@ class BillableLine(SalesInvoiceSchema):
     #: that shelf. None where the line does not say.
     warehouse_id: UUID | None = None
 
+    #: The box the source line was typed in (L5), so a bill of it can show
+    #: and take boxes and pieces. None where the line holds no pack.
+    pack_size: Decimal | None = None
+
 
 class BillableDocument(SalesInvoiceSchema):
     """A dispatched delivery note or approved order with something left to bill.

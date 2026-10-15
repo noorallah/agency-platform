@@ -101,6 +101,7 @@ class BillableLine {
     this.freeQuantity = '0',
     this.trackSerial = false,
     this.warehouseId = '',
+    this.packSize = '',
   });
 
   final String sourceDocumentLineId;
@@ -128,6 +129,9 @@ class BillableLine {
   /// Where the source line ships from, when it says.
   final String warehouseId;
 
+  /// L5: the box the source line was typed in, empty where it holds none.
+  final String packSize;
+
   String get label {
     final String name =
         description.isEmpty ? 'Line $lineNumber' : description;
@@ -141,6 +145,7 @@ class BillableLine {
         description: stringValue(json['description']),
         trackSerial: json['track_serial'] == true,
         warehouseId: stringValue(json['warehouse_id']),
+        packSize: stringValue(json['pack_size']),
         sourceQuantity: stringValue(json['source_quantity']),
         alreadyInvoicedQuantity:
             stringValue(json['already_invoiced_quantity']),
