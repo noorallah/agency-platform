@@ -836,3 +836,129 @@ product of another kind is its own line, quantity 0, free n, worth nothing
 and taxed nothing. On a purchase the same shapes bring stock in: accepted
 plus free on the receipt, billed at zero. A supplier's free goods are not
 passed to customers automatically, nor the reverse.
+
+## 21. Choosing the offer on the bill line
+
+Until now the server decided which offer or standing discount a line took, and
+the only way to take another was to type a discount. Now the side panel lists
+every offer and standing arrangement that applies to the line, and the bill
+maker may tick a different one. The server prices the line again; the bill
+maker never types a figure for it.
+
+### The firm's setting
+
+**Settings > Selling > Sales Stages**, "How offers combine".
+
+| Setting | What a line starts with | What the bill maker may do |
+| --- | --- | --- |
+| Best one only | The one offer worth most on that line | Take another offer in its place |
+| Combine, as each offer allows (the default) | Every offer that combines, in order | Untick an offer, or take a standing arrangement (price list, the customer's rate, the group's rate) in place of the offers' discount |
+| Best one, the bill maker may add more | The one offer worth most, as under best one only | Tick more offers; they combine as each allows, up to the line cap |
+
+"Best one only" is judged for each line, so a bill of many items can carry a
+different offer on each. Offers on the whole bill are judged among themselves.
+
+### The worked example
+
+An item at 100.00 a piece, GST 12%. For this customer the firm has price list
+CITY at 4%, the customer's standing rate of 2%, offer TEA-5 (5% off a line of 5
+or more) and offer TEA-11 (buy 11 get 1 free, part share allowed). Both offers
+combine. The setting is "Combine".
+
+| Step | The bill maker | The panel shows | The line |
+| --- | --- | --- | --- |
+| 1 | Types 9 pieces | TEA-5: 45.00 off, applied. TEA-11: "2 more for 1 free". CITY and the standing rate: not applied, an offer gives this line its discount | 900.00 less 45.00. Taxable 855.00, GST 102.60, amount 957.60 |
+| 2 | Changes it to 11 | TEA-5: 55.00 off, applied. TEA-11: 1 free, applied | 1,100.00 less 55.00. Taxable 1,045.00, GST 125.40, amount 1,170.40. 12 leave stock |
+| 3 | Unticks TEA-5, ticks CITY | CITY 4%: 44.00, applied, chosen. TEA-11 still applied | Taxable 1,056.00, GST 126.72, amount 1,182.72 |
+| 4 | A new line of 6 pieces; picks "Part share" on TEA-11 | The quantity becomes 5.5 and "0.5 free from TEA-11". TEA-5: 27.50, applied | 550.00 less 27.50. Taxable 522.50, GST 62.70, amount 585.20. 6 leave stock |
+
+Step 3 is the new thing: before, an offer always beat the price list unless a
+discount was typed. Now the person picks the price list, the server works out
+the 44.00, and the line records that it was chosen. Under "Best one only" step
+2 would start with TEA-11 alone (a free piece is worth 100.00 against 55.00).
+
+### The block in the side panel
+
+On the order, the quotation and the counter bill, the side panel shows the
+line the cursor is on. Each row is an offer or a standing arrangement, with a
+tick, what it **gives** (money off, or free pieces), and either **applied** or
+the reason it is not: "needs a coupon", "claimed as often as it allows", "does
+not combine with TEA-5", "a discount is typed on this line".
+
+- **F6** moves into the block, the **arrows** move, **Space** ticks or unticks,
+  **Enter** goes back to the line.
+- A tick prices the line again after a short pause, once. Moving between
+  lines asks the server for nothing.
+- The discount box stays blank. It is for a figure somebody types; a tick never
+  fills it. A line with a typed discount is passed over by every offer, and a
+  tick beside a typed figure is refused.
+- Offers on the whole bill sit under the totals and are read-only.
+
+### The hint
+
+A line short of an offer shows what is missing: "2 more", "1 free" beside the
+quantity and in the panel, and the price list's next break ("6% off") the same
+way. It shows only a shortfall no bigger than the quantity already typed, two
+at most, nearest first. A hint cannot be ticked.
+
+### Who may choose
+
+The permission **Choose the offer on a sales line** (`SALES_OFFER_CHOOSE`) is
+held by every role that makes a sales bill. Without it the block is still
+shown, read-only, and the server's start stands. Each real choice goes to the
+audit trail: the line, what the server started with, what was taken, and who.
+A choice that equals the server's start is not a choice and is not recorded as
+one.
+
+### What is refused, and why
+
+The server refuses by name and never guesses.
+
+- An offer that no longer applies to the line: "offer TEA-5 does not apply to
+  this line any more. Choose again." The screen then prices from the start.
+- A second offer under "Best one only", or an offer that does not combine with
+  one already ticked: "TEA-9 does not combine with TEA-5."
+- A choice beside a typed discount: two answers on one line.
+- A choice on a bill that continues documents already priced; the order's
+  choice stands there.
+- Without the permission, any choice at all.
+
+A choice goes along the chain: a counter bill typed straight in hands it to
+the order raised behind it; a quotation turned into an order hands its choices
+over, and one that has lapsed by the order's date is dropped (that line is
+ordered from the start) and the quotation's history says so. Offers are still
+counted against their limits only when the bill is approved.
+
+### The part share
+
+On an offer that gives free goods of the same item ("11 + 1"), the offer's
+form has **Allow a part share**, off by default. With it on, the customer may
+take a quantity that is not a round: 6 pieces on "11 + 1" is **5.5 charged and
+0.5 free**; 4 is 3.6667 charged and 0.3333 free. The bill maker picks "Part
+share" on the offer's row; the quantity becomes the charged figure and the
+panel says "0.5 free from TEA-11". Money is the charged quantity times the
+rate. Charged and free together must make whole pieces for a unit counted
+whole. Such a line is delivered and billed whole, all 6 at once; a return of
+part of it comes back in proportion (3 of 6 is 2.75 charged and 0.25 free). It
+is refused where the offer does not allow it, where the line is in another
+unit, where free goods are typed, or where the offer would give nothing.
+
+### What the saved document shows
+
+Each line of a saved order, quotation or bill shows its rows in the side
+panel: "TEA-5 - 55.00 off - applied". Where a person chose, it says **chosen
+by a person**. An arrangement the server would have applied that the choice
+left out shows as **passed over**, with what it would have given. Lines priced
+before this release carry none of this.
+
+On the **full-page tax invoice** an item an offer discounted or gave free
+goods shows "Offer: TEA-11" under it. The half page and the roll do not, and
+no print names a price list, a hint or who chose.
+
+### Reports
+
+The three **Discount given by customer / salesman / product** reports gain
+four columns: lines chosen, discount chosen (what the choices gave), offers
+passed over and their worth. A bill billed twice from one order is not counted
+twice. The new report **Discount by offer and product** shows, for a date
+range, what each offer gave on each product.
