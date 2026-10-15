@@ -189,6 +189,7 @@ void main() {
     WidgetTester tester, {
     Quotation? existing,
     bool rateIncludesTax = false,
+    bool boxAndPieces = false,
     Size size = const Size(1600, 900),
     bool choose = true,
     required void Function(Json?) onResult,
@@ -209,12 +210,15 @@ void main() {
                       child: QuotationEditorDialog(
                         existing: existing,
                         rateIncludesTax: rateIncludesTax,
+                        boxAndPieces: boxAndPieces,
                         customers: [
                           Customer.fromJson({
                             'id': 'c1',
                             'code': 'C-0102',
                             'name': 'Sri Murugan Stores',
                             'display_name': 'Sri Murugan Stores',
+                            // L5: marked; read only where the switch is on.
+                            'box_and_piece_entry': true,
                           }),
                         ],
                         products: [
@@ -223,6 +227,7 @@ void main() {
                             'code': 'P-1002',
                             'name': 'Tata Salt 1kg',
                             'selling_price': '26.00',
+                            'pack_size': '12.0000',
                           }),
                         ],
                         branches: [
@@ -524,5 +529,64 @@ void main() {
     await tester.pumpAndSettle();
     expect((result!['lines'] as List).single['free_quantity'], '0');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'L5: a marked customer opens boxes and pieces; the cells add up to the '
+      'pieces sent, with the pack, and a typed 0 free refuses the offer',
+      (tester) async {
+    Json? result;
+    await pumpEditor(tester,
+        boxAndPieces: true,
+        choose: false,
+        onResult: (value) => result = value);
+    expect(find.byKey(const ValueKey('quotation-box-and-pieces')),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('quotation-customer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Sri Murugan').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Free box'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('quotation-line-product-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Tata Salt').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('quotation-line-0-box')), '1');
+    await tester.enterText(
+        find.byKey(const ValueKey('quotation-line-0-pcs')), '30');
+    await tester.testTextInput.receiveAction(TextInputAction.next);
+    await tester.pumpAndSettle();
+    expect(find.text('30 pcs is 2 boxes + 6'), findsOneWidget);
+    await tester.enterText(
+        find.byKey(const ValueKey('quotation-line-0-free-pcs')), '0');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(
+        find.text('Box of 12. 3 boxes + 6 pcs = 42 pcs. '
+            'Rate of a box 312.00.'),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect(result!['box_and_piece_entry'], isTrue);
+    final Json line = Map<String, dynamic>.from(
+        (result!['lines'] as List).single as Map);
+    expect(line['quantity'], '42');
+    expect(line['pack_size'], '12.0000');
+    expect(line['free_quantity'], '0');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('L5: with the switch off nothing about boxes is shown or sent',
+      (tester) async {
+    Json? result;
+    await pumpEditor(tester, onResult: (value) => result = value);
+    expect(find.byKey(const ValueKey('quotation-box-and-pieces')),
+        findsNothing);
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect(result!.containsKey('box_and_piece_entry'), isFalse);
+    expect(((result!['lines'] as List).single as Map).containsKey('pack_size'),
+        isFalse);
   });
 }

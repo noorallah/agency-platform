@@ -122,6 +122,7 @@ void main() {
       'purchase_order_approval': true,
       'goods_receipt_approval': true,
       'purchase_invoice_approval': true,
+      'box_and_piece_entry': false,
     });
   });
 
@@ -185,5 +186,25 @@ void main() {
     );
     expect(_saveButton(tester).onPressed, isNull);
     expect(find.textContaining('manage purchase settings'), findsOneWidget);
+  });
+
+  testWidgets('L5: boxes and pieces is off, switched here and sent',
+      (tester) async {
+    final _StagesApi api = _StagesApi(failReads: 0);
+    await _open(tester, api);
+
+    final Finder toggle =
+        find.byKey(const ValueKey('purchase-box-and-piece-entry-switch'));
+    await tester.ensureVisible(toggle);
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+    expect(find.text('Type quantities as boxes and pieces'), findsOneWidget);
+    await tester.tap(find.descendant(of: toggle, matching: find.byType(Switch)));
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.saved.single['box_and_piece_entry'], isTrue);
+    expect(tester.takeException(), isNull);
   });
 }

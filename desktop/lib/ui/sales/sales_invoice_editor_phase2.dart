@@ -46,9 +46,29 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
 
   List<DocumentColumn> get _directColumns => [
     const DocumentColumn('#', 28),
-    const DocumentColumn('Product (code, name or barcode)', 0),
+    DocumentColumn(
+      'Product (code, name or barcode)',
+      0,
+      // L5: the toggle above the lines, where the firm's switch is on,
+      // with room kept for it before the table scrolls sideways.
+      minWidth: _offersBoxes ? 300 : DocumentLineTable.minFlexWidth,
+      heading: _offersBoxes
+          ? BoxPieceToggle(
+              key: const ValueKey('sales-invoice-box-and-pieces'),
+              label: 'Product (code, name or barcode)',
+              value: _boxAndPieces,
+              onChanged: _saving ? null : _setBoxAndPieces,
+            )
+          : null,
+    ),
     const DocumentColumn('HSN', 66),
-    const DocumentColumn('Qty', 66, numeric: true),
+    // L5: typed as boxes and pieces, Qty and Free become four cells.
+    if (_boxAndPieces)
+      ...boxPieceColumns
+    else ...const [
+      DocumentColumn('Qty', 66, numeric: true),
+      DocumentColumn('Free', 56, numeric: true),
+    ],
     const DocumentColumn('Unit', 50),
     _rateColumn,
     const DocumentColumn('Disc %', 60, numeric: true),
@@ -115,6 +135,11 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       _shipToId = null;
       _resetPriceLevelFor(id);
     });
+    // L5: a new bill follows the customer's mark until the toggle is moved
+    // by hand.
+    if (!_editing && _offersBoxes && !_boxesTouched) {
+      _setBoxAndPieces(_customer?.boxAndPieceEntry ?? false, touched: false);
+    }
     unawaited(_quoteDirect(_directLines));
     unawaited(_fillSalesman());
     _schedulePreview();
@@ -891,14 +916,48 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     return null;
   }
 
+  /// L5: refill [line]'s box cells where its figures in pieces were moved
+  /// by something other than the cells -- a scan, a batch pick, a product
+  /// with another pack. Compared as figures, so the cells the person is
+  /// typing in are never rewritten under them.
+  void _syncBoxes(_DirectLine line, double? pack) {
+    bool same(String cells, String figure) {
+      final double? a = double.tryParse(cells.trim());
+      final double? b = double.tryParse(figure.trim());
+      return a != null && b != null ? a == b : cells.trim() == figure.trim();
+    }
+
+    if (same(line.boxes.quantityText(pack), line.quantity.text) &&
+        same(line.boxes.freeText(pack), line.free.text)) {
+      return;
+    }
+    line.boxes.load(
+      quantity: line.quantity.text,
+      free: line.free.text,
+      pack: pack,
+    );
+  }
+
+  /// Blank, or a figure not below zero.
+  String? _freeOrBlank(String? value) {
+    final String text = (value ?? '').trim();
+    if (text.isEmpty) return null;
+    final double? figure = double.tryParse(text);
+    return figure == null || figure < 0
+        ? 'Enter a figure, or leave it blank.'
+        : null;
+  }
+
   Widget _cellBox(
     BuildContext context,
     TextEditingController? controller, {
     String? Function(String?)? validator,
     String? hint,
     bool readOnly = false,
+    Key? key,
   }) =>
       TextFormField(
+        key: key,
         controller: controller,
         readOnly: readOnly,
         textAlign: TextAlign.right,
@@ -1106,6 +1165,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     final double estimate = (double.tryParse(line.quantity.text.trim()) ?? 0) *
         (double.tryParse(line.price.text.trim()) ?? 0) *
         (1 - (double.tryParse(line.discount.text.trim()) ?? 0) / 100);
+    final double? pack = _packFor(line.productId);
+    if (_boxAndPieces) _syncBoxes(line, pack);
     return DocumentLineRow(
       key: ValueKey<String>('sales-invoice-direct-$index'),
       columns: _directColumns,
@@ -1150,7 +1211,17 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               onSelected: (value) => _pickProduct(index, value),
             ),
             ),
-            if (companion != null)
+            if (_boxAndPieces && line.boxes.note.isNotEmpty)
+              Text(
+                line.boxes.note,
+                key: ValueKey<String>('sales-invoice-direct-box-note-$index'),
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 11,
+                  color: theme.colorScheme.primary,
+                ),
+              )
+            else if (companion != null)
               Text(
                 'Stock ${documentQuantity(companion.availableQuantity)}'
                 '${companion.lastPrice.isEmpty ? '' : '  ·  last to them '
@@ -1164,7 +1235,34 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           ],
         ),
         Text(product?.hsnSac ?? '', style: text),
-        _cellBox(context, line.quantity),
+        if (_boxAndPieces)
+          ...boxPieceCells(
+            context,
+            entry: line.boxes,
+            pack: pack,
+            readOnly: false,
+            keyPrefix: 'sales-invoice-direct-$index',
+            chargedRequired: false,
+            onChanged: () {
+              _setState(() {
+                line.quantity.text = line.boxes.quantityText(pack);
+                line.free.text = line.boxes.freeText(pack);
+                _current = index;
+                if (_addsProducts) _addedFocus = true;
+              });
+              _schedulePreview();
+            },
+          )
+        else ...[
+          _cellBox(context, line.quantity),
+          // L5: the bill typed straight in gains the free goods it lacked.
+          _cellBox(
+            context,
+            line.free,
+            key: ValueKey<String>('sales-invoice-direct-free-$index'),
+            validator: _freeOrBlank,
+          ),
+        ],
         Text(product?.displayUnit ?? '', style: text),
         _cellBox(
           context,
@@ -1956,8 +2054,19 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       final DocumentPreviewLine? companion =
           number == null ? null : _companionFor(number, draft.productId);
       final String source = stringValue(priced?['discount_source']);
+      final String boxes = _boxAndPieces && product != null
+          ? boxPieceSummary(
+              packSize: product.packSize,
+              quantity: draft.quantity.text,
+              free: draft.free.text,
+              rate: draft.price.text,
+            )
+          : '';
       line.addAll([
         DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
+        if (boxes.isNotEmpty)
+          DocumentSideNote(boxes,
+              key: const ValueKey('sales-invoice-side-boxes')),
         DocumentSidePair('Rate', documentMoney(draft.price.text)),
         if (companion != null && companion.lastPrice.isNotEmpty) ...[
           DocumentSidePair(

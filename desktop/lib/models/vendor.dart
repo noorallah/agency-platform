@@ -328,6 +328,7 @@ class Vendor {
     this.tdsTechnicalServices = false,
     this.tdsApplicable = true,
     this.msmeWrittenAgreement = false,
+    this.boxAndPieceEntry = false,
     this.issuesEInvoices = false,
     required this.licenseNumber,
     required this.registrationNumber,
@@ -442,6 +443,10 @@ class Vendor {
   final bool tdsApplicable;
   final bool msmeWrittenAgreement;
 
+  /// L5: whether a new buying document for this supplier takes boxes and
+  /// loose pieces on each line (only where the firm's buying switch is on).
+  final bool boxAndPieceEntry;
+
   /// Whether their bills carry an IRN (backlog 78 row 5); a bill from one
   /// without it is warned about.
   final bool issuesEInvoices;
@@ -500,6 +505,7 @@ class Vendor {
         tdsTechnicalServices: boolValue(json['tds_technical_services']),
         tdsApplicable: json['tds_applicable'] != false,
         msmeWrittenAgreement: boolValue(json['msme_written_agreement']),
+        boxAndPieceEntry: boolValue(json['box_and_piece_entry']),
         issuesEInvoices: boolValue(json['issues_e_invoices']),
         licenseNumber: stringValue(json['license_number']),
         registrationNumber: stringValue(json['registration_number']),
@@ -645,10 +651,14 @@ class VendorQuery {
     this.typeId,
     this.businessProfileId,
     this.includeDeleted = false,
+    this.boxAndPieceEntry,
   });
 
   final String? status;
   final String? categoryId;
+
+  /// L5: only suppliers marked (true) or not marked (false); null is all.
+  final bool? boxAndPieceEntry;
   final String? typeId;
   final String? businessProfileId;
   final bool includeDeleted;
@@ -660,6 +670,8 @@ class VendorQuery {
         if (businessProfileId?.isNotEmpty == true)
           'business_profile_id': businessProfileId!,
         if (includeDeleted) 'include_deleted': 'true',
+        if (boxAndPieceEntry != null)
+          'box_and_piece_entry': '$boxAndPieceEntry',
       };
 }
 

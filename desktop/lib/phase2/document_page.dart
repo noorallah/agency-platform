@@ -293,11 +293,25 @@ class DocumentHeader extends StatelessWidget {
 /// One column of the lines table: its heading, width (0 takes what is
 /// left) and whether it holds figures.
 class DocumentColumn {
-  const DocumentColumn(this.label, this.width, {this.numeric = false});
+  const DocumentColumn(
+    this.label,
+    this.width, {
+    this.numeric = false,
+    this.heading,
+    this.minWidth = DocumentLineTable.minFlexWidth,
+  });
 
   final String label;
   final double width;
   final bool numeric;
+
+  /// For the column with no fixed width: the least it is squeezed to before
+  /// the table scrolls sideways instead.
+  final double minWidth;
+
+  /// Drawn in the heading row in place of [label] -- a control that belongs
+  /// above the lines, such as the boxes-and-pieces toggle (L5).
+  final Widget? heading;
 }
 
 /// One cell, sized and aligned as its column says, with a gap after it so
@@ -350,7 +364,7 @@ class DocumentLineTable extends StatefulWidget {
   static double minimumWidth(List<DocumentColumn> columns) {
     double width = 24 + 3;
     for (final DocumentColumn column in columns) {
-      width += (column.width == 0 ? minFlexWidth : column.width) + 8;
+      width += (column.width == 0 ? column.minWidth : column.width) + 8;
     }
     return width;
   }
@@ -388,7 +402,10 @@ class _DocumentLineTableState extends State<DocumentLineTable> {
           ),
           child: Row(children: [
             for (final DocumentColumn column in widget.columns)
-              documentCell(column, Text(column.label, style: heading)),
+              documentCell(
+                column,
+                column.heading ?? Text(column.label, style: heading),
+              ),
           ]),
         ),
         Expanded(

@@ -21,6 +21,7 @@ import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/brand_filter.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
@@ -121,6 +122,11 @@ class _LineDraft {
   LineMargin? savedMargin;
   String savedSignature = '';
 
+  /// L5: the line's Box, Pcs, Free box and Free pcs cells, used while the
+  /// order is typed in boxes and pieces. [quantity] and [free] stay the
+  /// figures sent, in pieces.
+  final BoxPieceEntry boxes = BoxPieceEntry();
+
   String get signature => [
         productId ?? '',
         quantity.text.trim(),
@@ -162,6 +168,7 @@ class _LineDraft {
     free.dispose();
     discountPercent.dispose();
     discountAmount.dispose();
+    boxes.dispose();
   }
 }
 
@@ -386,6 +393,19 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// and the switch can move it.
   bool _rateIncludesTax = false;
 
+  /// L5: whether the lines are typed as boxes and pieces. A new order
+  /// follows its customer's mark where the firm's switch is on; a saved one
+  /// keeps its own.
+  bool _boxAndPieces = false;
+
+  /// Whether the toggle is offered: the firm's selling switch is on, or the
+  /// order was saved in boxes and pieces.
+  bool _offersBoxes = false;
+
+  /// Set once somebody moves the toggle, so choosing a customer after that
+  /// leaves their choice alone.
+  bool _boxesTouched = false;
+
   void _setState(VoidCallback change) => setState(change);
 
   @override
@@ -555,12 +575,14 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       // leave it off, which is what the order always did.
       bool firmDefault = false;
       bool approvalOff = false;
+      bool firmBoxes = false;
       if (id == null && _phase2) {
         try {
           final SalesWorkflowSettings stages =
               await widget.api.salesWorkflowSettings();
           firmDefault = stages.rateIncludesTax;
           approvalOff = !stages.salesOrderApproval;
+          firmBoxes = stages.boxAndPieceEntry;
         } on ApiException {
           firmDefault = false;
         }
@@ -570,6 +592,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         if (existing == null) {
           _rateIncludesTax = firmDefault;
           _approvalOff = approvalOff;
+          _offersBoxes = firmBoxes;
         }
         _customers = (loaded[0] as List<dynamic>).cast<Customer>();
         _products = (loaded[1] as List<dynamic>).cast<Product>();
@@ -773,6 +796,48 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       _lines.last.savedSignature = _lines.last.signature;
     }
     _savedMarginLines = _lines.length;
+    // L5: a saved order reopens as it was saved.
+    _boxAndPieces = order['box_and_piece_entry'] == true;
+    if (_boxAndPieces) _offersBoxes = true;
+    _loadBoxes(_lines);
+  }
+
+  /// L5: the pack a line's cells split by, or null for an item with none.
+  double? _packFor(String? productId) {
+    for (final Product item in _products) {
+      if (item.id == productId) return packOf(item.packSize);
+    }
+    return null;
+  }
+
+  /// L5: the item's pack size as the server sent it.
+  String _packSizeOf(String? productId) {
+    for (final Product item in _products) {
+      if (item.id == productId) return item.packSize;
+    }
+    return '';
+  }
+
+  /// L5: fill [lines]' box cells from their figures in pieces.
+  void _loadBoxes(Iterable<_LineDraft> lines) {
+    if (!_boxAndPieces) return;
+    for (final _LineDraft line in lines) {
+      line.boxes.load(
+        quantity: line.quantity.text,
+        free: line.free.text,
+        pack: _packFor(line.productId),
+      );
+    }
+  }
+
+  /// L5: the toggle above the lines. Changes no quantity: the same figures
+  /// are shown as one cell or as two.
+  void _setBoxAndPieces(bool value, {bool touched = true}) {
+    _setState(() {
+      _boxAndPieces = value;
+      if (touched) _boxesTouched = true;
+      _loadBoxes(_lines);
+    });
   }
 
   String? _blankToNull(String value) => value.isEmpty ? null : value;
@@ -1129,6 +1194,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       // order's own on an update, and the switch is the user's to say.
       // Phase 1 has no switch, so a new order there is typed before tax.
       'rate_includes_tax': _rateIncludesTax,
+      // L5: only where the toggle is offered; absent takes the server's.
+      if (_offersBoxes) 'box_and_piece_entry': _boxAndPieces,
       // M13: null is the customer's usual level. Sent only while the box is
       // there, so an order whose levels could not be read keeps its own.
       if (_showsPriceLevel)
@@ -1173,6 +1240,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         'line_number': number,
         'product_id': line.productId,
         'quantity': line.quantity.text.trim(),
+        // L5: the pack the two cells were added up with, only on a line
+        // typed as boxes and pieces; the server refuses one that moved.
+        if (_boxAndPieces && _packFor(line.productId) != null)
+          'pack_size': _packSizeOf(line.productId),
         // With GST included, blank is the product's own price -- before
         // tax, as the server resolves it -- not a typed shelf price.
         if (!(_rateIncludesTax && line.unitPrice.text.trim().isEmpty))

@@ -1183,7 +1183,12 @@ class PurchaseWorkflowSettings {
     this.purchaseOrderApproval = true,
     this.goodsReceiptApproval = true,
     this.purchaseInvoiceApproval = true,
+    this.boxAndPieceEntry = false,
   });
+
+  /// L5: whether a buying line may be typed as boxes and loose pieces.
+  /// Default off.
+  final bool boxAndPieceEntry;
 
   /// Backlog 120 (M2): whether approval is a step of its own, per document.
   /// Off means one Save completes the document. Default on.
@@ -1254,6 +1259,7 @@ class PurchaseWorkflowSettings {
         purchaseOrderApproval: json['purchase_order_approval'] != false,
         goodsReceiptApproval: json['goods_receipt_approval'] != false,
         purchaseInvoiceApproval: json['purchase_invoice_approval'] != false,
+        boxAndPieceEntry: boolValue(json['box_and_piece_entry']),
       );
 
   /// The two switches and the two bill tolerances. The server leaves an
@@ -1269,6 +1275,7 @@ class PurchaseWorkflowSettings {
         'purchase_order_approval': purchaseOrderApproval,
         'goods_receipt_approval': goodsReceiptApproval,
         'purchase_invoice_approval': purchaseInvoiceApproval,
+        'box_and_piece_entry': boxAndPieceEntry,
       };
 
   /// [clearPercent] / [clearAmount] switch a tolerance off, which a null
@@ -1285,6 +1292,7 @@ class PurchaseWorkflowSettings {
     bool? purchaseOrderApproval,
     bool? goodsReceiptApproval,
     bool? purchaseInvoiceApproval,
+    bool? boxAndPieceEntry,
   }) =>
       PurchaseWorkflowSettings(
         purchaseOrderStage: purchaseOrderStage ?? this.purchaseOrderStage,
@@ -1305,6 +1313,7 @@ class PurchaseWorkflowSettings {
         goodsReceiptApproval: goodsReceiptApproval ?? this.goodsReceiptApproval,
         purchaseInvoiceApproval:
             purchaseInvoiceApproval ?? this.purchaseInvoiceApproval,
+        boxAndPieceEntry: boxAndPieceEntry ?? this.boxAndPieceEntry,
       );
 }
 

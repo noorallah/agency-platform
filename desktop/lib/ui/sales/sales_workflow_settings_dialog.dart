@@ -394,6 +394,23 @@ class _SalesWorkflowSettingsDialogState
                       'then on.',
                     ),
                   ),
+                  // L5: a line typed as boxes and loose pieces.
+                  SwitchListTile(
+                    key: const ValueKey('sales-box-and-piece-entry-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _settings.boxAndPieceEntry,
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings =
+                            _settings.copyWith(boxAndPieceEntry: value))
+                        : null,
+                    title: const Text('Type quantities as boxes and pieces'),
+                    subtitle: const Text(
+                      'On: a customer can be marked Bills in boxes and '
+                      'pieces, and a new document for that customer takes '
+                      'boxes and loose pieces on each line. The rate stays '
+                      'the rate of a piece.',
+                    ),
+                  ),
                   const SizedBox(height: AppSpacing.md),
                   // STK-12: stock held for an order nobody ships comes back.
                   TextFormField(

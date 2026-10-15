@@ -335,4 +335,70 @@ void main() {
       expect(tester.widget<CheckboxListTile>(control).value, false);
     });
   });
+
+  group('L5: bills in boxes and pieces', () {
+    Future<List<Json>> pumpTick(
+      WidgetTester tester, {
+      required bool offered,
+      Json? stored,
+    }) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final List<Json> sent = <Json>[];
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: CustomerWorkspaceDialog(
+            mode: CustomerDialogMode.edit,
+            customer: Customer.fromJson(stored ?? _customerJson()),
+            offerBoxAndPieces: offered,
+            onSave: (payload) async {
+              sent.add(payload);
+              return Customer.fromJson(_customerJson());
+            },
+            loadPlaces: (level, {parentId = ''}) async => const [],
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return sent;
+    }
+
+    const ValueKey<String> tick = ValueKey('customer-box-and-piece-entry');
+
+    testWidgets('with the selling switch on the tick is shown and sent',
+        (tester) async {
+      final List<Json> sent = await pumpTick(tester, offered: true);
+      final Finder control = find.byKey(tick);
+      await tester.ensureVisible(control);
+      expect(find.text('Bills in boxes and pieces'), findsOneWidget);
+      expect(tester.widget<CheckboxListTile>(control).value, isFalse);
+      await tester.tap(control);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('customer-save')));
+      await tester.pumpAndSettle();
+      expect(sent.single['box_and_piece_entry'], isTrue);
+    });
+
+    testWidgets('a marked customer reads as marked', (tester) async {
+      await pumpTick(tester,
+          offered: true,
+          stored: <String, dynamic>{
+            ..._customerJson(),
+            'box_and_piece_entry': true,
+          });
+      await tester.ensureVisible(find.byKey(tick));
+      expect(tester.widget<CheckboxListTile>(find.byKey(tick)).value, isTrue);
+    });
+
+    testWidgets('with the switch off there is no tick and nothing is sent',
+        (tester) async {
+      final List<Json> sent = await pumpTick(tester, offered: false);
+      expect(find.byKey(tick), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('customer-save')));
+      await tester.pumpAndSettle();
+      expect(sent.single.containsKey('box_and_piece_entry'), isFalse);
+    });
+  });
 }

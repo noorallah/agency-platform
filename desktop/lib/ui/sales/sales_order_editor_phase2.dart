@@ -9,10 +9,29 @@ part of 'sales_order_editor_dialog.dart';
 extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
   List<DocumentColumn> get _columns => [
     const DocumentColumn('#', 28),
-    const DocumentColumn('Product (code, name or barcode)', 0),
+    DocumentColumn(
+      'Product (code, name or barcode)',
+      0,
+      // L5: the toggle above the lines, where the firm's switch is on,
+      // with room kept for it before the table scrolls sideways.
+      minWidth: _offersBoxes ? 300 : DocumentLineTable.minFlexWidth,
+      heading: _offersBoxes
+          ? BoxPieceToggle(
+              key: const ValueKey('sales-order-box-and-pieces'),
+              label: 'Product (code, name or barcode)',
+              value: _boxAndPieces,
+              onChanged: _locked || _saving ? null : _setBoxAndPieces,
+            )
+          : null,
+    ),
     const DocumentColumn('HSN', 66),
-    const DocumentColumn('Qty', 66, numeric: true),
-    const DocumentColumn('Free', 56, numeric: true),
+    // L5: typed as boxes and pieces, Qty and Free become four cells.
+    if (_boxAndPieces)
+      ...boxPieceColumns
+    else ...const [
+      DocumentColumn('Qty', 66, numeric: true),
+      DocumentColumn('Free', 56, numeric: true),
+    ],
     const DocumentColumn('Unit', 50),
     // The rate and the amount off say which figures they are (backlog 64
     // row 4): with GST included, both are as typed.
@@ -410,6 +429,12 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
               _shippingAddressId = defaultShipToId(_customerAddresses);
               _resetPriceLevelFor(value);
             });
+            // L5: a new order follows the customer's mark until the toggle
+            // is moved by hand.
+            if (!_editing && _offersBoxes && !_boxesTouched) {
+              _setBoxAndPieces(_customer?.boxAndPieceEntry ?? false,
+                  touched: false);
+            }
             unawaited(_quotePrices(_lines));
             unawaited(_fillSalesman());
             _schedulePreview();
@@ -884,11 +909,21 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
         ),
         Text(product?.hsnSac ?? '', style: text),
         Text('', style: text),
-        Text(
-          documentQuantity(stringValue(free['free_quantity'])),
-          style: text,
-          textAlign: TextAlign.right,
-        ),
+        if (_boxAndPieces) ...[
+          Text('', style: text),
+          Text('', style: text),
+          Text(
+            boxesAndPieces(stringValue(free['free_quantity']),
+                product?.packSize ?? ''),
+            style: text,
+            textAlign: TextAlign.right,
+          ),
+        ] else
+          Text(
+            documentQuantity(stringValue(free['free_quantity'])),
+            style: text,
+            textAlign: TextAlign.right,
+          ),
         Text(unit, style: text, overflow: TextOverflow.ellipsis),
         Text('', style: text),
         Text('', style: text),
@@ -961,12 +996,26 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                 ],
                 onSelected: (value) {
                   _chooseProduct(line, value);
-                  _setState(() => _current = index);
+                  _setState(() {
+                    _current = index;
+                    // L5: the same pieces, split by this item's pack.
+                    _loadBoxes([line]);
+                  });
                   _schedulePreview();
                 },
               ),
               ),
-              if (companion != null)
+              if (_boxAndPieces && line.boxes.note.isNotEmpty)
+                Text(
+                  line.boxes.note,
+                  key: ValueKey<String>('sales-order-line-box-note-$index'),
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 11,
+                    color: theme.colorScheme.primary,
+                  ),
+                )
+              else if (companion != null)
                 Text(
                   'Stock ${documentQuantity(companion.availableQuantity)}'
                   '${companion.lastPrice.isEmpty ? '' : '  ·  last to them '
@@ -983,17 +1032,37 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
           ),
         ),
         Text(product?.hsnSac ?? '', style: text),
-        _cellBox(
-          context,
-          line.quantity,
-          validator: (value) => _positive(value, 'quantity'),
-        ),
-        _cellBox(
-          context,
-          line.free,
-          validator: _quantityOrBlank,
-          hint: line.freeFromOffer ? line.offerFree : null,
-        ),
+        if (_boxAndPieces)
+          ...boxPieceCells(
+            context,
+            entry: line.boxes,
+            pack: _packFor(line.productId),
+            readOnly: _locked,
+            keyPrefix: 'sales-order-line-$index',
+            freeHint: line.freeFromOffer ? line.offerFree : null,
+            onChanged: () {
+              final double? pack = _packFor(line.productId);
+              _setState(() {
+                line.quantity.text = line.boxes.quantityText(pack);
+                line.free.text = line.boxes.freeText(pack);
+                _current = index;
+              });
+              _schedulePreview();
+            },
+          )
+        else ...[
+          _cellBox(
+            context,
+            line.quantity,
+            validator: (value) => _positive(value, 'quantity'),
+          ),
+          _cellBox(
+            context,
+            line.free,
+            validator: _quantityOrBlank,
+            hint: line.freeFromOffer ? line.offerFree : null,
+          ),
+        ],
         Text(product?.displayUnit ?? '', style: text),
         _cellBox(
           context,
@@ -1139,8 +1208,21 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     final String source = stringValue(priced?['discount_source']);
     final double discount =
         double.tryParse(stringValue(priced?['discount_percent'])) ?? 0;
+    final String boxes = _boxAndPieces && product != null
+        ? boxPieceSummary(
+            packSize: product.packSize,
+            quantity: line.quantity.text,
+            free: line.free.text.trim().isEmpty && line.freeFromOffer
+                ? line.offerFree
+                : line.free.text,
+            rate: line.unitPrice.text,
+          )
+        : '';
     return DocumentSidePanel(children: [
       DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
+      if (boxes.isNotEmpty)
+        DocumentSideNote(boxes,
+            key: const ValueKey('sales-order-side-boxes')),
       DocumentSidePair('Rate', documentMoney(line.unitPrice.text)),
       DocumentSideNote(
         line.priceEdited

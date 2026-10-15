@@ -326,7 +326,7 @@ Finder _billPriceBox(int line) => find
       of: find.byKey(ValueKey<String>('sales-invoice-direct-$line')),
       matching: find.byType(EditableText),
     )
-    .at(2);
+    .at(3);
 
 String _billPrice(WidgetTester tester, int line) =>
     tester.widget<EditableText>(_billPriceBox(line)).controller.text;
