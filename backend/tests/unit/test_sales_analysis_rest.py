@@ -62,7 +62,13 @@ def _scope(firm_id: UUID, *codes: str, actor: UUID = _ACTOR) -> ResolvedFirmScop
     )
 
 
-def _order(books: _Books, status: str, net: str, on: date = date(2026, 6, 1)) -> None:
+def _order(
+    books: _Books,
+    status: str,
+    net: str,
+    on: date = date(2026, 6, 1),
+    raised_by: UUID | None = None,
+) -> None:
     order = SalesOrder(
         firm_id=books.firm.id,
         customer_id=books.customer.id,
@@ -71,6 +77,7 @@ def _order(books: _Books, status: str, net: str, on: date = date(2026, 6, 1)) ->
         order_number=f"SO-{uuid4().hex[:6]}",
         order_date=on,
         status=status,
+        raised_by_sales_invoice_id=raised_by,
     )
     books.session.add(order)
     books.session.flush()
@@ -108,6 +115,26 @@ def test_orders_booked_count_approved_and_later_never_draft_or_cancelled() -> No
     assert result.grand_total.net == Decimal("354")
     assert result.grand_total.quantity == Decimal("6")
     assert result.grand_total.invoices == 2  # orders, counted as the documents
+
+
+def test_an_order_a_bill_raised_for_itself_was_never_booked() -> None:
+    """D-FIN-35: a counter bill's own order is not an order booked."""
+    books = _Books(_session_factory()())
+    _order(books, "APPROVED", "118")
+    _order(books, "CLOSED", "826", raised_by=uuid4())
+
+    result = SalesAnalysisService(books.session).analyse(
+        books.firm.id,
+        rows="product",
+        columns=None,
+        from_date=FROM,
+        to_date=TO,
+        basis="ordered",
+    )
+
+    assert result.grand_total.net == Decimal("118")
+    assert result.grand_total.quantity == Decimal("3")
+    assert result.grand_total.invoices == 1
 
 
 def test_an_unknown_basis_is_refused() -> None:
