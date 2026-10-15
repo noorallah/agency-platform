@@ -601,6 +601,9 @@ class IdentityService:
                     updated_by=actor_id,
                 )
             )
+            # A request session does not autoflush, and `clone_user` re-reads
+            # the account by its membership straight after this (D-IDN-14).
+            self._session.flush()
         record_audit(
             self._session,
             action="user.created",
