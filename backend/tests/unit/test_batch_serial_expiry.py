@@ -286,9 +286,11 @@ def test_naming_a_page_of_batches_does_not_query_per_row() -> None:
     assert {row.product_code for row in reported} == {
         f"SKU-BULK-{index}" for index in range(5)
     }
-    assert len(statements) == 4, (
-        "one query for the stock and one per kind of name, whatever the page "
-        f"length -- got {len(statements)}: {statements}"
+    # The fifth asks whether the firm shows boxes and pieces (L5 step 11);
+    # both switches are off here, so no pack is read.
+    assert len(statements) == 5, (
+        "one query for the stock, one per kind of name and one for the box "
+        f"switches, whatever the page length -- got {len(statements)}: {statements}"
     )
 
 

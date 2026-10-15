@@ -18,11 +18,15 @@ from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ValidationError
+from app.core.utils.chunks import over_chunks
 from app.products.models import Product
+from app.purchase.models import PurchaseWorkflowSettings
+from app.sales_order.models import SalesWorkflowSettings
 from app.uom.models import ConversionRule, Uom
 from app.uom.services.uom_service import stock_unit_of
 
@@ -207,6 +211,104 @@ def pack_of(
     if product is None:
         return None
     return packs_of_many(session, [product], side=side, on_date=on_date).get(product.id)
+
+
+def box_and_piece_switched_on(session: Session, firm_id: UUID) -> bool:
+    """Return whether either side of the firm has boxes and pieces switched on.
+
+    The selling switch on ``sales_workflow_settings`` or the buying one on
+    ``purchase_workflow_settings``; a firm with neither row has both off.
+    One statement asks both.
+    """
+    switched = [
+        exists().where(
+            table.firm_id == firm_id,
+            table.is_deleted.is_(False),
+            table.box_and_piece_entry.is_(True),
+        )
+        for table in (SalesWorkflowSettings, PurchaseWorkflowSettings)
+    ]
+    return bool(session.scalar(select(or_(*switched))))
+
+
+def display_packs(
+    session: Session, firm_id: UUID, product_ids: Iterable[UUID]
+) -> dict[UUID, Pack]:
+    """Return the pack a stock screen shows each item in, read for a page at once.
+
+    L5 step 11: a stock row says "7 x 12 + 5" with no call of its own. The
+    pack is the selling side's (which falls back to the purchase unit) on the
+    firm's today. A firm with both box-and-piece switches off answers nothing,
+    so its rows carry no pack; an item with no pack is absent.
+    """
+    wanted = list(dict.fromkeys(product_ids))
+    if not wanted or not box_and_piece_switched_on(session, firm_id):
+        return {}
+    return _selling_packs(session, firm_id, wanted)
+
+
+def _selling_packs(
+    session: Session, firm_id: UUID, product_ids: Sequence[UUID]
+) -> dict[UUID, Pack]:
+    """Return each item's selling pack on the firm's today, switches unasked."""
+    products = _products_by_id(session, firm_id, product_ids)
+    return packs_of_many(
+        session,
+        products.values(),
+        side="SELL",
+        on_date=firm_today(session, firm_id),
+    )
+
+
+def display_packs_by_code(
+    session: Session, firm_id: UUID, product_codes: Iterable[str]
+) -> dict[str, Pack]:
+    """Return `display_packs` keyed by product code, for a report naming no ids.
+
+    A stock report grouped in SQL names its items by code; a live item is
+    preferred over a deleted one holding the same code.
+    """
+    codes = {code for code in product_codes if code}
+    if not codes or not box_and_piece_switched_on(session, firm_id):
+        return {}
+    ids: dict[str, UUID] = {}
+    # Deleted rows come first, so a live item holding the same code wins.
+    for product_id, code in session.execute(
+        select(Product.id, Product.code)
+        .where(Product.firm_id == firm_id, Product.code.in_(codes))
+        .order_by(Product.is_deleted.desc())
+    ):
+        ids[code] = product_id
+    if not ids:
+        return {}
+    packs = _selling_packs(session, firm_id, list(ids.values()))
+    return {code: packs[pid] for code, pid in ids.items() if pid in packs}
+
+
+def pack_fields(pack: Pack | None) -> dict[str, object]:
+    """Return a stock row's ``pack_size`` and ``pack_unit_code`` for ``pack``.
+
+    Both null where the row's item has no pack to show.
+    """
+    return {
+        "pack_size": None if pack is None else pack.size,
+        "pack_unit_code": None if pack is None else pack.unit_code,
+    }
+
+
+@over_chunks("product_ids")
+def _products_by_id(
+    session: Session, firm_id: UUID, product_ids: Sequence[UUID]
+) -> dict[UUID, Product]:
+    """Return the firm's products by id, in one read per chunk."""
+    return {
+        product.id: product
+        for product in session.scalars(
+            select(Product).where(
+                Product.firm_id == firm_id, Product.id.in_(product_ids)
+            )
+        )
+    }
 
 
 def _rules_in_force(

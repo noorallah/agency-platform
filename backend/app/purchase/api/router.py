@@ -98,6 +98,7 @@ from app.purchase.services.supplier_performance import (
     supplier_price_trend,
 )
 from app.purchase.services.workflow_settings_service import PurchaseWorkflowService
+from app.uom.services.packs import display_packs, pack_fields
 
 router = APIRouter(
     prefix="/api/v1/purchases",
@@ -915,6 +916,11 @@ class BelowReorderRecord(BaseModel):
     #: the firm plans on sales -- backlog 69 row 12).
     basis: str = "LEVEL"
     average_daily_sales: Decimal | None = None
+    #: The item's selling pack, so a stock screen shows boxes and pieces
+    #: with no call of its own (L5 step 11). Null unless the firm has a
+    #: box-and-piece switch on and the item has a pack.
+    pack_size: Decimal | None = None
+    pack_unit_code: str | None = None
 
 
 class ReorderPlanningResponse(BaseModel):
@@ -956,7 +962,17 @@ def below_reorder_level(
     """List stock at or below its reorder level, with what to order (42.9)."""
     window = ReportWindow(None, None, page, page_size)
     rows = ReorderService(db).below_reorder(scope.firm_id, warehouse_id=warehouse_id)
-    return window.respond([BelowReorderRecord.model_validate(row) for row in rows])
+    response = window.respond([BelowReorderRecord.model_validate(row) for row in rows])
+    # L5 step 11: the page's items in boxes and pieces, read once.
+    packs = display_packs(
+        db, scope.firm_id, (record.product_id for record in response.data)
+    )
+    if packs:
+        response.data = [
+            record.model_copy(update=pack_fields(packs.get(record.product_id)))
+            for record in response.data
+        ]
+    return response
 
 
 @router.post(

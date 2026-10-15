@@ -85,6 +85,7 @@ from app.inventory.services.stock_evidence import StockEvidenceService
 from app.products.models import Product
 from app.products.services.stockless import assert_held_as_stock
 from app.uom.models import ConversionRule
+from app.uom.services.packs import Pack, display_packs, pack_fields
 from app.uom.services.uom_service import (
     assert_quantity_fits_unit,
     missing_conversion_message,
@@ -5555,7 +5556,31 @@ class InventoryService:
         if not rows:
             return []
         labels = self.labels_for(rows)
-        return [self._inventory_response(row, labels) for row in rows]
+        packs = self._display_packs(rows)
+        return [
+            self._inventory_response(row, labels).model_copy(
+                update=pack_fields(packs.get((row.firm_id, row.product_id)))
+            )
+            for row in rows
+        ]
+
+    def _display_packs(
+        self, rows: Sequence[InventoryRecord | StockLedgerEntry]
+    ) -> dict[tuple[UUID, UUID], Pack]:
+        """Return the pack each row's item is shown in, keyed by firm and item.
+
+        One `display_packs` per firm on the page -- in practice one.
+        """
+        firms: dict[UUID, set[UUID]] = {}
+        for row in rows:
+            firms.setdefault(row.firm_id, set()).add(row.product_id)
+        return {
+            (firm_id, product_id): pack
+            for firm_id, product_ids in firms.items()
+            for product_id, pack in display_packs(
+                self._session, firm_id, product_ids
+            ).items()
+        }
 
     def _inventory_response(
         self, row: InventoryRecord, labels: _Labels
@@ -5697,12 +5722,14 @@ class InventoryService:
         if not rows:
             return []
         labels = self.labels_for(rows)
+        packs = self._display_packs(rows)
         responses: list[StockLedgerResponse] = []
         for row in rows:
             payload = self._movement_payload(row, labels)
             payload["transaction_id"] = row.transaction_id
             payload["entered_quantity"] = row.original_quantity
             payload["entered_uom_id"] = row.original_uom_id
+            payload.update(pack_fields(packs.get((row.firm_id, row.product_id))))
             responses.append(StockLedgerResponse.model_validate(payload))
         return responses
 

@@ -165,6 +165,11 @@ class BatchResponse(BatchSchema):
     wholesale_margin_percent: Decimal | None = None
     #: Which price bills above the MRP once tax is added, or None (L3).
     mrp_warning: str | None = None
+    #: The item's selling pack, so a stock screen shows boxes and pieces
+    #: with no call of its own (L5 step 11). Null unless the firm has a
+    #: box-and-piece switch on and the item has a pack.
+    pack_size: Decimal | None = None
+    pack_unit_code: str | None = None
     remarks: str | None
     is_deleted: bool
     #: Optimistic-concurrency counter, echoed back as ``If-Match``.
