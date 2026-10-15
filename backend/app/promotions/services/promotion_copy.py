@@ -120,6 +120,7 @@ class PromotionCopyService:
                 priority=source.priority,
                 status=PromotionStatus.DRAFT.value,
                 allow_stacking=source.allow_stacking,
+                allow_part_share=source.allow_part_share,
                 effective_from=effective_from,
                 effective_to=effective_to,
                 requires_coupon=source.requires_coupon,

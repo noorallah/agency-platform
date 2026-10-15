@@ -103,7 +103,7 @@ from app.products.models import (  # noqa: F401
     product,
 )
 from app.proforma.models import proforma  # noqa: F401
-from app.promotions.models import promotion  # noqa: F401
+from app.promotions.models import line_offer, promotion  # noqa: F401
 from app.purchase.models import purchase, requisition  # noqa: F401
 from app.purchase_invoice.models import purchase_invoice  # noqa: F401
 from app.purchase_return.models import purchase_return  # noqa: F401

@@ -244,6 +244,9 @@ def test_the_offer_mode_is_saved_and_an_omission_leaves_it() -> None:
     _save(setup)
     assert service.settings_response(setup.firm.id).promotion_mode == "BEST_OFFER"
 
+    _save(setup, promotion_mode="ASK")
+    assert service.settings_response(setup.firm.id).promotion_mode == "ASK"
+
     with pytest.raises(PydanticValidationError):
         _write(promotion_mode="LOUDEST")
 

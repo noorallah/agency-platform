@@ -7,6 +7,7 @@ from app.sales_order.models.sales_order import (
     SalesOrderAttachment,
     SalesOrderLine,
     SalesOrderNote,
+    SalesOrderOffer,
     SalesWorkflowSettings,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "SalesOrderAttachment",
     "SalesOrderLine",
     "SalesOrderNote",
+    "SalesOrderOffer",
     "SalesWorkflowSettings",
 ]

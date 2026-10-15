@@ -841,7 +841,9 @@ class PromotionService:
         if row is None:
             return False, None
         mode, cap = row
-        if mode == "BEST_OFFER":
+        # ASK (L7) starts a line where best one only does; what the bill
+        # maker ticks beyond that is a choice, read with the choice.
+        if mode in ("BEST_OFFER", "ASK"):
             return True, None
         return False, (None if cap is None else Decimal(str(cap)))
 
