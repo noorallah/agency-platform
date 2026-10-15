@@ -5,7 +5,21 @@ from _sell import *
 
 c = Check("p_sell_stage_off")
 a = admin()
-for order_stage, note_stage in ((False, False), (False, True), (True, False)):
+# D-SELL-103: the pair "order off, note on" is refused at save, and nothing changes.
+before = data(a.get(SETTINGS)[1])
+keys = ("quotation_stage", "sales_order_stage", "delivery_note_stage", "default_branch_id",
+        "default_warehouse_id", "promotion_mode", "max_line_discount_percent", "rate_includes_tax",
+        "new_outlets_need_approval", "reservation_lapse_days", "sales_order_approval",
+        "delivery_note_approval", "sales_invoice_approval", "round_bills_to_rupee",
+        "salesman_required", "box_and_piece_entry")
+body = {k: before[k] for k in keys if k in before}
+body.update(sales_order_stage=False, delivery_note_stage=True)
+refused = a.put(SETTINGS, body)
+c.eq(refused[0], 422, "order off, note on: refused at save (D-SELL-103)")
+c.ok("Sales order" in message(refused[1]), "the refusal names the Sales order stage", message(refused[1])[:90])
+after = data(a.get(SETTINGS)[1])
+c.eq((after["sales_order_stage"], after["delivery_note_stage"]), (before["sales_order_stage"], before["delivery_note_stage"]), "the stages are unchanged")
+for order_stage, note_stage in ((False, False), (True, False)):
     label = f"order={order_stage} note={note_stage}"
     sc = Scene(a, stock="50")
     pid = sc.product["id"]

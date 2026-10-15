@@ -67,3 +67,11 @@ Driven over HTTP against the running backend with the kept scripts in `docs/qa/c
 ## Not driven
 
 TC-SELL-095 (needs a batch-tracked pharma firm); the promotion-claims report in 007; the on-screen buttons and confirmation dialogs in 018; the customer-first tick list in 027; step 8 of 102; the box-unit quotation and offer steps of 107; every screen step (nothing was clicked).
+
+## Re-check after the fixes (#1597, same day)
+
+Backend restarted on main `3c3936f0`. `run.py selling`: 25 of 26 at first, the one failure
+`p_sell_stage_off` still expecting the old behaviour; the probe now expects the pair
+*order off, note on* to be refused at save with the stages unchanged (D-SELL-103), and
+checks the other two pairs as before. Then **26 of 26 clean**, `p_sell_round_returns`
+(D-SELL-102) included. D-SELL-104 stays open for the next selling round.
