@@ -159,6 +159,7 @@ class PromotionCrudService:
             priority=data.priority,
             status=data.status.value,
             allow_stacking=data.allow_stacking,
+            allow_part_share=data.allow_part_share,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
             requires_coupon=data.requires_coupon,
@@ -219,12 +220,26 @@ class PromotionCrudService:
             if "max_free_quantity" in sent
             else row.max_free_quantity
         )
+        # The same for the part-share switch (L7 step 7): an editor that has
+        # not heard of it must not switch it off -- kept only while the offer
+        # still gives free goods of the item, which the schema asks of a
+        # switch that is sent.
+        allow_part_share = (
+            data.allow_part_share
+            if "allow_part_share" in sent
+            else row.allow_part_share
+            and any(
+                action.action_type is PromotionActionType.FREE_QUANTITY
+                for action in data.actions
+            )
+        )
         if row.status == PromotionStatus.DRAFT.value:
             row.name = data.name
             row.description = data.description
             row.priority = data.priority
             row.status = data.status.value
             row.allow_stacking = data.allow_stacking
+            row.allow_part_share = allow_part_share
             row.effective_from = data.effective_from
             row.effective_to = data.effective_to
             row.requires_coupon = data.requires_coupon
@@ -257,8 +272,7 @@ class PromotionCrudService:
             priority=data.priority,
             status=data.status.value,
             allow_stacking=data.allow_stacking,
-            # Not on the form until L7 step 7: the revision keeps the switch.
-            allow_part_share=row.allow_part_share,
+            allow_part_share=allow_part_share,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
             requires_coupon=data.requires_coupon,
@@ -626,6 +640,7 @@ class PromotionCrudService:
             priority=row.priority,
             status=row.status,
             allow_stacking=row.allow_stacking,
+            allow_part_share=row.allow_part_share,
             effective_from=row.effective_from,
             effective_to=row.effective_to,
             requires_coupon=row.requires_coupon,

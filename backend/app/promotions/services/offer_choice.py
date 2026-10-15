@@ -158,6 +158,8 @@ class SettledChoice:
     #: The codes of the arrangements the start applied, and of those taken.
     start: tuple[str, ...]
     taken: tuple[str, ...]
+    #: The key of the offer taken as a part share (L7 step 7), if one is.
+    part_share: str | None = None
 
     def keys(self) -> frozenset[str]:
         """Return every key the person chose on the line."""
@@ -189,6 +191,7 @@ class SettledChoice:
             "taken": list(self.taken),
             "discount_from": self.discount_from,
             "offers": sorted(self.offers),
+            "part_share": self.part_share,
         }
 
 
@@ -251,10 +254,14 @@ def settle_choices(
     """
     engine = PromotionService(session)
     active = {
-        index: item
+        index: _with_part_share_offer(item)
         for index, item in enumerate(terms)
         if item.choice is not None
-        and (item.choice.discount_from is not None or item.choice.offers is not None)
+        and (
+            item.choice.discount_from is not None
+            or item.choice.offers is not None
+            or item.choice.part_share is not None
+        )
     }
     if not active:
         request = build_request({})
@@ -290,10 +297,19 @@ def settle_choices(
             for index, item in active.items()
             if item.choice is not None and item.choice.offers is not None
         }
-        request = build_request(limits) if limits else start_request
+        shares = {
+            index: UUID(item.choice.part_share)
+            for index, item in active.items()
+            if item.choice is not None and item.choice.part_share is not None
+        }
+        request = (
+            _with_part_shares(build_request(limits), shares)
+            if limits or shares
+            else start_request
+        )
         outcome = (
             engine.evaluate(request, firm_scope=firm_id, record=False)
-            if limits
+            if limits or shares
             else start
         )
         settled = {}
@@ -359,6 +375,22 @@ def _check_keys(
             f"{_name(session, choice.discount_from, standing=standing)} "
             "does not apply to this line any more. Choose again."
         )
+    if choice.part_share is not None:
+        candidate = offered.get(choice.part_share)
+        if candidate is not None and not terms.engine_free:
+            raise _RefusalError(_cannot_share(number, candidate.code))
+        if candidate is None or not candidate.available:
+            code = (
+                candidate.code
+                if candidate is not None
+                else _name(session, choice.part_share, standing=standing)
+            )
+            raise _RefusalError(
+                f"Line {number}: offer {code} does not apply to this line any "
+                "more. Choose again."
+            )
+        if candidate.part_share is None:
+            raise _RefusalError(_cannot_share(number, candidate.code))
     for key in choice.offers or []:
         candidate = offered.get(key)
         if candidate is None or not (
@@ -427,6 +459,18 @@ def _judge(
             f"Line {terms.line_number}: offer {code} gives this line nothing"
             + (f" ({reason.rstrip('.')})." if reason else ".")
         )
+    if choice.part_share is not None and not any(
+        row.key == choice.part_share and row.part_share for row in rows
+    ):
+        # Taken in whole rounds or not at all: under "best one only" another
+        # offer won the line, or the quantity earns no share of a piece.
+        candidate = offered.get(choice.part_share)
+        code = candidate.code if candidate is not None else choice.part_share
+        reason = None if candidate is None else candidate.reason
+        raise _RefusalError(
+            f"Line {terms.line_number}: offer {code} gives this line nothing "
+            "as a part share" + (f" ({reason.rstrip('.')})." if reason else ".")
+        )
     begun = chosen_line_discount(
         terms,
         percent=None,
@@ -435,7 +479,12 @@ def _judge(
         discount_from=None,
     )
     start_rows = _rows(terms, start, begun)
-    if taken == {row.key for row in start_rows} and priced.source == begun.source:
+    if (
+        taken == {row.key for row in start_rows}
+        and priced.source == begun.source
+        # The start never bills a part share, so one is always a choice.
+        and choice.part_share is None
+    ):
         return None
     named = (
         frozenset(dict.fromkeys(choice.offers))
@@ -447,6 +496,59 @@ def _judge(
         offers=named,
         start=tuple(row.code for row in start_rows),
         taken=tuple(row.code for row in rows),
+        part_share=choice.part_share,
+    )
+
+
+def _cannot_share(number: int, code: str) -> str:
+    """Say why a line cannot take an offer as a part share (L7 step 7)."""
+    return (
+        f"Line {number}: offer {code} cannot be billed as a part share on this "
+        "line. A part share is of an offer that allows one, on a line in the "
+        "item's own unit with no free quantity typed."
+    )
+
+
+def _with_part_share_named(choice: OfferChoice) -> OfferChoice:
+    """Return a choice whose named offers include its part share (L7 step 7).
+
+    A part share takes its offer whether or not ``offers`` names it, so a
+    list that leaves it out is read as naming it.
+    """
+    if (
+        choice.part_share is None
+        or choice.offers is None
+        or choice.part_share in choice.offers
+    ):
+        return choice
+    return choice.model_copy(update={"offers": [*choice.offers, choice.part_share]})
+
+
+def _with_part_share_offer(terms: LineTerms) -> LineTerms:
+    """Return a line's terms with its part share among the offers it names."""
+    if terms.choice is None:
+        return terms
+    named = _with_part_share_named(terms.choice)
+    return terms if named is terms.choice else replace(terms, choice=named)
+
+
+def _with_part_shares(
+    request: PromotionEvaluationRequest, shares: Mapping[int, UUID]
+) -> PromotionEvaluationRequest:
+    """Return the engine's request with each line's part share, by position."""
+    if not shares:
+        return request
+    return request.model_copy(
+        update={
+            "lines": [
+                (
+                    line.model_copy(update={"part_share": shares[index]})
+                    if index in shares
+                    else line
+                )
+                for index, line in enumerate(request.lines)
+            ]
+        }
     )
 
 
@@ -509,24 +611,28 @@ def stored_choices[RowT: LineOfferMixin](
     arrangement the discount was taken from. A line whose choice took no
     offer reads back as choosing none.
     """
-    found: dict[UUID, tuple[str | None, list[str]]] = {}
+    found: dict[UUID, tuple[str | None, list[str], str | None]] = {}
     for row in sorted(rows, key=lambda item: item.sequence):
         line_id = line_of(row)
         if line_id is None or not row.chosen:
             continue
-        discount_from, offers = found.setdefault(line_id, (None, []))
+        discount_from, offers, part_share = found.setdefault(line_id, (None, [], None))
         if row.source == "promotion" and row.promotion_group_id is not None:
             offers.append(str(row.promotion_group_id))
+            if row.part_share:
+                part_share = str(row.promotion_group_id)
         elif row.source == "price_list" and row.price_list_id is not None:
             discount_from = str(row.price_list_id)
         elif row.source == "customer":
             discount_from = CHOSEN_CUSTOMER
         elif row.source == "customer_group":
             discount_from = CHOSEN_CUSTOMER_GROUP
-        found[line_id] = (discount_from, offers)
+        found[line_id] = (discount_from, offers, part_share)
     return {
-        line_id: OfferChoice(discount_from=discount_from, offers=offers)
-        for line_id, (discount_from, offers) in found.items()
+        line_id: OfferChoice(
+            discount_from=discount_from, offers=offers, part_share=part_share
+        )
+        for line_id, (discount_from, offers, part_share) in found.items()
     }
 
 
@@ -541,12 +647,13 @@ def same_choice(sent: OfferChoice | None, held: OfferChoice | None) -> bool:
 
     def shape(
         choice: OfferChoice | None,
-    ) -> tuple[str | None, frozenset[str] | None]:
+    ) -> tuple[str | None, frozenset[str] | None, str | None]:
         """Return the choice in the form two choices compare by."""
         if choice is None:
-            return None, None
+            return None, None, None
+        choice = _with_part_share_named(choice)
         source = None if choice.discount_from == CHOSEN_OFFERS else choice.discount_from
         offers = None if choice.offers is None else frozenset(choice.offers)
-        return source, offers
+        return source, offers, choice.part_share
 
     return shape(sent) == shape(held)

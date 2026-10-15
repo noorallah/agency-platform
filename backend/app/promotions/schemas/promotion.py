@@ -319,6 +319,10 @@ class PromotionWrite(PromotionSchema):
     priority: int = Field(default=100, ge=1, le=9999)
     status: PromotionStatus = PromotionStatus.DRAFT
     allow_stacking: bool = True
+    #: "Buy N get M free" of the same item may be billed as a part share:
+    #: 5.5 charged and 0.5 free on "11 + 1" (L7 step 7). On an edit, leaving
+    #: it out keeps what the offer has, as a budget does.
+    allow_part_share: bool = False
     effective_from: date | None = None
     effective_to: date | None = None
     #: Whether the customer has to ask for this offer by name.
@@ -361,6 +365,22 @@ class PromotionWrite(PromotionSchema):
             raise ValueError(
                 "A bonus-points offer gives nothing else; make the discount a "
                 "separate offer."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _part_share_is_buy_n_get_m(self) -> "PromotionWrite":
+        """Refuse a part share on an offer giving no free goods of the item.
+
+        Design 3.7: it applies to one kind of offer, "buy N get M free" of
+        the same item. A gift of another product or a discount has no share
+        of the line to give in proportion.
+        """
+        kinds = {action.action_type for action in self.actions}
+        if self.allow_part_share and PromotionActionType.FREE_QUANTITY not in kinds:
+            raise ValueError(
+                "A part share applies only to an offer giving free goods of "
+                "the same item (buy N get M free)."
             )
         return self
 
@@ -415,6 +435,7 @@ class PromotionResponse(PromotionSchema):
     priority: int
     status: str
     allow_stacking: bool
+    allow_part_share: bool = False
     effective_from: date | None
     effective_to: date | None
     requires_coupon: bool
@@ -466,6 +487,11 @@ class PromotionLineRequest(PromotionSchema):
     #: empty list takes none. Under "best one only" and "ask", a line that
     #: names its offers takes every one named, combined as each allows.
     offers: list[UUID] | None = Field(default=None, max_length=50)
+    #: The offer (``version_group_id``) this line takes as a part share: its
+    #: free goods in proportion to the quantity, 0.5 free on 5.5 of "11 + 1",
+    #: where the offer allows it and the line is in the item's stock unit
+    #: (L7 step 7). None gives whole rounds, as always.
+    part_share: UUID | None = None
 
 
 class PromotionEvaluationRequest(PromotionSchema):
@@ -514,6 +540,8 @@ class PromotionLineShare(PromotionSchema):
     discount_amount: Decimal = Decimal("0")
     #: In the **line's own unit**, as the line's ``free_quantity`` is.
     free_quantity: Decimal = Decimal("0")
+    #: The free goods were given as a part share (L7 step 7).
+    part_share: bool = False
 
 
 class LineOfferResponse(PromotionSchema):
@@ -614,6 +642,11 @@ class OfferChoice(PromotionSchema):
     #: and free goods alike. None takes the offers the server would; an
     #: empty list takes none.
     offers: list[str] | None = Field(default=None, max_length=50)
+    #: The key of the offer the line takes as a part share (L7 step 7): the
+    #: quantity sent is what is charged, and the offer gives free goods in
+    #: proportion to it. The offer is taken whether or not ``offers`` names
+    #: it. None gives whole rounds.
+    part_share: str | None = Field(default=None, min_length=1, max_length=50)
 
 
 class PromotionLineOutcome(PromotionSchema):

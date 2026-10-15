@@ -60,6 +60,8 @@ class OfferRow:
     price_list_id: UUID | None = None
     #: Put there by a person rather than by the server (L7 step 5).
     chosen: bool = False
+    #: The free goods were given as a part share (L7 step 7).
+    part_share: bool = False
 
     @property
     def key(self) -> str:
@@ -142,6 +144,7 @@ def line_offer_rows(
                 free_quantity=at_quantity_scale(free * stock_factor),
                 promotion_id=share.promotion_id,
                 promotion_group_id=share.promotion_group_id,
+                part_share=share.part_share and free > ZERO,
             )
         )
     if takes:
@@ -260,7 +263,7 @@ def rewrite_offer_rows(
                     chosen=item.chosen,
                     discount_amount=item.discount_amount,
                     free_quantity=item.free_quantity,
-                    part_share=False,
+                    part_share=item.part_share,
                     created_by=actor_id,
                     updated_by=actor_id,
                 )

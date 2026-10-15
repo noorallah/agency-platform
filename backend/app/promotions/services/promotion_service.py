@@ -47,6 +47,7 @@ from app.promotions.models import (
 from app.promotions.schemas import (
     OfferCandidate,
     OfferGives,
+    OfferPartShare,
     PromotionActionType,
     PromotionApplication,
     PromotionConditionOperator,
@@ -65,6 +66,8 @@ from app.promotions.services.references import live_row_ids
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
+#: Half the last place a quantity holds: the most rounding moves one.
+HALF_PLACE = Decimal("0.00005")
 
 #: The actions that change a line, so an offer carrying one is listed beside
 #: each line its conditions hold on (L7 step 3).
@@ -156,6 +159,20 @@ class _LineState:
     #: The offer that gave this line's free units: the last, if two did.
     free_promotion_id: UUID | None = None
     codes: list[str] = field(default_factory=list)
+    #: The offer (``version_group_id``) the line takes as a part share, as
+    #: asked; it gives in proportion only where it allows one (L7 step 7).
+    part_share: UUID | None = None
+    #: The free units that offer gave in proportion, once it has.
+    part_share_free: Decimal = ZERO
+
+    @property
+    def takes_part_share(self) -> bool:
+        """Say whether the line can take a part share: its stock unit, no typed free."""
+        return (
+            self.part_share is not None
+            and self.stock_factor == Decimal("1")
+            and not self.free_typed
+        )
 
     @property
     def remaining(self) -> Decimal:
@@ -171,6 +188,7 @@ class _LineState:
             free_stock=ZERO,
             free_promotion_id=None,
             codes=[],
+            part_share_free=ZERO,
         )
 
 
@@ -235,6 +253,7 @@ class PromotionService:
                 stock_factor=Decimal(str(line.stock_factor)),
                 product_id=getattr(line, "product_id", None),
                 free_typed=line.free_typed,
+                part_share=line.part_share,
             )
             for line in data.lines
         ]
@@ -324,6 +343,7 @@ class PromotionService:
             before_each = [state.discount for state in states]
             before_free = [state.free_quantity for state in states]
             before_stock = [state.free_stock for state in states]
+            before_shared = [state.part_share_free for state in states]
             before_gifts = len(gifts)
             before_lines = sum(before_each, ZERO)
             added_bill, waives_freight = self._apply(
@@ -371,12 +391,18 @@ class PromotionService:
             if overrun is not None:
                 # Whole or not at all, as approval refuses it: part of a
                 # scheme is a price nobody published.
-                for state, discount, free, stock in zip(
-                    states, before_each, before_free, before_stock, strict=True
+                for state, discount, free, stock, shared in zip(
+                    states,
+                    before_each,
+                    before_free,
+                    before_stock,
+                    before_shared,
+                    strict=True,
                 ):
                     state.discount = discount
                     state.free_quantity = free
                     state.free_stock = stock
+                    state.part_share_free = shared
                 del gifts[before_gifts:]
                 decisions.append(
                     self._decision(promotion, False, f"This offer {overrun}")
@@ -711,11 +737,24 @@ class PromotionService:
                         reason=reason,
                         line_reason=(line_reasons or {}).get((promotion.id, index)),
                     )
+                    split = (
+                        None
+                        if not available
+                        or not item.available
+                        or data.lines[index].caller_priced
+                        else _part_share_offered(promotion, state)
+                    )
+                    shared = (
+                        state.part_share == promotion.version_group_id
+                        and state.part_share_free > ZERO
+                    )
                     hint = (
                         _hint(promotion, state, floor=None)
                         if available
                         and item.available
                         and not data.lines[index].caller_priced
+                        # A part share already gives in proportion.
+                        and not shared
                         else None
                     )
                     per_line[index].append(
@@ -727,6 +766,7 @@ class PromotionService:
                             available=available,
                             reason=why,
                             hint=hint,
+                            part_share=split,
                         )
                     )
                 if item.available:
@@ -1644,6 +1684,22 @@ class PromotionService:
                 free = Decimal(str(params.get("free_quantity", 0)))
                 if buy > ZERO:
                     for state in matched:
+                        if (
+                            promotion.allow_part_share
+                            and state.takes_part_share
+                            and state.part_share == promotion.version_group_id
+                        ):
+                            # A part share: in proportion at every quantity,
+                            # 0.5 free on 5.5 of "11 + 1" (L7 step 7).
+                            earned = part_share_free(
+                                state.entered_quantity, buy=buy, free=free
+                            )
+                            if earned > ZERO:
+                                self._give_free(
+                                    state, earned, promotion=promotion, gifts=gifts
+                                )
+                                state.part_share_free += earned
+                            continue
                         # Whole multiples only: buying nineteen on a "ten get
                         # one" earns one free unit, not one and nine tenths.
                         # Counted in stock units: 2 BOX of 12 are 24 bought.
@@ -2050,11 +2106,60 @@ def _number(params: dict[str, object], key: str) -> Decimal:
         return ZERO
 
 
+def part_share_free(charged: Decimal, *, buy: Decimal, free: Decimal) -> Decimal:
+    """Return the free goods a part share of "buy N get M free" gives (L7).
+
+    Design 3.7: free = charged x M / N, to the four places a quantity holds.
+    Where the charged figure is the split `part_share_split` answered for a
+    whole quantity -- 3.6667 of 4 on "11 + 1" -- the free part is what makes
+    that whole again (0.3333), so charged and free always add up; the
+    tolerance is the most the split's own rounding can move the sum.
+    """
+    if buy <= ZERO or free <= ZERO or charged <= ZERO:
+        return ZERO
+    given = at_quantity_scale(charged * free / buy)
+    whole = (charged * (buy + free) / buy).to_integral_value()
+    if abs(charged * (buy + free) / buy - whole) <= HALF_PLACE * (buy + free) / buy:
+        given = whole - charged
+    return max(given, ZERO)
+
+
+def part_share_split(
+    total: Decimal, *, buy: Decimal, free: Decimal
+) -> tuple[Decimal, Decimal]:
+    """Split what the customer takes away into charged and free (L7 step 7).
+
+    Charged = total x N / (N + M) to four places, free = total less charged:
+    6 on "11 + 1" is 5.5 + 0.5, and 4 is 3.6667 + 0.3333.
+    """
+    charged = at_quantity_scale(total * buy / (buy + free))
+    return charged, total - charged
+
+
+def _part_share_terms(promotion: Promotion) -> tuple[Decimal, Decimal] | None:
+    """Return the N and M of an offer that allows a part share, else None."""
+    if not promotion.allow_part_share:
+        return None
+    for action in promotion.actions:
+        if (
+            action.is_deleted
+            or action.action_type != PromotionActionType.FREE_QUANTITY.value
+        ):
+            continue
+        params = action.parameters or {}
+        buy = _number(params, "buy_quantity")
+        free = _number(params, "free_quantity")
+        if buy > ZERO and free > ZERO:
+            return buy, free
+    return None
+
+
 def _share(
     promotion: Promotion,
     *,
     discount: Decimal = ZERO,
     free_quantity: Decimal = ZERO,
+    part_share: bool = False,
 ) -> PromotionLineShare:
     """Return what one offer gave, named as the document will keep it."""
     return PromotionLineShare(
@@ -2064,6 +2169,7 @@ def _share(
         name=promotion.name,
         discount_amount=discount,
         free_quantity=free_quantity,
+        part_share=part_share,
     )
 
 
@@ -2093,8 +2199,15 @@ def _line_shares(
         if amount <= ZERO and quantity <= ZERO:
             # The cap took back all it gave, and it gave no free goods.
             continue
+        promotion = applied_promotions[at]
         shares.append(
-            _share(applied_promotions[at], discount=amount, free_quantity=quantity)
+            _share(
+                promotion,
+                discount=amount,
+                free_quantity=quantity,
+                part_share=state.part_share_free > ZERO
+                and state.part_share == promotion.version_group_id,
+            )
         )
     residual = quantize_money(state.discount) - sum(
         (share.discount_amount for share in shares), ZERO
@@ -2218,7 +2331,8 @@ def _line_reason(
     if typed:
         return False, "A discount is typed on this line."
     if not item.available:
-        return False, item.reason
+        # An offer its budget could not cover on this document says so.
+        return False, item.reason or reason
     if line_reason is not None:
         return True, line_reason
     if free_typed and worth <= ZERO:
@@ -2239,6 +2353,7 @@ def _offer_candidate(
     available: bool,
     reason: str | None,
     hint: tuple[Decimal, str] | None = None,
+    part_share: OfferPartShare | None = None,
 ) -> OfferCandidate:
     """Return one offer as a candidate, keyed by its lasting identity."""
     return OfferCandidate(
@@ -2254,7 +2369,31 @@ def _offer_candidate(
         reason=reason,
         needs_more=None if hint is None else hint[0],
         then_gives=None if hint is None else hint[1],
+        part_share=part_share,
     )
+
+
+def _part_share_offered(
+    promotion: Promotion, state: _LineState
+) -> OfferPartShare | None:
+    """Return the part share an offer can bill this line as, if it can (L7).
+
+    Design 3.7: the bill maker types what the customer takes away, and the
+    candidate answers the split -- 6 on "11 + 1" is 5.5 charged and 0.5 free.
+    On a line already taking this offer as a part share, what it takes away
+    is the charged quantity and the free part together, so the split stays
+    put. Only on a line in the item's stock unit with no free figure typed.
+    """
+    terms = _part_share_terms(promotion)
+    if terms is None or state.stock_factor != Decimal("1") or state.free_typed:
+        return None
+    total = state.entered_quantity
+    if state.part_share == promotion.version_group_id:
+        total += state.part_share_free
+    charged, free = part_share_split(total, buy=terms[0], free=terms[1])
+    if charged <= ZERO or free <= ZERO:
+        return None
+    return OfferPartShare(charged_quantity=charged, free_quantity=free)
 
 
 #: The actions earned in whole rounds: "buy 11, get 1".
