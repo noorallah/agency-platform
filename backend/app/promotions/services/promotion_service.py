@@ -59,6 +59,7 @@ from app.promotions.schemas import (
     PromotionLineShare,
     PromotionStatus,
 )
+from app.promotions.services.line_offers import in_line_units, nearest_hints
 from app.promotions.services.offer_use import claims_given
 from app.promotions.services.references import live_row_ids
 
@@ -262,24 +263,26 @@ class PromotionService:
         # The offer that does not combine and ended evaluation, if one did.
         stopped_by: Promotion | None = None
 
+        # What each line is matched against, built once: nothing in it moves
+        # as offers are applied, and the hint (L7 step 4) reads it again.
+        contexts = [
+            self._context(
+                data,
+                line=line,
+                state=state,
+                document_gross=document_gross,
+                products=products,
+                history=history,
+            )
+            for state, line in zip(states, data.lines, strict=True)
+        ]
+
         def holding(promotion: Promotion) -> list[int]:
             """Return the lines this offer's conditions hold on, typed or not."""
             return [
                 index
-                for index, (state, line) in enumerate(
-                    zip(states, data.lines, strict=True)
-                )
-                if self._matches(
-                    promotion,
-                    context=self._context(
-                        data,
-                        line=line,
-                        state=state,
-                        document_gross=document_gross,
-                        products=products,
-                        history=history,
-                    ),
-                )
+                for index, context in enumerate(contexts)
+                if self._matches(promotion, context=context)
             ]
 
         def apply_one(
@@ -532,6 +535,7 @@ class PromotionService:
             bill_slices=bill_slices,
             gifts=gifts,
             freight_waived=freight_waived,
+            contexts=contexts,
         )
 
         response = PromotionEvaluationResponse(
@@ -580,6 +584,7 @@ class PromotionService:
         bill_slices: list[tuple[int, Decimal]],
         gifts: list[PromotionGift],
         freight_waived: Decimal,
+        contexts: list[dict[str, object]],
     ) -> tuple[list[list[OfferCandidate]], list[OfferCandidate]]:
         """List every offer looked at beside the lines, and under the bill (L7).
 
@@ -589,6 +594,12 @@ class PromotionService:
         on one footing whatever was applied before them. The only statement
         is one read of the selling prices of the products offers give away,
         and only where an offer on the bill gives one.
+
+        The "buy N more" hint (section 3.6, L7 step 4) is worked out here
+        too, from the same contexts: an offer whose next round a line is
+        short of carries it on its candidate, and one whose other conditions
+        hold on a line short of its minimum quantity is listed there for the
+        hint alone. Each line keeps its two nearest (`nearest_hints`).
         """
         applied_at = {row.id: at for at, row in enumerate(applied_promotions)}
         # The last reason the trace gave for not applying each offer.
@@ -629,6 +640,13 @@ class PromotionService:
                         worth=worths[index],
                         reason=reason,
                     )
+                    hint = (
+                        _hint(promotion, state, floor=None)
+                        if available
+                        and item.available
+                        and not data.lines[index].caller_priced
+                        else None
+                    )
                     per_line[index].append(
                         _offer_candidate(
                             promotion,
@@ -637,8 +655,33 @@ class PromotionService:
                             applied=gave,
                             available=available,
                             reason=why,
+                            hint=hint,
                         )
                     )
+                if item.available:
+                    for index, state in enumerate(states):
+                        if index in item.lines or data.lines[index].caller_priced:
+                            continue
+                        floor = self._quantity_floor(promotion, contexts[index])
+                        hint = (
+                            None
+                            if floor is None
+                            else _hint(promotion, state, floor=floor)
+                        )
+                        if hint is None:
+                            continue
+                        # Listed for the hint alone: a hint cannot be chosen.
+                        per_line[index].append(
+                            _offer_candidate(
+                                promotion,
+                                gives=gives,
+                                worth=ZERO,
+                                applied=False,
+                                available=False,
+                                reason=f"{_units(hint[0])} more to earn it.",
+                                hint=hint,
+                            )
+                        )
             if kinds & _BILL_ACTIONS and item.lines:
                 value, given = self._worth_on_bill(promotion, item.lines, states, data)
                 on_bill.append((promotion, item, value, given))
@@ -695,7 +738,47 @@ class PromotionService:
                     reason=why,
                 )
             )
-        return per_line, bill
+        return [
+            nearest_hints(listed, state.entered_quantity)
+            for listed, state in zip(per_line, states, strict=True)
+        ], bill
+
+    def _quantity_floor(
+        self, promotion: Promotion, context: dict[str, object]
+    ) -> Decimal | None:
+        """Return the stock quantity that would earn an offer a line misses.
+
+        Only where the line's quantity is what it misses (L7 step 4): every
+        other condition holds, and every quantity condition holds at the
+        quantity returned -- the least that meets each "at least", "more
+        than", "equal to" or "between". None where more of the same would
+        not help, or where the offer states no quantity at all. A "more
+        than" asks one whole unit more, as quantities are counted.
+        """
+        key = PromotionField.LINE_QUANTITY.value
+        quantity = Decimal(str(context.get(key) or 0))
+        floor: Decimal | None = None
+        for condition in promotion.conditions:
+            if str(getattr(condition, "field_key", "")) != key:
+                if not self._condition_holds(condition, context):
+                    return None
+                continue
+            if self._condition_holds(condition, context):
+                continue
+            least = _least_quantity(condition, self._expected(condition))
+            if least is None or least <= quantity:
+                return None
+            floor = least if floor is None else max(floor, least)
+        if floor is None:
+            return None
+        reached = {**context, key: floor}
+        if not all(
+            self._condition_holds(condition, reached)
+            for condition in promotion.conditions
+            if str(getattr(condition, "field_key", "")) == key
+        ):
+            return None
+        return floor
 
     def _worth_on_lines(
         self, promotion: Promotion, lines: list[int], states: list[_LineState]
@@ -1951,6 +2034,7 @@ def _offer_candidate(
     applied: bool,
     available: bool,
     reason: str | None,
+    hint: tuple[Decimal, str] | None = None,
 ) -> OfferCandidate:
     """Return one offer as a candidate, keyed by its lasting identity."""
     return OfferCandidate(
@@ -1964,4 +2048,116 @@ def _offer_candidate(
         combines=bool(promotion.allow_stacking),
         available=available,
         reason=reason,
+        needs_more=None if hint is None else hint[0],
+        then_gives=None if hint is None else hint[1],
     )
+
+
+#: The actions earned in whole rounds: "buy 11, get 1".
+_ROUND_ACTIONS = frozenset(
+    {
+        PromotionActionType.FREE_QUANTITY.value,
+        PromotionActionType.BUY_X_GET_Y_DISCOUNT.value,
+    }
+)
+#: The line actions that give their whole benefit once a line qualifies.
+_FLAT_LINE_ACTIONS = frozenset(
+    {
+        PromotionActionType.LINE_DISCOUNT_PERCENT.value,
+        PromotionActionType.LINE_DISCOUNT_AMOUNT.value,
+        PromotionActionType.COMBO_PRICE.value,
+    }
+)
+
+
+def _least_quantity(condition: object, expected: object | None) -> Decimal | None:
+    """Return the least quantity one quantity condition holds at, if any."""
+    operator = str(getattr(condition, "operator", ""))
+    try:
+        if operator == PromotionConditionOperator.BETWEEN.value:
+            bounds = getattr(condition, "value_json", None) or []
+            return Decimal(str(bounds[0])) if len(bounds) == 2 else None
+        if expected is None:
+            return None
+        figure = Decimal(str(expected))
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+    if operator in {
+        PromotionConditionOperator.GREATER_OR_EQUAL.value,
+        PromotionConditionOperator.EQUALS.value,
+    }:
+        return figure
+    if operator == PromotionConditionOperator.GREATER_THAN.value:
+        return figure + 1
+    return None
+
+
+def _rounds(promotion: Promotion) -> list[tuple[str, Decimal, Decimal, Decimal]]:
+    """Return each round an offer gives: its kind, step, units given and rate."""
+    rounds: list[tuple[str, Decimal, Decimal, Decimal]] = []
+    for action in promotion.actions:
+        if action.is_deleted or action.action_type not in _ROUND_ACTIONS:
+            continue
+        params = action.parameters or {}
+        buy = _figure(params, "buy_quantity") or ZERO
+        get = _figure(params, "free_quantity") or ZERO
+        step = (
+            buy
+            if action.action_type == PromotionActionType.FREE_QUANTITY.value
+            else buy + get
+        )
+        if step > ZERO and get > ZERO:
+            rate = _figure(params, "percent") or ZERO
+            rounds.append((action.action_type, step, get, rate))
+    return rounds
+
+
+def _hint(
+    promotion: Promotion, state: _LineState, *, floor: Decimal | None
+) -> tuple[Decimal, str] | None:
+    """Return how many more of the line's units earn what, or None (L7 step 4).
+
+    ``floor`` is the stock quantity meeting the offer's quantity conditions
+    on a line short of them (`_quantity_floor`); None on a line they already
+    hold on, where only the next round of a "buy X get Y" is hinted. Short of
+    the floor, the target is the floor -- raised to the first whole round
+    where the offer gives nothing but rounds and the floor earns none. The
+    shortfall is in the line's own unit and shown only where it is no more
+    than the quantity typed (section 3.6).
+    """
+    quantity = state.quantity
+    rounds = _rounds(promotion)
+    if floor is None:
+        if not rounds:
+            return None
+        target = min((int(quantity // step) + 1) * step for _, step, _, _ in rounds)
+    else:
+        target = floor
+        only_rounds = not (_action_kinds(promotion) & _FLAT_LINE_ACTIONS)
+        if rounds and only_rounds and all(floor < step for _, step, _, _ in rounds):
+            target = min(step for _, step, _, _ in rounds)
+    if target <= quantity:
+        return None
+    parts: list[str] = []
+    for kind, step, get, rate in rounds:
+        now = int(quantity // step)
+        more = int(target // step) - now
+        if more <= 0:
+            continue
+        again = "more " if now > 0 else ""
+        if kind == PromotionActionType.FREE_QUANTITY.value:
+            parts.append(f"{_units(get * more)} {again}free")
+        else:
+            parts.append(f"{_units(get * more)} {again}at {_units(rate)}% off")
+    if floor is not None:
+        parts.extend(
+            _action_sentence(action.action_type, action.parameters or {})
+            for action in promotion.actions
+            if not action.is_deleted and action.action_type in _FLAT_LINE_ACTIONS
+        )
+    if not parts:
+        return None
+    needs_more = in_line_units(target - quantity, state.stock_factor)
+    if needs_more > state.entered_quantity:
+        return None
+    return needs_more, ", ".join(parts)

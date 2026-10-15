@@ -40,6 +40,16 @@ class PriceListRef:
     name: str
 
 
+@dataclass(frozen=True, slots=True)
+class PriceListBreak:
+    """The next break of a list a line could reach, for its hint (L7 step 4)."""
+
+    #: Where the break starts, in stock units.
+    starts_at: Decimal
+    percent: Decimal
+    price_list: PriceListRef
+
+
 class PriceListResolver:
     """Answer what a customer pays off a product, per the firm's price lists.
 
@@ -244,6 +254,32 @@ class PriceListResolver:
             else:
                 break
         return best
+
+    def next_break(
+        self, product_id: UUID | None, quantity: Decimal | None = None
+    ) -> PriceListBreak | None:
+        """Return the first break above the quantity that gives more (L7 step 4).
+
+        Read from the ladder loaded with the rates, so the "buy N more" hint
+        costs no statement. A break above the quantity whose rate is no
+        better than the one the line already takes is passed over: reaching
+        it would give nothing more. None where the line is at the top.
+        """
+        if product_id is None:
+            return None
+        breaks = self._rates.get(product_id)
+        if not breaks:
+            return None
+        wanted = self._asked_at(quantity)
+        current = self.rate_for(product_id, quantity) or ZERO
+        for (threshold, percent), (_, ref) in zip(
+            breaks, self._lists.get(product_id, []), strict=False
+        ):
+            if threshold > wanted and percent > current:
+                return PriceListBreak(
+                    starts_at=threshold, percent=percent, price_list=ref
+                )
+        return None
 
     def price_for(
         self, product_id: UUID | None, quantity: Decimal | None = None

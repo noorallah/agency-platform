@@ -1681,6 +1681,16 @@ class QuotationService(TransactionalDocumentService):
                     customer_percent=customer_discount,
                     group_percent=group_discount,
                     standing=standing,
+                    # The "buy N more" hint (L7 step 4).
+                    quantity=item.quantity,
+                    stock_factor=(
+                        stock_quantities[index] / item.quantity
+                        if item.quantity > ZERO
+                        else Decimal("1")
+                    ),
+                    next_break=prices.next_break(
+                        item.product_id, stock_quantities[index]
+                    ),
                 )
             seen.add(item.line_number)
             subtotal += taxable
