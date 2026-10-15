@@ -150,6 +150,26 @@ choice to the order, checked on the order's date: one that has lapsed is
 dropped, that line ordered from the start, and the `CONVERTED` timeline entry
 says which. Offers are still claimed only at the bill's approval.
 
+**A part share of "buy N get M free"** (L7 step 7, design 3.7). An offer with
+a `FREE_QUANTITY` action may carry `allow_part_share` (on the offer's form,
+off by default; any other offer is refused the switch; an edit that leaves it
+out keeps it). Its candidate on a line in the item's stock unit with no free
+figure typed lists `part_share`: what the customer takes away split into
+charged = total x N / (N + M) to four places and free = the rest (6 on
+"11 + 1" is 5.5 + 0.5, 4 is 3.6667 + 0.3333). A line that sends
+`offer_choice.part_share` (the offer's key; the offer is taken whether or not
+`offers` names it) is priced on the quantity sent as the charged figure and
+the engine gives free = charged x M / N (`part_share_free`, snapped so charged
+and free add up to the whole the split started from); without it the offer
+gives whole rounds, as always. A part share is always a real choice
+(`SALES_OFFER_CHOOSE`, audited) and is refused by name on an offer that does
+not allow it, on a line in another unit or with free goods typed, and where it
+gives nothing (another offer won the line under best one only, or its budget
+cannot cover the fraction). Charged and free together must make whole pieces
+where the unit is counted whole: the order's own check of charged plus free.
+The line's offer row carries `part_share`, an edit keeps the choice, and the
+claim and the free-unit budget take the fraction.
+
 **Combine mode may cap one line** (backlog 59 item 3,
 `sales_workflow_settings.max_line_discount_percent`, migration
 `20261001_0193`; null is no cap). After the stack, a line whose offer discount

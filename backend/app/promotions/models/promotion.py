@@ -78,7 +78,7 @@ class Promotion(BaseEntity):
     #: Buy N get M free of the same item, given in proportion at every
     #: quantity rather than in whole rounds (L7, section 3.7 of
     #: `docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md`). Off by default;
-    #: nothing reads it yet.
+    #: a line takes it only when a person picks the part share.
     allow_part_share: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
