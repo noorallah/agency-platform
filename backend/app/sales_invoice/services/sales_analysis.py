@@ -13,7 +13,8 @@ reduces the month it happened in, not the month of the sale it returns.
 **Orders booked** (``basis="ordered"``, RPT-1) reads sales orders instead:
 every order approved or further on, cancelled ones left out, dated in the
 period -- what the field force booked, whether or not it has been billed.
-Nothing is netted off an order.
+An order a bill raised for itself, where the firm types no order stage, was
+never booked and is left out (D-FIN-35). Nothing is netted off an order.
 
 **Margin** (RPT-1) is what billed lines fetched over what the goods cost, at
 the cost the dispatch recorded on the line. A line with no recorded cost is
@@ -436,6 +437,8 @@ class SalesAnalysisService:
             SalesOrder.firm_id == firm_id,
             SalesOrder.is_deleted.is_(False),
             SalesOrder.status.not_in(UNBOOKED),
+            # An order a bill raised for itself was never booked (D-FIN-35).
+            SalesOrder.raised_by_sales_invoice_id.is_(None),
             SalesOrder.order_date >= from_date,
             SalesOrder.order_date <= to_date,
             SalesOrderLine.is_deleted.is_(False),
