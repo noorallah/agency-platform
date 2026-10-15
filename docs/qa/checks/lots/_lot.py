@@ -183,6 +183,9 @@ class Ctx:
                 row["expiry_date"] = ln["expiry"].isoformat()
             if ln.get("mrp"):
                 row["mrp"] = str(ln["mrp"])
+            for key in ("ptr", "pts", "retail_margin_percent", "wholesale_margin_percent"):
+                if ln.get(key) is not None:
+                    row[key] = str(ln[key])
             recv_lines.append(row)
         receipt = must(api.post("/api/v1/goods-receipts", {
             "purchase_order_id": order["id"], "receipt_date": (today() - timedelta(days=days_ago)).isoformat(),
@@ -429,3 +432,20 @@ def opening_stock(c: Ctx, product: dict, quantity: str, cost: str) -> None:
         "reference_number": f"OS-{suffix(8)}", "posting_date": today().isoformat(),
         "lines": [{"product_id": product["id"], "quantity": quantity, "unit_cost": cost}]}), "opening stock")
     must(c.api.post(f"{INV}/opening-stock/{made['id']}/post", {}), "opening stock post")
+
+
+def margin_product(api: Api) -> dict:
+    """Return the fixture's LOT-MARGIN product (retail 25, wholesale 12.5)."""
+    return by_code(api, "/api/v1/products", "LOT-MARGIN")
+
+
+def receipt_line(api: Api, receipt: dict) -> dict:
+    """Return the first line of a receipt, read fresh."""
+    return must(api.get(f"/api/v1/goods-receipts/{receipt['id']}"), "receipt read")["lines"][0]
+
+
+def lot_of_receipt(api: Api, product: dict, line: dict) -> dict:
+    """Return the batch row a receipt line made (newest batch of the product)."""
+    rows = all_rows(api, f"/api/v1/batch-serial/batches?product_id={product['id']}"
+                         "&sort_by=created_at&sort_direction=desc", 10)
+    return next(r for r in rows if r["product_id"] == product["id"])
