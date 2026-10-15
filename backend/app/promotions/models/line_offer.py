@@ -4,7 +4,8 @@ Declared once here, so ``sales_order_offers`` and ``sales_quotation_offers``
 cannot drift (``docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md``, section 3.9).
 A line's rows are rewritten each time it is priced and nothing refers to them
 by id; its APPLIED rows add up to its discount and its offers' free goods.
-Nothing reads or writes them yet (L7 step 1).
+The order and the quotation write them as each line is priced, through
+``app/promotions/services/line_offers.py`` (L7 step 2).
 """
 
 from decimal import Decimal

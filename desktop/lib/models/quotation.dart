@@ -16,6 +16,7 @@ class QuotationLine {
     this.enteredRate = '',
     required this.discountPercent,
     this.discountSource = '',
+    this.offers = const <dynamic>[],
     this.freeQuantity = '0',
     this.freeGoodsRefused = false,
     required this.discountAmount,
@@ -50,6 +51,10 @@ class QuotationLine {
   /// empty for a line stored before the source was recorded.
   final String discountSource;
 
+  /// The arrangements applied to the line, as the server names them: one
+  /// row per offer or standing rate (L7 step 2). Empty before they were kept.
+  final List<dynamic> offers;
+
   /// Thrown in with this line, charged for at nothing.
   final String freeQuantity;
 
@@ -76,6 +81,9 @@ class QuotationLine {
         enteredRate: stringValue(json['entered_rate']),
         discountPercent: stringValue(json['discount_percent']),
         discountSource: stringValue(json['discount_source']),
+        offers: json['offers'] is List
+            ? json['offers'] as List<dynamic>
+            : const <dynamic>[],
         freeQuantity: stringValue(json['free_quantity']).isEmpty
             ? '0'
             : stringValue(json['free_quantity']),

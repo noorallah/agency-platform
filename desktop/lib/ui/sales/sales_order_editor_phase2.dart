@@ -1273,7 +1273,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                 : 'typed on this order')
             : discountWasTyped(source)
                 ? 'typed on this order'
-                : 'from ${discountSourceWords(source)}',
+                : 'from ${discountSourceNamed(source, priced['offers'])}',
       ),
       // D-SELL-41: silence takes the offer's free goods, a typed zero refuses.
       DocumentSideNote(

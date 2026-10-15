@@ -753,7 +753,10 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
                 : 'typed on this offer')
             : discountWasTyped(priced.discountSource)
                 ? 'typed on this offer'
-                : 'from ${discountSourceWords(priced.discountSource)}',
+                : 'from ${discountSourceNamed(
+                    priced.discountSource,
+                    priced.offers,
+                  )}',
       ),
       // D-SELL-41: silence takes the offer's free goods, a typed zero refuses.
       const DocumentSideNote('Free: blank takes the offer; 0 refuses it.'),

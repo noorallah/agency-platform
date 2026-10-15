@@ -16,6 +16,7 @@ applies: the list is more specific, not a replacement for the blanket rate.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
@@ -28,6 +29,15 @@ from app.pricing.models import PriceList, PriceListItem
 
 ZERO = Decimal("0")
 _FOUR_PLACES = Decimal("0.0001")
+
+
+@dataclass(frozen=True, slots=True)
+class PriceListRef:
+    """The list that answered a line, as the line will name it (L7 step 2)."""
+
+    id: UUID
+    code: str
+    name: str
 
 
 class PriceListResolver:
@@ -54,6 +64,8 @@ class PriceListResolver:
         self._rates: dict[UUID, list[tuple[Decimal, Decimal]]] = {}
         # The fixed price (SEL-9) each break carries, where the list names one.
         self._prices: dict[UUID, list[tuple[Decimal, Decimal | None]]] = {}
+        # The list each break came from, so a line can name it (L7 step 2).
+        self._lists: dict[UUID, list[tuple[Decimal, PriceListRef]]] = {}
         # No early exit for a document naming neither a customer nor a
         # territory: the firm's own standing list still applies to it.
         self._load(
@@ -104,6 +116,9 @@ class PriceListResolver:
                 PriceListItem.discount_percent,
                 specificity.label("rank"),
                 PriceListItem.rate,
+                PriceList.id,
+                PriceList.code,
+                PriceList.name,
             )
             .join(PriceList, PriceList.id == PriceListItem.price_list_id)
             .where(
@@ -130,18 +145,25 @@ class PriceListResolver:
         # not an amendment to the firm-wide one.
         ladders: dict[UUID, dict[Decimal, Decimal]] = {}
         prices: dict[UUID, dict[Decimal, Decimal | None]] = {}
+        lists: dict[UUID, dict[Decimal, PriceListRef]] = {}
         seen: dict[UUID, int] = {}
-        for product_id, min_quantity, percent, rank, rate in rows:
+        for row in rows:
+            product_id, min_quantity, percent, rank, rate = row[:5]
             if seen.get(product_id) != rank:
                 seen[product_id] = rank
                 ladders[product_id] = {}
                 prices[product_id] = {}
+                lists[product_id] = {}
             threshold = Decimal(str(min_quantity))
             ladders[product_id][threshold] = Decimal(str(percent))
             prices[product_id][threshold] = None if rate is None else Decimal(str(rate))
+            lists[product_id][threshold] = PriceListRef(
+                id=row[5], code=row[6], name=row[7]
+            )
         for product_id, ladder in ladders.items():
             self._rates[product_id] = sorted(ladder.items())
             self._prices[product_id] = sorted(prices[product_id].items())
+            self._lists[product_id] = sorted(lists[product_id].items())
 
     def mentions(self, product_id: UUID | None) -> bool:
         """Say whether any list in force holds a rate for the product."""
@@ -201,6 +223,28 @@ class PriceListResolver:
                 break
         return best
 
+    def list_for(
+        self, product_id: UUID | None, quantity: Decimal | None = None
+    ) -> PriceListRef | None:
+        """Return the list whose break ``rate_for`` takes, or None (L7 step 2).
+
+        Read from what was loaded with the rates, so naming the list costs no
+        statement; the quantity is in stock units, as ``rate_for``'s is.
+        """
+        if product_id is None:
+            return None
+        breaks = self._lists.get(product_id)
+        if not breaks:
+            return None
+        wanted = self._asked_at(quantity)
+        best: PriceListRef | None = None
+        for threshold, ref in breaks:
+            if threshold <= wanted:
+                best = ref
+            else:
+                break
+        return best
+
     def price_for(
         self, product_id: UUID | None, quantity: Decimal | None = None
     ) -> Decimal | None:
@@ -238,6 +282,7 @@ class SupplierPriceResolver(PriceListResolver):
         """Load the supplier's live rates for one document."""
         self._rates = {}
         self._prices = {}
+        self._lists = {}
         rows = session.execute(
             select(
                 PriceListItem.product_id,
