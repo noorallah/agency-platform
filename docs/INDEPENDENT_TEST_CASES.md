@@ -3422,7 +3422,7 @@ promotion, or the customer's standing rate).
 
 - **Covers:** plan 9.17
 - **Fixture:** `selling-invoiced`
-- **Steps:** select the invoice → **Print settings** icon → How many copies **2**, Copy 1 label / Copy 2 label (they prefill ORIGINAL FOR RECIPIENT / DUPLICATE FOR TRANSPORTER) → save → **Print**.
+- **Steps:** select the invoice → **Print settings** icon → How many copies **2**, Copy 1 label / Copy 2 label (a firm that never saved them is offered the three the bill prints with: ORIGINAL FOR RECIPIENT / DUPLICATE FOR TRANSPORTER / TRIPLICATE FOR SUPPLIER, D-PRT-1) → save → **Print**.
 - **Expect:** the PDF carries the CGST/SGST split, an HSN column, the HSN-wise summary, "AMOUNT CHARGEABLE, IN WORDS", and two labelled copies. Saving print settings needs `SETTINGS_UPDATE`, which the firm admin holds. *(Whichever of the firm's GSTIN, the customer's GSTIN and the product's HSN are blank on your firm print empty on the copy; check the ones that are blank on yours rather than assuming all three are. The fixture's product carries no HSN, so that column is always empty here; Vijaya carries no GSTIN either way.)*
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.13 — one `document_print_templates` row (`document_type` SALES_INVOICE, `copy_labels` a JSON list), audit `document_print_template.created` or `.updated`; printing writes nothing.
 - **Leaves:** the firm's print settings for invoices.
@@ -4491,7 +4491,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   7. A draft order, switch on: 500 pieces at 100.
 - **Expect**
   - Step 1: taxable 100.00, tax 18.00, total 118.00. Each print has one **Rate** column, 100.00.
-  - Step 2: the order line shows the rate 100 as typed; taxable 84.75, tax 15.25, total 100.00. The order's print has **Rate incl. GST** 100.00 beside **Rate** 84.75. The bill totals 100.00 and its print shows the same two columns (D-SELL-95). The challan shows Rate 84.75 and the total 100.00.
+  - Step 2: the order line keeps the rate 100 as typed (its entered rate; the rate before tax is 84.75); taxable 84.75, tax 15.25, total 100.00. The order's print has **Rate incl. GST** 100.00 beside **Rate** 84.75. The bill totals 100.00 and its print shows the same two columns (D-SELL-95). The challan shows Rate 84.75 and the total 100.00.
   - Step 3: the order totals 648.30, the sum of the three figures typed (233.31 + 315.00 + 99.99). The 5% line's rate before tax is 100.
   - Step 4: 90.00 to pay; 180.00 to pay.
   - Step 5: after the first save the total is 300.00 and the rate still reads 100. After the second it is 354.00: the same 100 is now before tax.

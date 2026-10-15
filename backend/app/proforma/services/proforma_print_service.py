@@ -23,6 +23,7 @@ from app.document_framework.services.print_support import (
     customer_party,
     load_template,
     seller_party,
+    unsaved_fallback,
 )
 from app.products.models import Product
 from app.proforma.models import ProformaInvoice, ProformaInvoiceLine, ProformaStatus
@@ -38,7 +39,6 @@ from app.uom.models import Uom
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "PROFORMA_INVOICE"
-DEFAULT_TITLE = "PROFORMA INVOICE"
 #: Said across every copy: a proforma asks for nothing the books know of.
 NOT_A_TAX_INVOICE = "This is not a tax invoice."
 #: What a copy says when the proforma does not stand as issued.
@@ -80,8 +80,7 @@ class ProformaPrintService:
             self._session,
             firm_scope=firm_scope,
             document_type=DOCUMENT_TYPE,
-            # The bank block stays: a proforma is what an advance is paid on.
-            fallback=TemplateSettings(title_text=DEFAULT_TITLE, declaration=None),
+            fallback=unsaved_fallback(DOCUMENT_TYPE),
         )
 
     def document(self, row: ProformaInvoice, *, firm_scope: UUID) -> InvoiceDocument:

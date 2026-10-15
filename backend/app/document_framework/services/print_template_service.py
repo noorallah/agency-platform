@@ -14,7 +14,10 @@ from app.document_framework.schemas import (
     DocumentPrintTemplateResponse,
     DocumentPrintTemplateWrite,
 )
-from app.document_framework.services.printable_types import PRINTABLE_DOCUMENT_TYPES
+from app.document_framework.services.printable_types import (
+    PRINTABLE_DOCUMENT_TYPES,
+    unsaved_template,
+)
 
 #: What a firm gets before it configures anything. Kept here rather than in the
 #: database so a new firm needs no seeding to print a correct bill.
@@ -40,10 +43,21 @@ class DocumentPrintTemplateService:
         self._assert_printable(document_type)
         row = self._row(document_type, firm_scope=firm_scope)
         if row is None:
+            # What this type prints with, not the bill's defaults: a screen
+            # that saves back what it read must not change the print (D-PRT-1).
+            unsaved = unsaved_template(document_type)
+            values = PLATFORM_DEFAULTS.model_dump()
+            values.update(
+                title_text=unsaved.title_text,
+                show_bank_details=unsaved.show_bank_details,
+                copy_labels=list(unsaved.copy_labels),
+            )
+            if not unsaved.certifies:
+                values["declaration"] = None
             return DocumentPrintTemplateResponse(
                 document_type=document_type.upper(),
                 is_customised=False,
-                **PLATFORM_DEFAULTS.model_dump(),
+                **values,
             )
         return self._response(row)
 

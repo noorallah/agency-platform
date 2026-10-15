@@ -22,6 +22,7 @@ from app.document_framework.services.print_support import (
     customer_party,
     load_template,
     seller_party,
+    unsaved_fallback,
 )
 from app.products.models import Product
 from app.sales_invoice.services.invoice_pdf import (
@@ -37,7 +38,6 @@ from app.uom.services.packs import printed_pack
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "SALES_ORDER"
-DEFAULT_TITLE = "ORDER CONFIRMATION"
 
 
 class SalesOrderPrintService:
@@ -72,12 +72,7 @@ class SalesOrderPrintService:
             self._session,
             firm_scope=firm_scope,
             document_type=DOCUMENT_TYPE,
-            # An order confirmation collects nothing and certifies nothing.
-            fallback=TemplateSettings(
-                title_text=DEFAULT_TITLE,
-                declaration=None,
-                show_bank_details=False,
-            ),
+            fallback=unsaved_fallback(DOCUMENT_TYPE),
         )
 
     def _document(self, row: SalesOrder, *, firm_scope: UUID) -> InvoiceDocument:

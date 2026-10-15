@@ -30,6 +30,7 @@ from app.document_framework.services.print_support import (
     customer_party,
     load_template,
     seller_party,
+    unsaved_fallback,
 )
 from app.products.models import Product
 from app.sales_invoice.services.invoice_pdf import (
@@ -56,7 +57,6 @@ from app.uom.services.packs import printed_pack
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "SALES_RETURN"
-DEFAULT_TITLE = "CREDIT NOTE"
 
 
 #: What a credit note that does not stand says across its top, by status.
@@ -153,11 +153,7 @@ class CreditNotePrintService:
             self._session,
             firm_scope=firm_scope,
             document_type=DOCUMENT_TYPE,
-            # Nothing is being collected, so no bank block.
-            fallback=TemplateSettings(
-                title_text=DEFAULT_TITLE,
-                show_bank_details=False,
-            ),
+            fallback=unsaved_fallback(DOCUMENT_TYPE),
         )
 
     def _document(self, row: SalesReturn, *, firm_scope: UUID) -> InvoiceDocument:
