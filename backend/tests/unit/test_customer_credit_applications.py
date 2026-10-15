@@ -592,6 +592,94 @@ def test_a_credit_that_already_came_off_the_balance_moves_nothing() -> None:
     assert Decimal(str(row.advance_amount)) == Decimal("0.00")
 
 
+def _netted_then_paid(session: Session) -> tuple[_Dispatch, SalesReturn, Settlement]:
+    """Row G4: a return nets on the account, then the other bill is paid in full.
+
+    Bill A of 200.00 paid, bill B of 200.00 owing, one unit back off A: its
+    100.00 comes off what is owed. B is then paid by a receipt of 200.00, all
+    of it allocated to B, so the customer owes nothing and holds 100.00.
+    """
+    setup = _Dispatch(session, billed=Decimal("2"))
+    second = _second_bill(setup)
+    _receipt(setup, "200", (setup.invoice.id, "200"))
+    returned = _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    session.commit()
+    receipt = _receipt(setup, "200", (second.id, "200"))
+    return setup, returned, receipt
+
+
+def test_money_no_receipt_holds_is_the_oldest_credits() -> None:
+    """The 100.00 on the account is the return's, so it reads as held (D-FIN-31).
+
+    It read 0.00 held while the account held 100.00 and the receipt read
+    fully applied: the money belonged to no source.
+    """
+    session = _session_factory()()
+    setup, _returned_row, receipt = _netted_then_paid(session)
+
+    assert _balances(setup) == (Decimal("0.00"), Decimal("100.00"))
+    assert Decimal(str(receipt.unallocated_amount)) == Decimal("0")
+    [credit] = _credits(setup)
+    assert credit.available_amount == Decimal("100.00")
+    assert credit.held_amount == Decimal("100.00")
+
+
+def test_a_refund_of_it_draws_on_the_credit() -> None:
+    """Paying the 100.00 back uses the return's credit, which then has none."""
+    session = _session_factory()()
+    setup, _returned_row, _receipt_row = _netted_then_paid(session)
+
+    _refund(setup, "100")
+
+    [credit] = _credits(setup)
+    assert credit.refunded_amount == Decimal("100.00")
+    assert credit.available_amount == Decimal("0.00")
+    assert _balances(setup) == (Decimal("0.00"), Decimal("0.00"))
+
+
+def test_setting_it_against_a_later_bill_takes_it_off_the_account() -> None:
+    """Applied to a new bill it moves the 100.00, so bill and account agree."""
+    session = _session_factory()()
+    setup, returned, _receipt_row = _netted_then_paid(session)
+    # The note is billed in full, so the later bill is an opening one.
+    third = CustomerOpeningBillService(session).create(
+        setup.customer.id,
+        CustomerOpeningBillWrite(
+            bill_date=date(2026, 3, 10),
+            posting_date=date(2026, 4, 1),
+            amount=Decimal("100"),
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    session.commit()
+    assert _balances(setup) == (Decimal("100.00"), Decimal("100.00"))
+
+    _apply(setup, returned.id, third.id, "100")
+
+    assert _owes(setup, third.id) == Decimal("0")
+    assert _balances(setup) == (Decimal("0.00"), Decimal("0.00"))
+    [credit] = _credits(setup)
+    assert credit.available_amount == Decimal("0.00")
+
+
+def test_a_receipts_own_unapplied_money_stays_the_receipts() -> None:
+    """Money a receipt still holds unapplied is not read as a credit's."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("2"))
+    second = _second_bill(setup)
+    _receipt(setup, "200", (setup.invoice.id, "200"))
+    _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    session.commit()
+    # 100.00 owed after the return; 150.00 received with nothing allocated
+    # is held by the receipt, whatever the account does with it.
+    _receipt(setup, "150")
+    assert _owes(setup, second.id) == Decimal("200.00")
+
+    [credit] = _credits(setup)
+    assert credit.held_amount == Decimal("0.00")
+
+
 def test_a_return_on_an_unpaid_bill_gives_no_credit() -> None:
     """The bill absorbs it: there is nothing to set against another."""
     session = _session_factory()()

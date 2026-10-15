@@ -76,7 +76,12 @@ from app.customers.schemas.customer import (
 )
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
-from app.settlements.models import CustomerCreditApplication
+from app.settlements.models import (
+    CustomerCreditApplication,
+    Settlement,
+    SettlementDirection,
+    SettlementStatus,
+)
 
 #: The return states whose posting stands: completing credits the customer,
 #: a cancelled return has taken that back, and a draft has not posted.
@@ -152,6 +157,10 @@ class CustomerCredit:
     #: How much of that advance went back on the source's own bill, because
     #: the bill came to owe again (``absorb_credit_no_longer_given``).
     advance_absorbed: Decimal = ZERO
+    #: Money on the account no receipt and no posting of its own holds, read
+    #: as this credit's because it is the oldest with room for it
+    #: (``_standing_credits``, D-FIN-31).
+    advance_found: Decimal = ZERO
     uses: list[CustomerCreditUse] = field(default_factory=list)
 
     @property
@@ -182,7 +191,8 @@ class CustomerCredit:
         More than ``held_amount`` once the source gives less credit than it
         did: the difference is no longer the customer's to hold.
         """
-        return max(self.advance_given - self.advance_used - self.advance_absorbed, ZERO)
+        moved = self.advance_given - self.advance_used - self.advance_absorbed
+        return max(moved, ZERO) + self.advance_found
 
 
 def _live() -> tuple[Any, ...]:
@@ -760,41 +770,87 @@ def _standing_credits(
     account holds nothing else: 500.00 received on account afterwards read
     as 500.00 of a credit paid back long ago being available again, and
     applying it spent the receipt's money (D-PRC-91).
+
+    And the other way: money on the account that no receipt holds unapplied
+    and no credit's own posting put there is the credits', oldest first, up
+    to what each has left. A return that came off what was owed, followed by
+    a receipt paying the other bill in full, left its value on the account
+    held by nothing: the receipt read fully applied and the return 0.00 held,
+    so a refund drew on no credit and applying the credit moved nothing on
+    the account (D-FIN-31).
     """
     credits, _ = _work(session, firm_id=firm_id, customer_id=customer_id)
-    if not any(credit.advance_on_account > ZERO for credit in credits):
-        return credits
-    paid_back = _untracked_refunds(
-        session, firm_id=firm_id, customer_id=customer_id, credits=credits
-    )
-    for credit in credits:
-        taken = min(paid_back.get(credit.source_id, ZERO), credit.advance_on_account)
-        if taken > ZERO:
-            credit.refunded_amount += taken
-            credit.advance_used += taken
+    if any(credit.advance_on_account > ZERO for credit in credits):
+        paid_back = _untracked_refunds(
+            session, firm_id=firm_id, customer_id=customer_id, credits=credits
+        )
+        for credit in credits:
+            taken = min(
+                paid_back.get(credit.source_id, ZERO), credit.advance_on_account
+            )
+            if taken > ZERO:
+                credit.refunded_amount += taken
+                credit.advance_used += taken
     held = sum((credit.held_amount for credit in credits), ZERO)
-    if held > ZERO:
-        on_account = quantize_ledger(
-            Decimal(
-                str(
-                    session.scalar(
-                        select(Customer.unapplied_advance_balance).where(
-                            Customer.id == customer_id
-                        )
+    room = any(credit.available_amount > credit.held_amount for credit in credits)
+    if held <= ZERO and not room:
+        return credits
+    on_account = quantize_ledger(
+        Decimal(
+            str(
+                session.scalar(
+                    select(Customer.unapplied_advance_balance).where(
+                        Customer.id == customer_id
                     )
-                    or 0
                 )
+                or 0
             )
         )
-        gone = held - on_account
+    )
+    gone = held - on_account
+    for credit in credits:
+        if gone <= ZERO:
+            break
+        taken = min(gone, credit.held_amount)
+        credit.refunded_amount += taken
+        credit.advance_used += taken
+        gone -= taken
+    if room:
+        free = (
+            on_account
+            - _held_by_receipts(session, firm_id=firm_id, customer_id=customer_id)
+            - sum((credit.held_amount for credit in credits), ZERO)
+        )
         for credit in credits:
-            if gone <= ZERO:
+            if free <= ZERO:
                 break
-            taken = min(gone, credit.held_amount)
-            credit.refunded_amount += taken
-            credit.advance_used += taken
-            gone -= taken
+            found = min(free, credit.available_amount - credit.held_amount)
+            if found > ZERO:
+                credit.advance_found += found
+                free -= found
     return credits
+
+
+def _held_by_receipts(session: Session, *, firm_id: UUID, customer_id: UUID) -> Decimal:
+    """Return what the customer's standing receipts still hold unapplied."""
+    return quantize_ledger(
+        Decimal(
+            str(
+                session.scalar(
+                    select(
+                        func.coalesce(func.sum(Settlement.unallocated_amount), 0)
+                    ).where(
+                        Settlement.firm_id == firm_id,
+                        Settlement.customer_id == customer_id,
+                        Settlement.direction == SettlementDirection.RECEIPT.value,
+                        Settlement.status == SettlementStatus.POSTED.value,
+                        Settlement.is_deleted.is_(False),
+                    )
+                )
+                or 0
+            )
+        )
+    )
 
 
 def _untracked_refunds(
