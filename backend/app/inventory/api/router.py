@@ -137,6 +137,7 @@ from app.inventory.services.stock_valuation import (
     StockStatementService,
     StockValuationService,
 )
+from app.uom.services.packs import display_packs_by_code, pack_fields
 
 router = APIRouter(
     prefix="/api/v1/inventory",
@@ -267,6 +268,11 @@ class StockValuationRecord(BaseModel):
     #: none is recorded; the grand total adds up what has one.
     mrp: Decimal | None = None
     mrp_value: Decimal | None = None
+    #: The item's selling pack, so a stock screen shows boxes and pieces
+    #: with no call of its own (L5 step 11). Null unless the firm has a
+    #: box-and-piece switch on and the item has a pack.
+    pack_size: Decimal | None = None
+    pack_unit_code: str | None = None
 
 
 StockValuationScope = Annotated[
@@ -381,8 +387,15 @@ def stock_valuation(
         scope.firm_id, on=on, warehouse_id=warehouse_id, include_zero=include_zero
     )
     window = ReportWindow(None, None, page, page_size)
-    return window.respond(
-        [StockValuationRecord.model_validate(row, from_attributes=True) for row in rows]
+    return _with_packs(
+        db,
+        scope.firm_id,
+        window.respond(
+            [
+                StockValuationRecord.model_validate(row, from_attributes=True)
+                for row in rows
+            ]
+        ),
     )
 
 
@@ -406,6 +419,11 @@ class StockValuationLotRecord(BaseModel):
     rate: Decimal | None = None
     value: Decimal | None = None
     mrp_value: Decimal | None
+    #: The item's selling pack, so a stock screen shows boxes and pieces
+    #: with no call of its own (L5 step 11). Null unless the firm has a
+    #: box-and-piece switch on and the item has a pack.
+    pack_size: Decimal | None = None
+    pack_unit_code: str | None = None
 
 
 @router.get(
@@ -456,7 +474,7 @@ def stock_valuation_lots(
         )
     ]
     window = ReportWindow(None, None, page, page_size)
-    return window.respond(records)
+    return _with_packs(db, scope.firm_id, window.respond(records))
 
 
 class StockStatementRecord(BaseModel):
@@ -478,6 +496,32 @@ class StockStatementRecord(BaseModel):
     outward_value: Decimal
     closing_quantity: Decimal
     closing_value: Decimal
+    #: The item's selling pack, so a stock screen shows boxes and pieces
+    #: with no call of its own (L5 step 11). Null unless the firm has a
+    #: box-and-piece switch on and the item has a pack.
+    pack_size: Decimal | None = None
+    pack_unit_code: str | None = None
+
+
+def _with_packs[
+    RecordT: (StockValuationRecord, StockValuationLotRecord, StockStatementRecord)
+](
+    db: Session, firm_id: UUID, response: PaginatedResponse[RecordT]
+) -> PaginatedResponse[RecordT]:
+    """Give a stock report page's item rows the pack each item is shown in.
+
+    L5 step 11. The report names its items by code, so the page's codes are
+    read once; a total row names none and keeps nulls.
+    """
+    packs = display_packs_by_code(
+        db, firm_id, (record.product_code for record in response.data)
+    )
+    if packs:
+        response.data = [
+            record.model_copy(update=pack_fields(packs.get(record.product_code)))
+            for record in response.data
+        ]
+    return response
 
 
 @router.get(
@@ -508,8 +552,15 @@ def stock_statement(
         warehouse_id=warehouse_id,
     )
     window = ReportWindow(None, None, page, page_size)
-    return window.respond(
-        [StockStatementRecord.model_validate(row, from_attributes=True) for row in rows]
+    return _with_packs(
+        db,
+        scope.firm_id,
+        window.respond(
+            [
+                StockStatementRecord.model_validate(row, from_attributes=True)
+                for row in rows
+            ]
+        ),
     )
 
 
@@ -1759,6 +1810,9 @@ def _count_lines(
         firm_id=row.firm_id, product_ids=[line.product_id for line in lines]
     )
     places = service.storage_labels(line.storage_node_id for line in lines)
+    packs = service.product_packs(
+        firm_id=row.firm_id, product_ids=(line.product_id for line in lines)
+    )
     responses: list[PhysicalCountLineResponse] = []
     for line in lines:
         code, name = labels.get(line.product_id, ("", ""))
@@ -1775,6 +1829,7 @@ def _count_lines(
                     "product_name": name,
                     "storage_node_code": place[0] if place else None,
                     "storage_node_name": place[1] if place else None,
+                    **pack_fields(packs.get(line.product_id)),
                     # A blind sheet shows what the system holds only once
                     # posted (STK-6).
                     **({"expected_quantity": None} if hidden else {}),

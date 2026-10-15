@@ -215,6 +215,11 @@ class InventoryResponse(InventorySchema):
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
+    #: The item's selling pack, so a stock screen shows boxes and pieces
+    #: with no call of its own (L5 step 11). Null unless the firm has a
+    #: box-and-piece switch on and the item has a pack.
+    pack_size: Decimal | None = None
+    pack_unit_code: str | None = None
 
 
 class InventorySummary(InventorySchema):
@@ -373,6 +378,11 @@ class StockLedgerResponse(InventoryTransactionResponse):
     """Expose one immutable stock-ledger row."""
 
     transaction_id: UUID
+    #: The item's selling pack, so a stock screen shows boxes and pieces
+    #: with no call of its own (L5 step 11). Null unless the firm has a
+    #: box-and-piece switch on and the item has a pack.
+    pack_size: Decimal | None = None
+    pack_unit_code: str | None = None
 
 
 class StockLedgerListFilters(InventoryTransactionListFilters):
@@ -836,6 +846,11 @@ class PhysicalCountLineResponse(InventorySchema):
     variance_quantity: Decimal | None
     transaction_id: UUID | None
     remarks: str | None
+    #: The item's selling pack, so a stock screen shows boxes and pieces
+    #: with no call of its own (L5 step 11). Null unless the firm has a
+    #: box-and-piece switch on and the item has a pack.
+    pack_size: Decimal | None = None
+    pack_unit_code: str | None = None
 
 
 class PhysicalCountResponse(InventorySchema):

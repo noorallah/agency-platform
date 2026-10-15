@@ -52,6 +52,7 @@ from app.inventory.schemas import (
 )
 from app.inventory.services.inventory_service import InventoryService
 from app.products.models import Product
+from app.uom.services.packs import Pack, display_packs
 
 ZERO = Decimal("0")
 
@@ -164,6 +165,15 @@ class PhysicalCountService(TransactionalDocumentService):
             )
         ).all()
         return {product_id: (code or "", name or "") for product_id, code, name in rows}
+
+    def product_packs(
+        self, *, firm_id: UUID, product_ids: Iterable[UUID]
+    ) -> dict[UUID, Pack]:
+        """Return the pack each item on a sheet is counted in (L5 step 11).
+
+        Empty unless the firm has a box-and-piece switch on.
+        """
+        return display_packs(self._session, firm_id, product_ids)
 
     def lines_for(self, count_id: UUID) -> list[PhysicalCountLine]:
         """Return the lines of one sheet, in the order they are walked."""

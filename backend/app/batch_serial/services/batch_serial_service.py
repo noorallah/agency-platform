@@ -75,6 +75,7 @@ from app.inventory.services.lots import (
 )
 from app.products.models import Product
 from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.uom.services.packs import display_packs, pack_fields
 
 ZERO = Decimal("0")
 
@@ -360,6 +361,9 @@ class BatchSerialService:
         warehouses = self._names(Warehouse, {record.warehouse_id for record in records})
         branches = self._names(Branch, {record.branch_id for record in records})
         warnings = self._mrp_warnings(records)
+        packs = display_packs(
+            self._session, firm_scope, (record.product_id for record in records)
+        )
         empty = BatchStockTotals()
         responses = []
         for record in records:
@@ -385,6 +389,7 @@ class BatchSerialService:
                         "branch_code": branch_code,
                         "branch_name": branch_name,
                         "mrp_warning": warnings.get(record.id),
+                        **pack_fields(packs.get(record.product_id)),
                     }
                 )
             )
