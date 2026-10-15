@@ -1974,6 +1974,19 @@ for other goods types than the product's is imported as written, with a warning.
 The check lists such warnings under "N to look at. These do not stop the
 import." beside the problems; a file with warnings alone is clean and imports.
 
+Two more optional columns bring an old program's pieces per case across
+(added 2026-10-15, L5 step 12; driven over HTTP, no screen clicked).
+*PiecesPerPack* (also read from "pieces per case", "case size", "case qty" and
+"pack qty") says how many stock units one box holds, and *PackUnit* names the
+box's unit, BOX when blank. Above one, a **new** product is kept in its *Unit*
+(Piece when blank) and is bought and sold in boxes of that many: its lines can
+be typed as boxes and pieces where the firm has that switched on. One means
+pieces only. A size that is not a whole number, an unknown pack unit, or a
+pack unit that is the stock unit stops the file, named by row and column. On
+a product that already exists, or on a row that also names a *UnitSet*, the
+cell is passed over with a warning; change an existing product's pack from a
+date on its units.
+
 ## Batch, lot and serial
 
 `batches` records a physical intake — a number, a manufacturing date, an

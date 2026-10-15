@@ -2239,8 +2239,9 @@ where the product switches them on, batch, expiry, serial number and warranty
 tracking, plus any extra fields that apply to it: those tied to its goods type,
 and those the firm has not switched off. Products can be imported from a file
 (checked before anything is saved; the check lists warnings that do not stop the
-import, and the tracking columns and the UnitSet column are optional, a blank
-tracking cell taking the category's goods type) and exported. A product also carries its
+import, and the tracking columns, the UnitSet column and the PiecesPerPack and
+PackUnit columns are optional, a blank tracking cell taking the category's goods
+type, and pieces per pack above one making a new product's box) and exported. A product also carries its
 **brand** (and through it the **principal**), its **price levels**, a **price
 history** (a new price with an effective date, also loadable from a file), the
 expiry, shelf-life and issue rules (7.3), *Inspect on receipt* and *Not for

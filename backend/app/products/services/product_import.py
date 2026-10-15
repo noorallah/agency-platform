@@ -13,6 +13,7 @@ or nothing, match headings loosely, update by code on request -- live in
 # ruff: noqa: D102, D107
 
 from collections.abc import Callable
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -105,6 +106,22 @@ COLUMNS: tuple[Column, ...] = (
         False,
         "A unit set, by name (see the Lists sheet): it fills a new product's "
         "units and its pack conversion, so a Unit on the same row is passed over.",
+        "",
+    ),
+    Column(
+        "PiecesPerPack",
+        ("piecespercase", "pcspercase", "percase", "casesize", "caseqty", "packqty"),
+        False,
+        "How many stock units one box holds, a whole number. Above one, a new "
+        "product is bought and sold in boxes of that many (L5): Unit is the "
+        "stock unit (PIECE where blank), PackUnit the box.",
+        "",
+    ),
+    Column(
+        "PackUnit",
+        ("caseunit", "boxunit"),
+        False,
+        "The unit of that box, by code, name or symbol; BOX where blank.",
         "",
     ),
     Column(
@@ -211,6 +228,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "base_uom_id": "Unit",
     "unit": "Unit",
     "unit_set_id": "UnitSet",
+    "unit_conversion_factor": "PiecesPerPack",
     "hsn_sac": "HSN",
     "tax_profile_group_code": "TaxGroup",
     "brand": "Brand",
@@ -257,6 +275,11 @@ _FLAG_FIELDS: dict[str, str] = {
     "TrackSerial": "track_serial",
     "AllowNegativeStock": "allow_negative_stock",
 }
+
+
+def _passed_over(row: ImportRow, code: str, column: str, why: str) -> ImportIssue:
+    """Return the warning that a cell was read and deliberately not used."""
+    return ImportIssue(row.number, code, column, f"is passed over: {why}")
 
 
 class _References:
@@ -377,6 +400,7 @@ class ProductFileImporter(FileImporter[Product]):
         issues: list[ImportIssue] = []
         values = self._values(RowReader(row, code, issues), code, current)
         warnings = self._unit_set(row, code, current, values, issues)
+        warnings += self._pack(row, code, current, values, issues)
         if issues:
             report.issues.extend(issues)
             return
@@ -540,6 +564,113 @@ class ProductFileImporter(FileImporter[Product]):
                 )
             )
         return warnings
+
+    def _pack(
+        self,
+        row: ImportRow,
+        code: str,
+        current: Product | None,
+        values: dict[str, object],
+        issues: list[ImportIssue],
+    ) -> list[ImportIssue]:
+        """Make pieces per pack a new product's box; return what to warn of.
+
+        The old program's pieces per case becomes the item's own rule (L5,
+        gap G4 of `docs/SWATHI_IMPORT_PLAN.md`): the stock unit is the row's
+        Unit, PIECE where blank, the purchase unit is the box, and the product's
+        own conversion is that many, so both sides read it as their pack.
+        One, or a blank cell, is a product kept in pieces only.
+
+        Like a unit set, it speaks for a new product only: a product that
+        exists keeps its units, its pack changing from a date on the units
+        screen, and a unit set on the row fills the units itself.
+        """
+        text = row.cells.get("PiecesPerPack", "")
+        unit_text = row.cells.get("PackUnit", "")
+        if not text:
+            if unit_text:
+                return [
+                    _passed_over(
+                        row, code, "PackUnit", "it names the box of PiecesPerPack."
+                    )
+                ]
+            return []
+        try:
+            size = Decimal(text.replace(",", "").strip())
+        except InvalidOperation:
+            size = Decimal(0)
+        if size < 1 or size != size.to_integral_value():
+            issues.append(
+                ImportIssue(
+                    row.number,
+                    code,
+                    "PiecesPerPack",
+                    f"'{text}' is not a whole number of one or more.",
+                )
+            )
+            return []
+        if current is not None:
+            return [
+                _passed_over(
+                    row,
+                    code,
+                    "PiecesPerPack",
+                    "a pack size fills a new product only; this product's "
+                    "pack changes from a date on its units.",
+                )
+            ]
+        if "unit_set_id" in values:
+            return [
+                _passed_over(
+                    row,
+                    code,
+                    "PiecesPerPack",
+                    "the unit set on this row fills the product's units and "
+                    "its pack.",
+                )
+            ]
+        if size == 1:
+            return []
+        assert self._references is not None
+        units = self._references.units
+        box = units.get((unit_text or "BOX").strip().lower())
+        stock_id = values.get("base_uom_id")
+        stock = (units.get("piece") or units.get("pcs")) if stock_id is None else None
+        if box is None:
+            issues.append(
+                ImportIssue(
+                    row.number,
+                    code,
+                    "PackUnit",
+                    f"'{unit_text or 'BOX'}' is not a unit on this system.",
+                )
+            )
+            return []
+        if stock_id is None:
+            if stock is None:
+                issues.append(
+                    ImportIssue(
+                        row.number, code, "Unit", "is needed beside PiecesPerPack."
+                    )
+                )
+                return []
+            stock_id = stock.id
+            values["unit"] = stock.code
+            for target in ("base_uom_id", "inventory_uom_id", "sales_uom_id"):
+                values[target] = stock.id
+        if box.id == stock_id:
+            issues.append(
+                ImportIssue(
+                    row.number,
+                    code,
+                    "PackUnit",
+                    "is the stock unit; a box is another unit than the piece.",
+                )
+            )
+            return []
+        values["purchase_uom_id"] = box.id
+        values["unit_conversion_factor"] = size
+        return []
 
     @staticmethod
     def _resolve(
