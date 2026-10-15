@@ -1,4 +1,5 @@
 """TC-MAST-034: pieces per pack on a product import becomes the item's box (L5 step 12)."""
+from datetime import date
 import pathlib, sys; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from _gt import *  # noqa: F401,F403
 
@@ -8,6 +9,8 @@ admin = client("admin")
 units = uom_ids(admin)
 med = ensure_use(admin, "MEDICINE")
 tablets = cat(admin, tag, "TABLETS", goods_type_id=med["id"])
+# A product always has a brand (backlog 138): every row names one of the firm's.
+brand = data(admin.get(f"{PRODUCTS}/brands")[1])[0]
 
 
 def code(name):
@@ -30,12 +33,12 @@ heading = raw.decode("utf-8").splitlines()[0] if isinstance(raw, bytes) else str
 c.ok("PiecesPerPack" in heading and "PackUnit" in heading, "template has PiecesPerPack and PackUnit", heading)
 
 status, body = prod(admin, tag, "PP-OLD", category_id=tablets["id"], base_uom_id=units["PIECE"],
-                    inventory_uom_id=units["PIECE"], purchase_uom_id=units["PIECE"])
+                    inventory_uom_id=units["PIECE"], purchase_uom_id=units["PIECE"], brand_id=brand["id"])
 c.eq(status, 201, f"PP-OLD created ({message(body)})")
 
 # The old program's heading, "Pieces per case", is read as PiecesPerPack.
-cols = ["Code", "Name", "Category", "Unit", "UnitSet", "Pieces per case", "PackUnit"]
-r = lambda n, unit="", per="", box="", uset="": {"Code": code(n), "Name": n, "Category": tablets["code"], "Unit": unit,  # noqa: E731
+cols = ["Code", "Name", "Category", "Brand", "Unit", "UnitSet", "Pieces per case", "PackUnit"]
+r = lambda n, unit="", per="", box="", uset="": {"Code": code(n), "Name": n, "Category": tablets["code"], "Brand": brand["name"], "Unit": unit,  # noqa: E731
                                                   "UnitSet": uset, "Pieces per case": per, "PackUnit": box}
 bad = [r("PP-1", "", "12"), r("PP-9", "PIECE", "2.5"), r("PP-8", "PIECE", "12", "CRATEX"), r("PP-7", "PIECE", "12", "PIECE")]
 status, body = import_file(admin, csv_bytes(bad, cols))
@@ -72,4 +75,20 @@ if p4:
     c.eq(rule_of(p4["id"]), [(units["BOX"], units["STRIP"], 10.0)], "PP-4 takes the unit set's 10, not the row's 6")
 if old:
     c.eq((old["purchase_uom_id"], rule_of(old["id"])), (units["PIECE"], []), "PP-OLD keeps its units and gains no rule")
+
+# End to end: a sales order line for PP-1 is written at its box of 12.
+if p1:
+    first = lambda path: data(admin.get(path)[1])[0]  # noqa: E731
+    customer = data(admin.post("/api/v1/customers", {"code": code("CU"), "name": f"Cust {tag}",
+                                                      "customer_type": "BUSINESS", "currency_code": "INR"})[1])
+    branch = first("/api/v1/branches")
+    warehouse = first("/api/v1/warehouses?page_size=1")
+    status, body = admin.post("/api/v1/sales-orders", {
+        "customer_id": customer["id"], "order_date": date.today().isoformat(), "branch_id": branch["id"], "warehouse_id": warehouse["id"],
+        "lines": [{"line_number": 1, "product_id": p1["id"], "quantity": "29", "unit_price": "10"}]})
+    c.eq(status, 201, f"a sales order for PP-1 is saved ({message(body)})")
+    if status == 201:
+        line = data(body)["lines"][0]
+        c.eq((line.get("pack_size") and float(line["pack_size"]), float(line["quantity"])), (12.0, 29.0),
+             "its line is written at the box of 12, 29 pieces (2 x 12 + 5)")
 c.done()
