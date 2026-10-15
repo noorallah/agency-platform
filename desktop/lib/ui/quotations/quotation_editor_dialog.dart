@@ -99,6 +99,10 @@ class _LineDraft {
   /// they ticked something.
   final LineOfferChoice offers = LineOfferChoice();
 
+  /// L7 step 9: the saved line's `offers` rows, shown in the side panel
+  /// until a pricing lists the line's offers afresh.
+  List<dynamic> savedOffers = const <dynamic>[];
+
   void dispose() {
     quantity.dispose();
     unitPrice.dispose();
@@ -408,6 +412,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                 : (line.freeGoodsRefused ? '0' : ''),
           )
             ..discountEdited = typed
+            ..savedOffers = line.offers
             // What the offer holds is what was agreed; re-reading the product
             // master would rewrite a price somebody negotiated.
             ..priceEdited = true,

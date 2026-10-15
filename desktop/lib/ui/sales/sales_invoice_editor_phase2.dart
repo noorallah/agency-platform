@@ -2302,6 +2302,12 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               ? '${trimDiscountRate(source.discountPercent)}%'
               : '–',
         ),
+        // L7 step 9: what the order line behind it was priced with.
+        SavedOffersBlock(
+          key: ValueKey<String>('sales-invoice-saved-offers-$index'),
+          offers: source.offers,
+          keyPrefix: 'sales-invoice-offer',
+        ),
         DocumentSidePair('Dispatched', _noteFigure(source.sourceQuantity, source)),
         DocumentSidePair(
             'Left to bill', _noteFigure(source.remainingQuantity, source)),
