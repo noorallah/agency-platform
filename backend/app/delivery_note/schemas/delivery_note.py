@@ -121,6 +121,14 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
     manufacturing_date: date | None = None
     expiry_date: date | None = None
     remarks: str | None = None
+    #: The pack size the screen added two cells up at -- boxes and pieces,
+    #: sent only by a line typed that way (L5, design 3.4). The line ships at
+    #: its order line's pack, and is refused where this differs, so a stale
+    #: screen cannot add the cells up wrong. ``current_delivery_quantity`` is
+    #: the total in pieces either way.
+    pack_size: Decimal | None = Field(
+        default=None, gt=1, max_digits=18, decimal_places=4
+    )
 
     @model_validator(mode="after")
     def _ships_something(self) -> "DeliveryNoteLineWrite":
@@ -178,6 +186,10 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
     challan_reason: ChallanReasonValue | None = None
     #: Required with OTHER, ignored with any other reason.
     challan_reason_note: str | None = Field(default=None, max_length=200)
+    #: Typed as boxes and pieces (L5, design 3.8): how the document is shown
+    #: and typed, nothing else. Absent on a new note takes its order's;
+    #: absent on an update keeps the note's own.
+    box_and_piece_entry: bool | None = None
     remarks: str | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
@@ -346,6 +358,11 @@ class DeliveryNoteLineResponse(DeliveryNoteSchema):
     expiry_date: date | None
     released_reservation_transaction_id: UUID | None
     inventory_transaction_id: UUID | None
+    #: The pack the line ships at (L5): its order line's, its unit and the
+    #: stock units in one. Boxes and pieces of every quantity on the line are
+    #: worked out with it and never stored. Null where the item has no pack.
+    pack_uom_id: UUID | None = None
+    pack_size: Decimal | None = None
     remarks: str | None
     #: The serialised units this line names -- picked while it is a draft,
     #: gone once it is dispatched.
@@ -416,6 +433,8 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     challan_reason_note: str | None = None
     lr_date: date | None = None
     distance_km: int | None = None
+    #: The layout the note was saved in: boxes and pieces (L5).
+    box_and_piece_entry: bool = False
     remarks: str | None
     status: DeliveryNoteStatus
     total_ordered_quantity: Decimal

@@ -182,9 +182,12 @@ from app.trade_licences.services.licence_check import (
     LicenceDocument,
 )
 from app.uom.services import (
+    Pack,
+    PackedLine,
     UomService,
     assert_quantity_fits_unit,
     exact_quantity,
+    line_packs,
     stock_unit_of,
     unit_named,
 )
@@ -203,6 +206,11 @@ SourceLine = DeliveryNoteLine | SalesOrderLine
 def _optional_uuid(value: object) -> UUID | None:
     """Read a UUID out of an untyped line spec."""
     return value if isinstance(value, UUID) else None
+
+
+def _optional_decimal(value: object) -> Decimal | None:
+    """Read a Decimal out of an untyped line spec."""
+    return value if isinstance(value, Decimal) else None
 
 
 def _walk_in_buyer(
@@ -739,6 +747,11 @@ class SalesInvoiceService(TransactionalDocumentService):
             received_now_method=data.received_now_method,
             received_now_reference=data.received_now_reference,
             rate_includes_tax=rate_includes_tax,
+            box_and_piece_entry=(
+                self._notes_in_boxes(source_rows)
+                if data.box_and_piece_entry is None
+                else data.box_and_piece_entry
+            ),
             # A record of how this bill was raised, not a permission: true
             # when the bill raised the note that ships its goods. What the
             # bill may do with a note is decided by the note's own stamp.
@@ -848,6 +861,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Absent leaves the bill's switch as it is (backlog 64 row 4).
         if data.rate_includes_tax is not None:
             row.rate_includes_tax = data.rate_includes_tax
+        # And its layout (L5); a counter bill raised again hands it on.
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         # What the request itself said, before anything below restates it:
         # absent means leave alone, and only this tells absent from null.
         sent = frozenset(data.model_fields_set)
@@ -2182,6 +2198,10 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             if name not in sent
         }
+        # The layout, null or absent, is the bill's own -- and is handed to
+        # the order and note a counter bill raises again (L5).
+        if data.box_and_piece_entry is None:
+            kept["box_and_piece_entry"] = bool(row.box_and_piece_entry)
         if (
             not {"bill_discount_percent", "bill_discount_amount"} & sent
             and typed
@@ -2365,11 +2385,23 @@ class SalesInvoiceService(TransactionalDocumentService):
                 typed=typed,
             )
 
+        # A line keeps the pack its item was first written at (L5, design
+        # 3.3): the new order is raised today, and would take today's.
+        first_packs = {
+            note_line.product_id: Pack(note_line.pack_uom_id, None, note_line.pack_size)
+            for note_line in note_lines.values()
+            if note_line.pack_uom_id is not None and note_line.pack_size
+        }
         rebound = chain.ensure_invoice_source(
             restated,
             firm_id=firm_id,
             actor_id=actor_id,
             inclusive=before_tax if row.rate_includes_tax else None,
+            inherited_packs={
+                line.line_number: (line.product_id, first_packs[line.product_id])
+                for line in bare
+                if line.product_id is not None and line.product_id in first_packs
+            },
         )
         for note in chain.raised_notes:
             note.raised_by_sales_invoice_id = row.id
@@ -2634,6 +2666,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     warehouse_id=line.warehouse_id or note_line.warehouse_id,
                     storage_node_id=line.storage_node_id or note_line.storage_node_id,
                     remarks=line.remarks,
+                    pack_size=line.pack_size,
                     serial_ids=(
                         line.serial_ids
                         if line.serial_ids is not None
@@ -2645,6 +2678,29 @@ class SalesInvoiceService(TransactionalDocumentService):
         if not lines:
             raise ValidationError("A bill must keep at least one line.")
         return lines
+
+    def _notes_in_boxes(self, source_rows: list[dict[str, object]]) -> bool:
+        """Say whether any note a new bill bills was saved in boxes and pieces.
+
+        A document raised from another starts in its source's layout (L5,
+        design 3.8); a bill typed straight in bills the note raised from its
+        own order, which took the bill's.
+        """
+        note_ids = {
+            note_id
+            for source in source_rows
+            if (note_id := _optional_uuid(source.get("source_document_id"))) is not None
+        }
+        return bool(note_ids) and bool(
+            self._session.scalar(
+                select(func.count())
+                .select_from(DeliveryNote)
+                .where(
+                    DeliveryNote.id.in_(note_ids),
+                    DeliveryNote.box_and_piece_entry.is_(True),
+                )
+            )
+        )
 
     def _notes_raised_by(self, row: SalesInvoice) -> frozenset[UUID]:
         """Return the ids of the delivery notes this bill raised for itself."""
@@ -3619,6 +3675,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 sum((Decimal(str(charge.amount)) for charge in charges), ZERO)
             ),
             rate_includes_tax=bool(row.rate_includes_tax),
+            box_and_piece_entry=bool(row.box_and_piece_entry),
             is_held=bool(row.is_held),
             held_at=row.held_at,
             held_note=row.held_note,
@@ -4222,6 +4279,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Every line is priced before any of them is taxed or written, so the
         # discount on the whole bill can be split across them first.
         priced: list[_PricedInvoiceLine] = []
+        # What decides each line's pack (L5): the line it bills holds one.
+        typed_in: list[PackedLine] = []
+        billed_at: dict[int, tuple[UUID, Pack]] = {}
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line: SourceLine | None
@@ -4427,6 +4487,19 @@ class SalesInvoiceService(TransactionalDocumentService):
                 product_id=self._product_id(source_line),
                 firm_id=firm_id,
             )
+            typed_in.append(
+                PackedLine(
+                    line_number=index,
+                    product_id=self._product_id(source_line),
+                    pack_size=_optional_decimal(spec.get("pack_size")),
+                    sales_uom_id=invoice_uom_id or source_uom_id,
+                )
+            )
+            if source_line.pack_uom_id is not None and source_line.pack_size:
+                billed_at[index] = (
+                    self._product_id(source_line),
+                    Pack(source_line.pack_uom_id, None, source_line.pack_size),
+                )
             priced.append(
                 _PricedInvoiceLine(
                     index=index,
@@ -4453,6 +4526,17 @@ class SalesInvoiceService(TransactionalDocumentService):
             self._session,
             firm_id,
             [(item.source_line.product_id, item.unit_price) for item in priced],
+        )
+        # Billed at the pack of the line it bills, so 3 boxes + 5 shipped at
+        # 12 to a box are billed so after the item moved to 10 (L5, design
+        # 3.6); a note written before L5 holds none, and the item's on the
+        # bill's date is taken. A line typed at another size is refused.
+        packs = line_packs(
+            self._session,
+            typed_in,
+            side="SELL",
+            on_date=invoice_date,
+            kept=billed_at,
         )
         # The bill discount is split across the lines here, between pricing
         # them and taxing them. It has to reach a taxable value to reduce any
@@ -4558,6 +4642,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 + freight_share
                 + tax_amount
             )
+            pack = packs.get(index)
             line = SalesInvoiceLine(
                 sales_invoice_id=row.id,
                 firm_id=firm_id,
@@ -4599,6 +4684,8 @@ class SalesInvoiceService(TransactionalDocumentService):
                 conversion_factor=conversion_factor,
                 entered_quantity=item.entered_quantity,
                 conversion_version=spec.get("conversion_version"),
+                pack_uom_id=None if pack is None else pack.uom_id,
+                pack_size=None if pack is None else pack.size,
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 storage_node_id=spec.get("storage_node_id"),
                 batch_number=spec.get("batch_number"),
@@ -6744,6 +6831,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             batch_number=row.batch_number,
             expiry_date=row.expiry_date,
             manufacturing_date=row.manufacturing_date,
+            pack_uom_id=row.pack_uom_id,
+            pack_size=row.pack_size,
             remarks=row.remarks,
             accounting_event_reference=row.accounting_event_reference,
             taxes=[

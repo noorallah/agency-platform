@@ -148,8 +148,12 @@ from app.trade_licences.services.licence_check import (
 from app.uom.models import Uom
 from app.uom.schemas import ConversionRequest
 from app.uom.services import (
+    Pack,
+    PackedLine,
     UomService,
     assert_quantity_fits_unit,
+    held_packs,
+    line_packs,
     stock_unit_of,
     unit_named,
 )
@@ -506,6 +510,12 @@ class DeliveryNoteService(TransactionalDocumentService):
                 )
             ),
             remarks=data.remarks,
+            # Shown as its order is unless the request says (L5, design 3.8).
+            box_and_piece_entry=(
+                bool(order.box_and_piece_entry)
+                if data.box_and_piece_entry is None
+                else data.box_and_piece_entry
+            ),
             status=DeliveryNoteStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -642,6 +652,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                 data.challan_reason, data.challan_reason_note
             )
         row.remarks = data.remarks
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -2010,6 +2022,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             distance_km=row.distance_km,
             challan_reason=row.challan_reason or "SALE",
             challan_reason_note=row.challan_reason_note,
+            box_and_piece_entry=bool(row.box_and_piece_entry),
             remarks=row.remarks,
             status=DeliveryNoteStatus(row.status),
             total_ordered_quantity=row.total_ordered_quantity,
@@ -2670,6 +2683,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         }
         if not source_lines:
             raise ValidationError("Sales order does not contain any lines.")
+        packs = self._line_packs(row, lines, source_lines, existing)
         totals: dict[str, Decimal] = defaultdict(lambda: ZERO)
         # Read once for the whole document rather than per line. A line that
         # says nothing about a discount gets this; one that says anything at
@@ -2859,6 +2873,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 invoice_value=taxable,
             )
             net = self._q(taxable + tax)
+            pack = packs.get(item.line_number)
             line = DeliveryNoteLine(
                 delivery_note_id=row.id,
                 firm_id=row.firm_id,
@@ -2883,6 +2898,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                 # Stored as the rule gave it: stock moves at this factor (D-CFG-1).
                 conversion_factor=Decimal(str(conversion["factor"])),
                 conversion_version=conversion["version"],
+                pack_uom_id=None if pack is None else pack.uom_id,
+                pack_size=None if pack is None else pack.size,
                 unit_price=prices[index],
                 discount_percent=line_discount.percent,
                 discount_amount=discount,
@@ -2945,6 +2962,52 @@ class DeliveryNoteService(TransactionalDocumentService):
                         actor_id=actor_id,
                     )
         return {key: self._q(value) for key, value in totals.items()}
+
+    def _line_packs(
+        self,
+        row: DeliveryNote,
+        lines: list[DeliveryNoteLineWrite],
+        source_lines: Mapping[UUID, SalesOrderLine],
+        existing: Mapping[int, DeliveryNoteLine],
+    ) -> dict[int, Pack]:
+        """Return the pack each note line ships at, by line number (L5).
+
+        A line ships at its order line's pack, so 3 boxes + 5 ordered at 12 to
+        a box are delivered so after the item moved to 10 (design 3.3 and
+        3.6). An order line written before L5 holds none: the saved line keeps
+        what it took, else the item's pack on the note's date. A line typed as
+        boxes and pieces is counted in its order line's unit, and refused
+        where that is not the stock unit or the pack is not the one sent.
+        """
+        inherited = {
+            item.line_number: (
+                source.product_id,
+                Pack(source.pack_uom_id, None, source.pack_size),
+            )
+            for item in lines
+            if (source := source_lines.get(item.sales_order_line_id)) is not None
+            and source.pack_uom_id is not None
+            and source.pack_size is not None
+        }
+        return line_packs(
+            self._session,
+            [
+                PackedLine(
+                    line_number=item.line_number,
+                    product_id=None if source is None else source.product_id,
+                    pack_size=item.pack_size,
+                    sales_uom_id=(
+                        item.sales_uom_id
+                        or (None if source is None else source.sales_uom_id)
+                    ),
+                )
+                for item in lines
+                for source in [source_lines.get(item.sales_order_line_id)]
+            ],
+            side="SELL",
+            on_date=row.delivery_date,
+            kept={**held_packs(existing.values()), **inherited},
+        )
 
     def _replace_batch_picks(
         self,

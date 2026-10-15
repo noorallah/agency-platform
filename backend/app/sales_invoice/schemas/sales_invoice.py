@@ -203,6 +203,15 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
     #: the bill raises, as ``serial_ids`` are; absent leaves the note's choice
     #: (earliest expiry first), an empty list clears it.
     batches: list[DeliveryNoteBatchPick] | None = Field(default=None, max_length=500)
+    #: The pack size the screen added two cells up at -- boxes and pieces,
+    #: sent only by a line typed that way (L5, design 3.4). A line billing a
+    #: note is billed at that note line's pack and a bare line at the item's;
+    #: either is refused where this differs, so a stale screen cannot add
+    #: the cells up wrong. ``current_invoice_quantity`` is the total in
+    #: pieces either way.
+    pack_size: Decimal | None = Field(
+        default=None, gt=1, max_digits=18, decimal_places=4
+    )
 
     @model_validator(mode="after")
     def _one_provenance(self) -> "SalesInvoiceLineWrite":
@@ -385,6 +394,12 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     #: default (``sales_workflow_settings.rate_includes_tax``); absent on an
     #: update leaves the bill's own.
     rate_includes_tax: bool | None = None
+    #: Typed as boxes and pieces (L5, design 3.8): how the bill is shown and
+    #: typed, nothing else. Absent on a new bill takes what the notes it
+    #: bills were saved in -- a bill typed straight in, off -- and absent on
+    #: an update keeps the bill's own. A bill typed straight in hands it to
+    #: the order and note raised behind it.
+    box_and_piece_entry: bool | None = None
     #: Packing, handling, insurance: charges taxed at a rate of their own
     #: (SG-4), beside ``freight_amount`` (taxed with the goods) and
     #: ``additional_charges`` (not taxed). Replaced whole when sent; on an
@@ -558,6 +573,11 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     batch_number: str | None
     expiry_date: date | None
     manufacturing_date: date | None
+    #: The pack the line is billed at (L5): its note line's, its unit and the
+    #: stock units in one. Boxes and pieces are worked out with it and never
+    #: stored. Null where the item has no pack.
+    pack_uom_id: UUID | None = None
+    pack_size: Decimal | None = None
     remarks: str | None
     accounting_event_reference: str | None
     #: What the customer was charged, component by component.
@@ -678,6 +698,8 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     charges_total: Decimal = Decimal("0")
     #: Whether the rates typed on this bill include GST (backlog 64 row 4).
     rate_includes_tax: bool = False
+    #: The layout the bill was saved in: boxes and pieces (L5).
+    box_and_piece_entry: bool = False
     #: Parked at the counter (SG-7): a flag on a draft, never a status.
     is_held: bool = False
     held_at: datetime | None = None

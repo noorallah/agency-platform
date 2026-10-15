@@ -41,6 +41,23 @@ class Pack:
 
 
 @dataclass(frozen=True)
+class PackedLine:
+    """A line as `line_packs` reads it, where the written line cannot say.
+
+    A line continuing another -- a delivery note's of its order line, a
+    bill's of its note line -- names no product and may name no unit: both
+    are its source's. The caller states them here, the unit as the line is
+    counted in, so a line typed as boxes and pieces against a source in
+    another unit is refused as any other is.
+    """
+
+    line_number: int
+    product_id: UUID | None
+    pack_size: Decimal | None
+    sales_uom_id: UUID | None
+
+
+@dataclass(frozen=True)
 class BoxesAndPieces:
     """A total in stock units, as the whole packs in it and what is over.
 
@@ -226,7 +243,7 @@ def _rules_in_force(
 
 def line_packs(
     session: Session,
-    lines: Sequence[BaseModel],
+    lines: Sequence[BaseModel | PackedLine],
     *,
     side: PackSide,
     on_date: date,
