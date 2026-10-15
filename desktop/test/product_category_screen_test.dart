@@ -11,6 +11,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
+import 'package:agency_desktop/models/trade_licence.dart';
 import 'package:agency_desktop/ui/desktop_shell.dart';
 import 'package:agency_desktop/ui/resource_management_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
@@ -72,6 +73,13 @@ class _CategoryApi extends ApiClient {
     }
     return {'data': const <dynamic>[]};
   }
+}
+
+/// The licence types cannot be read: the server is down or refused.
+class _NoLicenceTypesApi extends _CategoryApi {
+  @override
+  Future<List<TradeLicenceTypeRecord>> tradeLicenceTypes() async =>
+      throw StateError('Cannot reach the API server.');
 }
 
 PermissionService _permissions() {
@@ -144,5 +152,20 @@ void main() {
     expect(body['name'], 'Detergent');
     expect(body['parent_id'], isNull);
     expect(body['is_active'], isTrue);
+  });
+
+  // Clicking Settings on 2026-10-16 met "Cannot reach the API server." as an
+  // uncaught error: the licence-types read fired when the register opened
+  // had no error handler. A failed read must leave the register usable.
+  testWidgets('a licence-types read that fails is not an uncaught error',
+      (tester) async {
+    final _CategoryApi api = _NoLicenceTypesApi();
+    await _pump(tester, api);
+    expect(tester.takeException(), isNull);
+    expect(find.text('PERSONAL/SOAP'), findsOneWidget);
+    productCategoryDefinition(api, _permissions());
+    tradeLicenceDefinition(api, _permissions());
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 }

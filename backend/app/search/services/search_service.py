@@ -90,6 +90,13 @@ class SearchDefinition:
     #: nothing, as the users list refuses them; a platform administrator, who
     #: acts platform-wide, still sees everyone.
     membership_scoped: bool = False
+    #: The rows are firms, and a firm caller may find only the one in scope.
+    #: `firms` has no firm column, so it was searched unfiltered, and the
+    #: seeded Viewer -- who holds every `*_VIEW` code, `FIRM_VIEW` included --
+    #: read the name, code and city of every firm on the platform (found
+    #: clicking Settings on 2026-10-16). A platform administrator still sees
+    #: every firm.
+    own_firm_scoped: bool = False
     #: A clause of the model's own that every hit must satisfy, for two
     #: definitions over one table that mean different things. `territories`
     #: and `routes` are both `SalesTerritoryNode`, and with no clause between
@@ -160,6 +167,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         status_column="is_active",
         category="organization",
         platform_store=True,
+        own_firm_scoped=True,
     ),
     SearchDefinition(
         "business_profiles",
@@ -849,6 +857,12 @@ class SearchService:
                 UserFirm.is_deleted.is_(False),
             )
             statement = statement.where(getattr(model, "id").in_(members))  # noqa: B009
+        if definition.own_firm_scoped and not principal.is_platform_admin:
+            if principal.firm_id is None:
+                return [], 0
+            statement = statement.where(
+                getattr(model, "id") == principal.firm_id  # noqa: B009
+            )
         if query:
             search_conditions = []
             for field in (*definition.title_columns, *definition.subtitle_columns):

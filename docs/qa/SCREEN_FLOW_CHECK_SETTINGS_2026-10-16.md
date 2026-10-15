@@ -99,3 +99,9 @@ failed 0, not run 2. No overflow and no other app error in either.
 - **The book is behind the build on Stock**: the strip has "4 Costing method"
   between Batch rules and Yours: Inventory settings; TC-CONF-012 does not
   list it.
+
+## Registered (added after the round)
+
+- The Firm admin offered no *1 Firm settings* and only *6 Unit sets* under Business profile while the Viewer gets them: **D-IDN-17**, open (the Viewer holds `FIRM_VIEW` and `PLATFORM_VIEW`; the Firm admin does not). Checking it found **D-IDN-16**, fixed: global search showed the Viewer every firm on the platform.
+- The uncaught *Cannot reach the API server.* on Product Categories: **D-UI-103**, fixed (both licence-types reads now handle a failure).
+- The book behind the build on Stock (*4 Costing method*): case text of TC-CONF-012 corrected.
