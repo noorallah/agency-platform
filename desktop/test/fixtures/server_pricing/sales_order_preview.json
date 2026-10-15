@@ -1,8 +1,10 @@
 {
+  "bill_candidates": [],
   "interstate": false,
   "lines": [
     {
       "available_quantity": "100.0000",
+      "candidates": [],
       "incoming_quantity": "0",
       "last_discount_percent": null,
       "last_invoice_date": null,

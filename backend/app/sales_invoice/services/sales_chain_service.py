@@ -39,6 +39,7 @@ from app.delivery_note.services.delivery_note_service import DeliveryNoteService
 from app.inventory.services.lots import costs_by_lot
 from app.pricing.services.unit_price import UnitPriceResolver
 from app.products.models import Product
+from app.promotions.schemas import OfferCandidate
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -93,6 +94,11 @@ class SalesChainService:
         #: its notes, so cancelling the draft can withdraw the order and give
         #: back what it reserved (D-SELL-54).
         self.raised_orders: list[SalesOrder] = []
+        #: What the lines of a bill of bare lines could take, by line number,
+        #: and the offers on its whole bill: the order raised behind it is
+        #: what priced them (L7 step 3). Empty for a bill of documents.
+        self.line_candidates: dict[int, list[OfferCandidate]] = {}
+        self.bill_candidates: list[OfferCandidate] = []
 
     def ensure_invoice_source(
         self,
@@ -171,7 +177,8 @@ class SalesChainService:
         )
         if inclusive is not None:
             data = inclusive(data, branch_id, warehouse_id)
-        order = SalesOrderService(self._session).stage_order(
+        orders = SalesOrderService(self._session)
+        order = orders.stage_order(
             SalesOrderCreate(
                 customer_id=data.customer_id,
                 salesman_id=data.salesman_id,
@@ -255,6 +262,7 @@ class SalesChainService:
         )
         self._refuse_above_chosen_mrp(order, data.lines)
         self.raised_orders.append(order)
+        self.line_candidates, self.bill_candidates = orders.offer_candidates()
         # Checked for licences at the bill's approval, not here (backlog 54).
         SalesOrderService(self._session).stage_approval(
             order.id,

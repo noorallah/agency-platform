@@ -4,7 +4,9 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.promotions.schemas.promotion import OfferCandidate
 
 
 class DocumentPreviewLine(BaseModel):
@@ -31,3 +33,7 @@ class DocumentPreviewLine(BaseModel):
     incoming_quantity: Decimal = Decimal("0")
     #: Promised on open sales orders there, not yet dispatched nor reserved.
     outgoing_quantity: Decimal = Decimal("0")
+    #: Every offer and standing arrangement the line could take, applied or
+    #: not, with its worth and why it is not applied (L7 step 3). Empty on a
+    #: purchase document and on a line an offer added.
+    candidates: list[OfferCandidate] = Field(default_factory=list)

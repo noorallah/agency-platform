@@ -61,6 +61,7 @@ from app.products.models import Product
 from app.products.services.free_issue import assert_not_sold_at_a_price
 from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
+    OfferCandidate,
     PromotionEvaluationRequest,
     PromotionLineRequest,
 )
@@ -69,6 +70,7 @@ from app.promotions.services.line_offers import (
     OfferRow,
     bill_offer_rows,
     gift_offer_rows,
+    line_candidates,
     line_offer_rows,
     offers_by_line,
     rewrite_offer_rows,
@@ -99,7 +101,7 @@ from app.quotation.schemas import (
     QuotationStatus,
     QuotationSummary,
 )
-from app.sales.services.document_preview import line_companions
+from app.sales.services.document_preview import line_companions, with_candidates
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
@@ -162,6 +164,10 @@ class QuotationService(TransactionalDocumentService):
         """Bind the lifecycle base plus this module's collaborators."""
         super().__init__(session)
         self._tax = TaxRuleService(session)
+        #: What the last quotation priced could take, by line number and on
+        #: the whole bill, for its preview (L7 step 3). Nothing here is stored.
+        self._line_candidates: dict[int, list[OfferCandidate]] = {}
+        self._bill_candidates: list[OfferCandidate] = []
 
     # ---- reads ---------------------------------------------------------
 
@@ -385,7 +391,12 @@ class QuotationService(TransactionalDocumentService):
             )
         finally:
             self._session.rollback()
-        return QuotationPreview(quotation=response, interstate=interstate, lines=lines)
+        return QuotationPreview(
+            quotation=response,
+            interstate=interstate,
+            lines=with_candidates(lines, self._line_candidates),
+            bill_candidates=list(self._bill_candidates),
+        )
 
     def _preview_lines(
         self,
@@ -1348,6 +1359,8 @@ class QuotationService(TransactionalDocumentService):
                 number: rate for number, rate in entered.items() if number in numbers
             }
         asked = len(lines)
+        self._line_candidates = {}
+        self._bill_candidates = []
         seen: set[int] = set()
         subtotal = ZERO
         tax_total = ZERO
@@ -1631,33 +1644,44 @@ class QuotationService(TransactionalDocumentService):
             line.updated_by = actor_id
             # A gift line is in the stock unit, so its factor is one.
             factor = offer_factors[index] if index < asked else Decimal("1")
-            offer_rows.append(
-                (
-                    line,
-                    (
-                        gift_offer_rows(
-                            benefits.application(line.free_promotion_id),
-                            free_quantity=free_goods,
-                            stock_factor=factor,
-                        )
-                        if index >= asked
-                        else line_offer_rows(
-                            shares=benefits.line_offers(index),
-                            priced=line_discount,
-                            engine_free=item.free_quantity is None,
-                            stock_factor=factor,
-                            price_list=(
-                                prices.list_for(
-                                    item.product_id, stock_quantities[index]
-                                )
-                                if line_discount.source == "price_list"
-                                else None
-                            ),
-                            standing=standing,
-                        )
+            found = (
+                gift_offer_rows(
+                    benefits.application(line.free_promotion_id),
+                    free_quantity=free_goods,
+                    stock_factor=factor,
+                )
+                if index >= asked
+                else line_offer_rows(
+                    shares=benefits.line_offers(index),
+                    priced=line_discount,
+                    engine_free=item.free_quantity is None,
+                    stock_factor=factor,
+                    price_list=(
+                        prices.list_for(item.product_id, stock_quantities[index])
+                        if line_discount.source == "price_list"
+                        else None
                     ),
+                    standing=standing,
                 )
             )
+            offer_rows.append((line, found))
+            if index < asked:
+                # What else the line could take, for the preview (L7 step 3).
+                self._line_candidates[item.line_number] = line_candidates(
+                    offered=benefits.line_candidates(index),
+                    rows=found,
+                    priced=line_discount,
+                    gross=gross,
+                    price_list=prices.list_for(
+                        item.product_id, stock_quantities[index]
+                    ),
+                    price_list_percent=prices.rate_for(
+                        item.product_id, stock_quantities[index]
+                    ),
+                    customer_percent=customer_discount,
+                    group_percent=group_discount,
+                    standing=standing,
+                )
             seen.add(item.line_number)
             subtotal += taxable
             tax_total += tax
@@ -1665,6 +1689,7 @@ class QuotationService(TransactionalDocumentService):
         for line_number, line in existing.items():
             if line_number not in seen:
                 self._session.delete(line)
+        self._bill_candidates = benefits.bill_candidates()
         self._session.flush()
         rewrite_offer_rows(
             self._session,

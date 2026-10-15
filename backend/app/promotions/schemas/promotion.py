@@ -534,6 +534,65 @@ class LineOfferResponse(PromotionSchema):
     part_share: bool = False
 
 
+class OfferGives(PromotionSchema):
+    """What one candidate gives, in figures and in one sentence (L7 step 3).
+
+    ``kind`` is the offer's action type where it has one action, ``MIXED``
+    where it has several, and ``PERCENT`` for a standing arrangement.
+    """
+
+    kind: str
+    percent: Decimal | None = None
+    amount: Decimal | None = None
+    buy_quantity: Decimal | None = None
+    free_quantity: Decimal | None = None
+    #: Made by the server: "5% off", "11 + 1 free".
+    sentence: str
+
+
+class OfferPartShare(PromotionSchema):
+    """The quantity typed billed as a part share of an offer (L7 step 7)."""
+
+    charged_quantity: Decimal
+    free_quantity: Decimal
+
+
+class OfferCandidate(PromotionSchema):
+    """One offer or standing arrangement a line, or the bill, could take (L7).
+
+    ``docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md`` section 3.2. Listed in
+    a priced preview beside the line; nothing here is stored.
+    """
+
+    #: Minted by the server: an offer's ``version_group_id``, a price
+    #: list's id, ``CUSTOMER`` or ``CUSTOMER_GROUP``.
+    key: str
+    #: ``promotion``, ``price_list``, ``customer`` or ``customer_group``.
+    source: str
+    code: str
+    name: str
+    gives: OfferGives
+    #: What it takes off this line alone, free pieces at the line's own
+    #: rate. For ordering and reading, never for the books.
+    worth: Decimal = Decimal("0")
+    #: In the price shown.
+    applied: bool = False
+    #: Put there by a person rather than by the server.
+    chosen: bool = False
+    #: The offer's own ``allow_stacking``; False for a standing arrangement,
+    #: which never adds to an offer's discount.
+    combines: bool = False
+    available: bool = True
+    #: Why it is not applied, in one sentence; null where it is.
+    reason: str | None = None
+    #: The hint (step 4): how many more earn ``then_gives``.
+    needs_more: Decimal | None = None
+    then_gives: str | None = None
+    part_share: OfferPartShare | None = None
+    #: The principal and its share, on screen only.
+    funded_by: str | None = None
+
+
 class PromotionLineOutcome(PromotionSchema):
     """What one line earned."""
 
@@ -546,6 +605,9 @@ class PromotionLineOutcome(PromotionSchema):
     applied_promotion_codes: list[str]
     #: Each offer's part of the two figures above, in the order applied.
     offers: list[PromotionLineShare] = Field(default_factory=list)
+    #: Every offer whose conditions this line meets, applied or not, with
+    #: what it is worth here and why it is not applied (L7 step 3).
+    candidates: list[OfferCandidate] = Field(default_factory=list)
 
 
 class PromotionDecision(PromotionSchema):
@@ -615,6 +677,9 @@ class PromotionEvaluationResponse(PromotionSchema):
     #: what an existing line costs, which is most of them.
     gifts: list[PromotionGift] = Field(default_factory=list)
     decisions: list[PromotionDecision]
+    #: The offers on the whole bill -- a bill discount, free delivery, a gift
+    #: of another product -- applied or not, with their worth (L7 step 3).
+    bill_candidates: list[OfferCandidate] = Field(default_factory=list)
 
 
 class PromotionCouponWrite(PromotionSchema):

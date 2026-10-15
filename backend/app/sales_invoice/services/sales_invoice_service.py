@@ -90,9 +90,10 @@ from app.loyalty.services.redemption_reversal import RedemptionReversalService
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.products.services.free_issue import assert_not_sold_at_a_price
+from app.promotions.schemas import OfferCandidate
 from app.promotions.services import RedemptionService
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
-from app.sales.services.document_preview import line_companions
+from app.sales.services.document_preview import line_companions, with_candidates
 from app.sales.services.scope_resolution import (
     resolve_sales_scope,
     validate_named_route,
@@ -356,6 +357,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         super().__init__(session)
         self._tax = TaxRuleService(session)
         self._uom = UomService(session)
+        #: What the lines of the last bill staged could take, and the offers
+        #: on its whole bill, as the order behind it priced them (L7 step 3).
+        self._line_candidates: dict[int, list[OfferCandidate]] = {}
+        self._bill_candidates: list[OfferCandidate] = []
 
     def list_invoices(
         self,
@@ -565,7 +570,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
         finally:
             self._session.rollback()
-        return SalesInvoicePreview(invoice=response, interstate=interstate, lines=lines)
+        return SalesInvoicePreview(
+            invoice=response,
+            interstate=interstate,
+            lines=with_candidates(lines, self._line_candidates),
+            bill_candidates=list(self._bill_candidates),
+        )
 
     def stage_invoice(
         self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
@@ -617,6 +627,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             inclusive=before_tax if rate_includes_tax else None,
         )
+        self._line_candidates = chain.line_candidates
+        self._bill_candidates = chain.bill_candidates
         # The chain numbers the order, the note and the bill's lines after the
         # lines typed, so the line number finds the note line each one bills.
         entered_rates = {

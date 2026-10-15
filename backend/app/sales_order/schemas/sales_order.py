@@ -16,7 +16,7 @@ from pydantic import (
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import NumberedOnce
-from app.promotions.schemas import LineOfferResponse
+from app.promotions.schemas import LineOfferResponse, OfferCandidate
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -697,3 +697,5 @@ class SalesOrderPreview(SalesOrderSchema):
     order: SalesOrderResponse
     interstate: bool
     lines: list[DocumentPreviewLine]
+    #: The offers on the whole bill, applied or not, with their worth (L7).
+    bill_candidates: list[OfferCandidate] = Field(default_factory=list)
