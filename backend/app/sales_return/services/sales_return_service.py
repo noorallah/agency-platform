@@ -95,6 +95,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLineTax,
 )
 from app.sales_invoice.schemas import SalesInvoiceStatus
+from app.sales_order.services.part_share import part_share_order_lines
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.sales_return.billing import (
     BillBook,
@@ -1715,6 +1716,11 @@ class SalesReturnService(TransactionalDocumentService):
         unbilled_here: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         free_in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        # Read once for the return: which source lines continue an order line
+        # given as a part share of an offer (design section 3.7).
+        part_shares = self._part_share_sources(
+            [source_line for _, source_line, _ in sources], firm_id=firm_id
+        )
         for index, (spec, (source_type, source_line, source_uom_id)) in enumerate(
             zip(line_specs, sources, strict=True), start=1
         ):
@@ -1785,6 +1791,7 @@ class SalesReturnService(TransactionalDocumentService):
                 source_free=source_free,
                 already_free=already_free,
                 unit=self._unit_named(source_uom_id),
+                part_share=source_line.id in part_shares,
             )
             # Only charged goods are worth what was typed for them; with
             # free goods beside them the line is counted, credited and moved
@@ -2577,6 +2584,7 @@ class SalesReturnService(TransactionalDocumentService):
         source_free: Decimal,
         already_free: Decimal,
         unit: str = "",
+        part_share: bool = False,
     ) -> tuple[Decimal, Decimal]:
         """Split what a line brings back into charged units and free ones.
 
@@ -2591,6 +2599,12 @@ class SalesReturnService(TransactionalDocumentService):
         coming back on its own. The charged part is what is priced, taxed and
         credited; the free part is credited nothing.
 
+        A ``part_share`` line -- 5.5 charged and 0.5 free, an offer's part
+        share -- comes back in its own proportion where no free figure is
+        typed: 3 of it are 2.75 charged and 0.25 free. Charged first would
+        credit 3 of the 2.75 paid for (design section 3.7). The last part
+        back takes what is left, so the rounding cannot strand a fraction.
+
         Returns:
             The charged quantity and the free quantity.
 
@@ -2601,7 +2615,11 @@ class SalesReturnService(TransactionalDocumentService):
         """
         charged_left = max(self._q(dispatched - already_returned), ZERO)
         free_left = max(self._q(source_free - already_free), ZERO)
-        if typed_free is None:
+        if typed_free is None and part_share and dispatched + source_free > ZERO:
+            share = self._q(total * dispatched / (dispatched + source_free))
+            charged = min(max(share, self._q(total - free_left)), charged_left)
+            free = self._q(total - charged)
+        elif typed_free is None:
             charged = min(total, charged_left)
             free = self._q(total - charged)
         else:
@@ -2667,6 +2685,37 @@ class SalesReturnService(TransactionalDocumentService):
             statement = statement.where(SalesReturn.id != exclude_return_id)
         charged, free = self._session.execute(statement).one()
         return self._q(charged or ZERO), self._q(free or ZERO)
+
+    def _part_share_sources(
+        self, source_lines: list[SourceLine], *, firm_id: UUID
+    ) -> set[UUID]:
+        """Return the source lines that continue a part share of an offer.
+
+        A note line names its order line; a bill line names its note line or
+        its order line. Two reads for the whole return however many lines
+        it has: the order lines behind billed note lines, then the marking.
+        """
+        order_line_of: dict[UUID, UUID] = {}
+        billed_notes: defaultdict[UUID, list[UUID]] = defaultdict(list)
+        for line in source_lines:
+            if isinstance(line, DeliveryNoteLine):
+                order_line_of[line.id] = line.sales_order_line_id
+            elif line.source_document_type == "DELIVERY_NOTE":
+                billed_notes[line.source_document_line_id].append(line.id)
+            elif line.source_document_type == "SALES_ORDER":
+                order_line_of[line.id] = line.source_document_line_id
+        if billed_notes:
+            for note_line_id, order_line_id in self._session.execute(
+                select(DeliveryNoteLine.id, DeliveryNoteLine.sales_order_line_id).where(
+                    DeliveryNoteLine.id.in_(billed_notes)
+                )
+            ):
+                for bill_line_id in billed_notes[note_line_id]:
+                    order_line_of[bill_line_id] = order_line_id
+        marked = part_share_order_lines(
+            self._session, firm_id=firm_id, order_line_ids=order_line_of.values()
+        )
+        return {line_id for line_id, order in order_line_of.items() if order in marked}
 
     def _goods_behind(self, source_line: SourceLine) -> DeliveryNoteLine | None:
         """Return the note line whose goods a return line would bring back.

@@ -159,6 +159,7 @@ from app.sales_order.services.discount_limit import (
     note_reduction,
 )
 from app.sales_order.services.line_margin import cost_invoice_lines
+from app.sales_order.services.part_share import part_share_order_lines
 from app.sales_order.services.price_floor import PriceFloorService, invoice_lines
 from app.sales_order.services.sales_order_service import (
     SalesOrderService,
@@ -189,6 +190,7 @@ from app.uom.services import (
     PackedLine,
     UomService,
     assert_quantity_fits_unit,
+    counts_in_whole_numbers,
     exact_quantity,
     line_packs,
     stock_unit_of,
@@ -4401,6 +4403,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         # What decides each line's pack (L5): the line it bills holds one.
         typed_in: list[PackedLine] = []
         billed_at: dict[int, tuple[UUID, Pack]] = {}
+        # Read once for the bill: which order lines behind it are a part share
+        # of an offer, which is billed whole (design section 3.7).
+        part_shares = self._part_share_sources(line_specs, firm_id=firm_id)
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line: SourceLine | None
@@ -4564,6 +4569,17 @@ class SalesInvoiceService(TransactionalDocumentService):
                 already_invoiced=already_invoiced,
                 firm_id=firm_id,
             )
+            if self._order_line_of(source_line) in part_shares:
+                self._assert_part_share_billed_whole(
+                    index=index,
+                    source_line=source_line,
+                    source_uom_id=source_uom_id,
+                    invoice_quantity=invoice_quantity,
+                    source_quantity=source_quantity,
+                    free_quantity=free_quantity,
+                    already_invoiced=already_invoiced,
+                    firm_id=firm_id,
+                )
             if invoice_quantity <= ZERO and free_quantity <= ZERO:
                 # Judged here rather than on the request, because only the
                 # source line says whether a line of nothing charged is a gift
@@ -5518,6 +5534,94 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
                 for component in response.applied_components
             ],
+        )
+
+    def _part_share_sources(
+        self, line_specs: list[dict[str, object]], *, firm_id: UUID
+    ) -> set[UUID]:
+        """Return the order lines behind a bill given as a part share of an offer.
+
+        Two reads for the whole bill however many lines it has: the order
+        lines its note lines continue, then the marking of all of them.
+        """
+        order_line_ids: set[UUID] = set()
+        note_line_ids: set[UUID] = set()
+        for spec in line_specs:
+            line_id = _optional_uuid(spec.get("source_document_line_id"))
+            if line_id is None:
+                continue
+            if (
+                self._source_type(spec["source_document_type"])
+                == SalesInvoiceSourceType.DELIVERY_NOTE.value
+            ):
+                note_line_ids.add(line_id)
+            else:
+                order_line_ids.add(line_id)
+        if note_line_ids:
+            order_line_ids.update(
+                line_id
+                for line_id in self._session.scalars(
+                    select(DeliveryNoteLine.sales_order_line_id).where(
+                        DeliveryNoteLine.id.in_(note_line_ids)
+                    )
+                )
+                if line_id is not None
+            )
+        return part_share_order_lines(
+            self._session, firm_id=firm_id, order_line_ids=order_line_ids
+        )
+
+    @staticmethod
+    def _order_line_of(source_line: SourceLine) -> UUID | None:
+        """Return the order line a bill's source line is, or continues."""
+        if isinstance(source_line, DeliveryNoteLine):
+            return source_line.sales_order_line_id
+        return source_line.id
+
+    def _assert_part_share_billed_whole(
+        self,
+        *,
+        index: int,
+        source_line: SourceLine,
+        source_uom_id: UUID | None,
+        invoice_quantity: Decimal,
+        source_quantity: Decimal,
+        free_quantity: Decimal,
+        already_invoiced: Decimal,
+        firm_id: UUID,
+    ) -> None:
+        """Refuse part of a part-share line counted in whole pieces.
+
+        5.5 charged and 0.5 free is six whole pieces and half of it is no
+        number of pieces, so a bill takes all of the line it continues --
+        its charged quantity and its free goods -- or none of it, and only
+        where no other bill has taken any
+        (``docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md``, section 3.7).
+        """
+        if not counts_in_whole_numbers(
+            self._session,
+            uom_id=source_uom_id,
+            product_id=self._product_id(source_line),
+            firm_id=firm_id,
+        ):
+            return
+        source_free = self._q(source_line.free_quantity or ZERO)
+        if (
+            already_invoiced <= ZERO
+            and invoice_quantity == source_quantity
+            and free_quantity == source_free
+            and self._already_invoiced_free(
+                firm_id=firm_id, source_document_line_id=source_line.id
+            )
+            <= ZERO
+        ):
+            return
+        raise ValidationError(
+            f"Line {index} is a part share of an offer "
+            f"({plain_quantity(source_quantity)} + {plain_quantity(source_free)} "
+            f"free): it is billed whole, all "
+            f"{plain_quantity(source_quantity + source_free)} at once.",
+            details={"field": "lines"},
         )
 
     def _source_quantity(self, spec: dict[str, object], source_line: object) -> Decimal:
