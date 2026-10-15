@@ -641,3 +641,111 @@ def test_the_templates_lists_sheet_names_the_firms_brands() -> None:
     rows = list(workbook["Lists"].iter_rows(values_only=True))
     column = next(index for index, value in enumerate(rows[0]) if value == "Brand")
     assert [row[column] for row in rows[1:] if row[column]] == ["Acme", TEST_BRAND]
+
+
+def test_pieces_per_pack_makes_a_new_products_box() -> None:
+    """The old program's pieces per case becomes the item's pack (L5, G4).
+
+    Above one, a new product is kept in its Unit (PCS where blank) and bought
+    and sold in boxes of that many; one is pieces only; a product that exists
+    and a row with a unit set are said to be passed over, never refused.
+    """
+    from app.uom.services.packs import pack_of
+
+    factory = _factory()
+    session = factory()
+    firm, units = _typed_firm(session)
+    _run(
+        session,
+        firm.id,
+        _csv("Code,Name,Category,Unit", "old-1,Old one,TABLETS,PCS"),
+        apply=True,
+    )
+    content = _csv(
+        "Code,Name,Category,Unit,PiecesPerCase,PackUnit",
+        "pk-1,Pack one,TABLETS,,12,",
+        "pk-2,Pack two,TABLETS,KG,24,box",
+        "pk-3,Pack three,TABLETS,PCS,1,",
+        "pk-4,Pack four,TABLETS,PCS,,",
+    )
+
+    report = _run(session, firm.id, content, apply=True)
+
+    assert report.issues == [] and report.warnings == [] and report.imported
+    with factory() as fresh:
+        rows = {row.code: row for row in fresh.scalars(select(Product))}
+        packs = {
+            code: pack_of(fresh, rows[code], side=side, on_date=date(2030, 1, 1))
+            for code in ("PK-1", "PK-2", "PK-3", "PK-4")
+            for side in ("SELL",)
+        }
+        buying = pack_of(fresh, rows["PK-1"], side="BUY", on_date=date(2030, 1, 1))
+    assert (rows["PK-1"].base_uom_id, rows["PK-1"].purchase_uom_id) == (
+        units["PCS"],
+        units["BOX"],
+    )
+    assert rows["PK-1"].sales_uom_id == units["PCS"]
+    assert packs["PK-1"] is not None and packs["PK-1"].size == 12
+    assert buying is not None and (buying.size, buying.unit_code) == (12, "BOX")
+    assert rows["PK-2"].base_uom_id == units["KG"]
+    assert packs["PK-2"] is not None and packs["PK-2"].size == 24
+    assert packs["PK-3"] is None and rows["PK-3"].purchase_uom_id == units["PCS"]
+    assert packs["PK-4"] is None
+
+    passed = _run(
+        session,
+        firm.id,
+        _csv(
+            "Code,Name,Category,Unit,UnitSet,PiecesPerPack,PackUnit",
+            "old-1,Old one,TABLETS,PCS,,6,",
+            'pk-5,Pack five,TABLETS,,"Piece, box of 10",6,',
+            "pk-6,Pack six,TABLETS,PCS,,,BOX",
+        ),
+        apply=True,
+        existing="update",
+    )
+    assert passed.issues == [] and passed.imported
+    assert [(item.code, item.column) for item in passed.warnings] == [
+        ("OLD-1", "PiecesPerPack"),
+        ("PK-5", "PiecesPerPack"),
+        ("PK-6", "PackUnit"),
+    ]
+    assert all("is passed over" in item.message for item in passed.warnings)
+    with factory() as fresh:
+        old = fresh.scalars(select(Product).where(Product.code == "OLD-1")).one()
+        five = fresh.scalars(select(Product).where(Product.code == "PK-5")).one()
+        assert pack_of(fresh, old, side="SELL", on_date=date(2030, 1, 1)) is None
+        five_pack = pack_of(fresh, five, side="SELL", on_date=date(2030, 1, 1))
+    # The set's factor stands, not the row's six.
+    assert five_pack is not None and five_pack.size == 10
+
+
+def test_a_wrong_pieces_per_pack_is_a_problem_on_its_column() -> None:
+    """A size that is no whole number, an unknown box, or the piece itself."""
+    factory = _factory()
+    session = factory()
+    firm, _units = _typed_firm(session)
+
+    report = _run(
+        session,
+        firm.id,
+        _csv(
+            "Code,Name,Category,Unit,PiecesPerPack,PackUnit",
+            "bad-1,Bad one,TABLETS,PCS,2.5,",
+            "bad-2,Bad two,TABLETS,PCS,0,",
+            "bad-3,Bad three,TABLETS,PCS,many,",
+            "bad-4,Bad four,TABLETS,PCS,12,CRATE",
+            "bad-5,Bad five,TABLETS,PCS,12,PCS",
+        ),
+        apply=True,
+    )
+
+    assert not report.imported and _codes(factory) == []
+    assert [(item.code, item.column) for item in report.issues] == [
+        ("BAD-1", "PiecesPerPack"),
+        ("BAD-2", "PiecesPerPack"),
+        ("BAD-3", "PiecesPerPack"),
+        ("BAD-4", "PackUnit"),
+        ("BAD-5", "PackUnit"),
+    ]
+    assert "'CRATE' is not a unit" in report.issues[3].message

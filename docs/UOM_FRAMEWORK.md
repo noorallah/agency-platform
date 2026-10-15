@@ -948,6 +948,23 @@ number columns, and nothing stored changes. The choice is kept per user on the
 machine. On the counter bill a scan of the line's own pack adds one to Box and
 any other scan adds its pieces to Pcs.
 
+### Pieces per pack on a product import (L5 step 12)
+
+The product import takes two optional columns, *PiecesPerPack* (also read from
+"pieces per case", "case size", "case qty" and "pack qty", the old programs'
+headings) and *PackUnit*. Above one, a **new** product is kept in its *Unit*
+(PIECE where the cell is blank), its purchase unit is the *PackUnit* (BOX
+where blank) and its own conversion rule is that many, from the day packs
+begin -- so `pack_of` answers it as both the buying and the selling pack. One
+is a product kept in pieces only. A size that is not a whole number of one or
+more, a pack unit the system does not hold, or a pack unit that is the stock
+unit is a problem on its column. On a product that exists, or on a row that
+also names a *UnitSet*, the cell is passed over with a warning: the set fills
+the units and the pack itself, and an existing product's pack changes from a
+date on its units, never from a file. `_pack` in
+`backend/app/products/services/product_import.py` is the code; it is gap G4 of
+`docs/SWATHI_IMPORT_PLAN.md`.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and

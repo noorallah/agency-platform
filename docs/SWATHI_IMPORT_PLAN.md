@@ -228,7 +228,7 @@ done; it needs more checking by the firm.
 | G1 | Cost and MRP per purchase lot; a sales line names its lot (backlog 101/103) | Step 9, way B, daily billing | Open |
 | G2 | Keep the old software's number against our record, so a second run skips it | Every step | Open |
 | G3 | Import for routes, segments, salesmen, brands, principals | Step 2 | Open; small enough to create by the converter through the services |
-| G4 | A unit for every item (Swathi has none); pieces per case to a pack | Step 3 | Open; default (2026-10-13): every item is a piece, an item with pieces per case above one also gets a box of that many, and the firm corrects a list before the start |
+| G4 | A unit for every item (Swathi has none); pieces per case to a pack | Step 3 | Built 2026-10-15 (L5 step 12): the product import's *PiecesPerPack* column (also read as "pieces per case") makes a new item a piece with a box of that many; *PackUnit* names another box unit; one is pieces only. Every item still needs a brand (backlog 138) |
 | G5 | Customer import has no beat and no licence columns | Step 4 | Open |
 | G6 | No chart-of-accounts import; 29 heads and about 110 accounts to map | Steps 6, 7 | Open; a mapping table kept per source software |
 | G7 | A place for history bills outside stock, ledger and GST | Step 10, way A | Open; design note first |

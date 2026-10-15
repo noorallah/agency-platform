@@ -46,7 +46,7 @@ name, GST number or bank detail is written in this file.
 | CUS-3 | One GST number, one customer | A number is held by one customer. A shop leaves it blank to use its parent's, or types its own. Two customers with no parent between them can never share one. A number removed becomes free again | Built | M7 |
 | CUS-4 | Credit limit | Per firm: warn and ask, or warn near the limit and refuse at it. The screen asks; the server decides | Built | S2 |
 | CUS-5 | Retailer or wholesaler | A customer is marked one or the other; a new bill starts with that (see PRC-3) | Built, to be joined to lot prices | M13, L3 |
-| CUS-6 | Bills in boxes and pieces, per customer | A tick on the customer; a new bill for him opens with box and piece cells (see SEL-6) | Planned | L5 |
+| CUS-6 | Bills in boxes and pieces, per customer | A tick on the customer; a new bill for him opens with box and piece cells (see SEL-6) | Built | L5 |
 | CUS-7 | Licences a customer holds | Several per customer, each with its type, number and validity (see LIC-1) | Built | S11 |
 | CUS-8 | Fetch a customer's details from the GST system by number | Name, address, state and registration status filled in from a provider. Off until a firm enters its own provider account | Later | F6 |
 
@@ -59,7 +59,7 @@ name, GST number or bank detail is written in this file.
 | SUP-3 | Add a new branch while recording goods received | The order is on the company and the goods can come from a branch not entered yet: a **New branch** button beside *Received from* on the goods receipt, already set as a branch of that company. A bill raised against an order has a **Billed by** box and the same button | Built | F9 |
 | SUP-4 | One GST number, one supplier | The customers' rule (CUS-3) for suppliers and their branches: a branch leaves it blank to use its main office's, or types its own | Built | F5 |
 | SUP-5 | The brands a supplier may sell | Ticked on the supplier. A stockist is a supplier with several companies' brands | Built | M11 |
-| SUP-6 | Buys in boxes and pieces, per supplier | A tick on the supplier, as CUS-6 | Planned | L5 |
+| SUP-6 | Buys in boxes and pieces, per supplier | A tick on the supplier, as CUS-6 | Built | L5 |
 
 ## 4. Products
 
@@ -107,7 +107,7 @@ Design: `docs/design/LOT_COST_DESIGN.md`.
 | STK-7 | A supplier's bill at another rate than the receipt | The lot is corrected for what is still in stock; the share already sold goes to price difference | Planned | L2 |
 | STK-8 | Billing without stock | Refused by default. A firm may allow it; then the bill maker is asked, the sale takes the last purchase cost for now and is settled when the purchase is typed. A report lists bills waiting for their cost | Planned | L2 |
 | STK-9 | Stock value at MRP beside value at cost | On the stock valuation report | Built | S4 |
-| STK-10 | Stock shown as boxes and pieces | A **Show boxes** toggle on the stock screens and reports; display only | Planned | L5 |
+| STK-10 | Stock shown as boxes and pieces | A **Show boxes** toggle on the stock screens and reports; display only | Built | L5 |
 
 ## 8. Prices, margins and offers
 
@@ -138,8 +138,8 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | SEL-2 | Narrow the product list by company or brand | A Brand box on the order and the bill. It shortens the list and refuses nothing | Built | M11 |
 | SEL-3 | Billing and shipping address | The customer's default, or any of his addresses; printed apart | Built | C1 |
 | SEL-4 | Rate typed including GST | Per document. The line totals exactly quantity x the rate typed, with the tax taken out of that | Built | C2, F1 |
-| SEL-5 | Boxes and pieces on one line | 10 boxes + 5 pieces typed in two cells; free goods the same way. Stored as one quantity in pieces; boxes are always full boxes (2 + 17 of a 12-pack becomes 3 + 5) | Planned | L5 |
-| SEL-6 | Who gets the box cells | The firm switches it on (selling and buying apart); then a customer's or supplier's tick decides how a new document opens; a toggle on the document changes it; the document keeps its choice and reopens in it | Planned | L5 |
+| SEL-5 | Boxes and pieces on one line | 10 boxes + 5 pieces typed in two cells; free goods the same way. Stored as one quantity in pieces; boxes are always full boxes (2 + 17 of a 12-pack becomes 3 + 5) | Built | L5 |
+| SEL-6 | Who gets the box cells | The firm switches it on (selling and buying apart); then a customer's or supplier's tick decides how a new document opens; a toggle on the document changes it; the document keeps its choice and reopens in it | Built | L5 |
 | SEL-7 | Rate always per piece | The rate of a box is shown, never typed | Decided | L5 |
 | SEL-8 | Round the bill to the nearest rupee | A firm setting. On, every bill and credit note is rounded and shows the round-off line. Off, the bill is left as worked out | Built | F3 |
 | SEL-9 | Choose the lot at billing | Lots listed with price, batch and expiry, nearest expiry first (STK-5) | Planned | L2 |
@@ -150,7 +150,7 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | --- | --- | --- | --- | --- |
 | PRT-1 | Half-page bill as the customer's sample | Half of A4; MRP, quantity, free, rate, discount, GST, net amount, batch and expiry; a GST summary and round-off | Built | S13 |
 | PRT-2 | Half or full page | The firm chooses. Full page: every bill is a full page. Half page: a customer may be set to full page, the person printing may switch that one print, and a bill that does not fit moves to a full page by itself. The screen says which paper the bill needs before it prints, since the tray holds half sheets | Built (the box at printing not yet clicked) | S13, P1 |
-| PRT-3 | Boxes and pieces on the print | In the quantity cell as the customer's own bill prints them, with the box size added: **3/5 (x12)**; free goods **0/2**. May be changed later | Planned | L5 |
+| PRT-3 | Boxes and pieces on the print | In the quantity cell as the customer's own bill prints them, with the box size added: **3/5 (x12)**; free goods **0/2**. May be changed later | Built | L5 |
 | PRT-4 | Full-page bill as the customer's sample | A manufacture date column, filled only where the lot has one; the total quantity under the lines; the firm's terms at the foot; Order By (the salesman) and Market (the route). The customer's licence numbers stay under his details at the top. The interest line of the sample is words in the terms: no interest is worked out. The sample's discount boxes D1, D2 and D3 wait for the customer. **Built 2026-10-14:** the manufacture date (month and year, full page only), the total quantity and Market on both sizes; the terms already printed on both sizes and are typed under *Print settings*. A full-page bill with batch columns now states GST as one rate and one amount a line, so that every column fits. Order By built 2026-10-14 with the salesman list (PRT-8). Not yet clicked | Built | P2 |
 | PRT-7 | The bill number | One series for the whole firm, as the sample: the series word and a running number. The customer confirms it | Decided | |
 | PRT-9 | Print from each row of the bill list | A **Print** on every row of the list of bills, where today printing is reached from the bar above the list or from the open bill. Low priority (the owner, 2026-10-13): which other lists get it is decided at the end | Later | |
@@ -284,3 +284,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-14 | PRT-5 part built (backlog 143), asked for by the owner: *Print settings* has **Bill layout**, *Standard* or *Trade*, the boxed bill laid out after the customer's `long bill.pdf` with his licences under his details, and **Preview**, a sample bill with the settings on the screen before they are saved. The one-GST-column rule of row P2 stays on the standard bill only where the columns cannot fit. Not yet clicked |
 | 2026-10-14 | Billing and shipping address on the customer, asked for by the owner: the first address of a customer is now ticked as both billing and shipping (saved once), and the Address tab says **Shipping address: Same as billing / Different**; *Different* opens a second address to fill in, *Same* puts shipping back on the billing address and deletes nothing. The documents already took their *Ship to* from the default shipping address (D6, check C1). Not yet clicked |
 | 2026-10-14 | PRT-4 and PRT-8 built (row P2 closed): the firm's own list of salesmen, each tied to a user or to none, is what every bill, order, delivery note, round, target and commission rule names; the Salesman box starts on the signed-in user's own entry, then the account manager, then the round's salesman; a firm may make it required; *Order By* prints the bill's salesman on the full-page bill. Not yet clicked |
+| 2026-10-15 | CUS-6, SUP-6, STK-10, SEL-5, SEL-6 and PRT-3 built (row L5 closed, steps 1 to 12): boxes and pieces on every selling and buying document, the switches and the customer's and supplier's tick, the print, and *Show boxes* on the stock screens. The product import's **PiecesPerPack** column (also read as "pieces per case") makes a new item a piece with a box of that many, so the old program's item list brings its case sizes across. Tried over HTTP and by widget tests; no screen clicked by hand |

@@ -1070,6 +1070,17 @@ warehouse rename its capability flags.
 - **Expect:** (a) refused on the form: *Company is required: choose one.*; nothing is saved. (b) both saved; the brand shows its company. (c) refused: *Choose a brand.*; nothing is sent. (d) saved; the Brand box reads `B33 (Company 33)` and the list's Brand column reads `B33`. (e) the Lists sheet has a *Brand* column listing `B33`; the check reports the blank row on column Brand as *is required.* and `Nobody` as *not one of the firm's brands; add it under its company first.*; the `b33` row has no problem. Nothing is written by a check. (f) the product is created with brand `B33`, spelt as the brand is. (g) the price changes and the brand stays `B33`. (h) the copy has brand `B33`. (i) refused, naming a product that still carries it. (j) the Brand filter reads `Unbranded` and the list shows the products filed under that brand: on a firm the migration settled, every product that had no brand; on this fixture, none unless one was put there.
 - **Leaves:** a company, a brand, three products.
 
+### TC-MAST-034 — Pieces per pack on a product import makes a new item's box
+
+*Added 2026-10-15 (L5 step 12, gap G4 of `docs/SWATHI_IMPORT_PLAN.md`). Driven over HTTP the same day (`docs/qa/checks/goods_types/tc_mast_034.py`); the import screen was not clicked, so the steps are written from the build.*
+
+- **Covers:** L5 step 12; CUS-6, SEL-5
+- **Fixture:** `product-master`
+- **Also needs:** a category in use for Medicine; the shared unit set *Strip, box of 10*; one product `PP-OLD` kept in Piece with no box. The names below are this case's own; add a suffix if they are taken.
+- **Steps:** as the **Firm admin**: *Masters → Products → Import*, download the template and read its headings. Build a file headed `Code, Name, Category, Unit, UnitSet, Pieces per case, PackUnit` with (1) `PP-9`, Unit `PIECE`, `2.5`; (2) `PP-8`, Unit `PIECE`, `12`, PackUnit `CRATEX`; (3) `PP-7`, Unit `PIECE`, `12`, PackUnit `PIECE`. Check. Then a second file with (1) `PP-1`, no Unit, `12`; (2) `PP-2`, Unit `STRIP`, `10`, PackUnit `CASE`; (3) `PP-3`, Unit `PIECE`, `1`; (4) `PP-4`, no Unit, UnitSet `Strip, box of 10`, `6`; (5) `PP-OLD`, `24`; (6) `PP-5`, Unit `PIECE`, no size, PackUnit `BOX`. Check with *Update existing*, then Import. Open `PP-1`, `PP-2`, `PP-4` and `PP-OLD`, and their units.
+- **Expect:** the template has *PiecesPerPack* and *PackUnit* columns. The first check names three problems: row 2 on PiecesPerPack (*'2.5' is not a whole number of one or more.*), row 3 on PackUnit (*'CRATEX' is not a unit on this system.*) and row 4 on PackUnit (*is the stock unit; a box is another unit than the piece.*); the heading *Pieces per case* is read as PiecesPerPack. The second check has no problem and three warnings, each *is passed over*: `PP-4` (the unit set fills the units and the pack), `PP-OLD` (a pack size fills a new product only) and `PP-5` (PackUnit with no size). After Import: `PP-1` is kept, sold in Piece and bought in Box, with its own rule 1 Box = 12 Piece, and answers a selling and a buying pack of 12 Box; `PP-2` has 1 Case = 10 Strip; `PP-3` is pieces only, no rule; `PP-4` has the set's 1 Box = 10 Strip, not 6; `PP-OLD` keeps its units and gains no rule. Where the firm has boxes and pieces switched on, a new sales order line for `PP-1` opens its Box and Pcs cells.
+- **Leaves:** a category, five products, three conversion rules.
+
 ---
 
 ## Configuration — numbering, profiles, tax and units
