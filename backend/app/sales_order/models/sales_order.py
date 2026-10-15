@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.promotions.models.line_offer import LineOfferMixin
 from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
@@ -302,6 +303,11 @@ class SalesOrderLine(BoxAndPieceLineMixin, BaseEntity):
     #: this it re-sent every rate as typed, and a ladder never moved with
     #: the quantity (plan item 9.2, 2026-09-13).
     discount_source: Mapped[str | None] = mapped_column(String(20))
+    #: Whether a person chose this line's offers or standing arrangement (L7);
+    #: false where the server's start stands. Nothing reads it yet.
+    offer_choice_made: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -347,6 +353,29 @@ class SalesOrderLine(BoxAndPieceLineMixin, BaseEntity):
     #: log that also says so is purged.
     tax_rule_code: Mapped[str | None] = mapped_column(String(50))
     tax_rule_version: Mapped[int | None] = mapped_column(Integer)
+
+
+class SalesOrderOffer(LineOfferMixin, BaseEntity):
+    """An arrangement applied to, or refused on, a line or the whole document.
+
+    L7 step 1 (``docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md``, section 3.9).
+    A null line is an offer on the whole bill. Nothing writes these yet.
+    """
+
+    __tablename__ = "sales_order_offers"
+
+    sales_order_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("sales_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sales_order_line_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("sales_order_lines.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
 
 class SalesOrderAttachment(BaseEntity):
@@ -441,7 +470,8 @@ class SalesWorkflowSettings(BoxAndPieceEntryMixin, BaseEntity):
     #: default branch and warehouse, which is what most firms will use.
     #: How matching promotions meet on one document (backlog 59): COMBINE
     #: applies each in "Applies at" order until one that does not stack, as
-    #: offers always have; BEST_OFFER gives only the single offer worth most.
+    #: offers always have; BEST_OFFER gives only the single offer worth most;
+    #: ASK (L7) starts as BEST_OFFER and lets the bill maker tick more.
     promotion_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, default="COMBINE", server_default="COMBINE"
     )

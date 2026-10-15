@@ -529,6 +529,7 @@ trigger each schema owns its own copy of.
 | `sales_quotation_attachments` | firm store ¹ | Store quotation attachments. | `sales_quotations`, `firms` |
 | `sales_quotation_lines` | firm store ¹ | Store one quotation line. | `sales_quotations`, `firms`, `products`, `uoms`, `packaging_types`, `tax_profiles`, `warehouses` |
 | `sales_quotation_notes` | firm store ¹ | Store quotation notes. | `sales_quotations`, `firms` |
+| `sales_quotation_offers` | firm store ¹ | An offer, price list or standing rate applied to, or refused on, a quotation line or the whole quotation (L7 step 1; nothing writes it yet). | `sales_quotations`, `sales_quotation_lines`, `promotions`, `price_lists` |
 | `sales_quotations` | firm store ¹ | Store one quotation header. | `firms`, `customers`, `users`, `sales_territories`, `branches`, `warehouses`, `business_profiles` |
 
 ### `app/rate_contracts`
@@ -599,6 +600,7 @@ trigger each schema owns its own copy of.
 | `sales_order_attachments` | firm store ¹ | Store sales order attachments. | `sales_orders`, `firms` |
 | `sales_order_lines` | firm store ¹ | Store one sales order line. | `sales_orders`, `firms`, `products`, `uoms`, `packaging_types`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes`, `batches` |
 | `sales_order_notes` | firm store ¹ | Store sales order notes. | `sales_orders`, `firms` |
+| `sales_order_offers` | firm store ¹ | An offer, price list or standing rate applied to, or refused on, an order line or the whole order (L7 step 1; nothing writes it yet). | `sales_orders`, `sales_order_lines`, `promotions`, `price_lists` |
 | `sales_orders` | firm store ¹ | Store one sales order header. | `firms`, `customers`, `users`, `sales_territories`, `territory_route_profiles`, `branches`, `warehouses`, `business_profiles`, `price_levels` |
 | `sales_workflow_settings` | firm store ¹ | Store which sales stages one firm fills in by hand. | `firms`, `branches`, `warehouses` |
 

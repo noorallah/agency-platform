@@ -192,6 +192,11 @@ PERMISSION_GROUPS = {
         # (backlog 64 row 2). A control over the people who sell, so it is
         # subtracted from `SALES_MANAGER` with the settings code.
         "SALES_PRICE_OVERRIDE",
+        # Take a different offer or standing discount from the list the server
+        # gives a bill line (L7, `docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md`
+        # section 3.8). Each candidate is an arrangement the firm set up, so
+        # it is held by every role that makes a sales bill.
+        "SALES_OFFER_CHOOSE",
     ),
     "einvoice": (
         "EINVOICE_VIEW",
@@ -785,6 +790,8 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "SALES_ORDER_CREATE",
             "SALES_INVOICE_CREATE",
             "SALES_VIEW",
+            # Chooses among the offers the server lists on a line (L7).
+            "SALES_OFFER_CHOOSE",
             # Held by every role that holds `SALES_VIEW`, which already reads
             # the notes (D-UI-30).
             "DELIVERY_NOTE_VIEW",
@@ -893,6 +900,8 @@ _SEEDED_ROLE_PERMISSION_CODES = {
         {
             "SALES_INVOICE_CREATE",
             "SALES_VIEW",
+            # Chooses among the offers the server lists on a line (L7).
+            "SALES_OFFER_CHOOSE",
             # As `SALES_EXECUTIVE`: beside the `SALES_VIEW` that reads them.
             "DELIVERY_NOTE_VIEW",
             "DOCUMENT_SEND",

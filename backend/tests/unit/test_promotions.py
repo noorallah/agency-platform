@@ -2348,7 +2348,7 @@ def test_a_typed_zero_refuses_an_offers_free_goods_and_blank_takes_them() -> Non
     assert order(Decimal("1")).free_quantity == Decimal("1.0000")
 
 
-def _best_offer_only(session: Session, firm_id: UUID) -> None:
+def _best_offer_only(session: Session, firm_id: UUID, mode: str = "BEST_OFFER") -> None:
     """Switch the firm to giving only the single best offer (backlog 59)."""
     from app.sales_order.models import SalesWorkflowSettings
 
@@ -2358,14 +2358,18 @@ def _best_offer_only(session: Session, firm_id: UUID) -> None:
             quotation_stage=True,
             sales_order_stage=True,
             delivery_note_stage=True,
-            promotion_mode="BEST_OFFER",
+            promotion_mode=mode,
         )
     )
     session.commit()
 
 
-def test_best_offer_only_gives_the_single_offer_worth_most() -> None:
-    """Combined, 10% then 15% compound; best only, 15% alone applies."""
+@pytest.mark.parametrize("mode", ["BEST_OFFER", "ASK"])
+def test_best_offer_only_gives_the_single_offer_worth_most(mode: str) -> None:
+    """Combined, 10% then 15% compound; best only, 15% alone applies.
+
+    ASK (L7) starts a line where best one only does.
+    """
     session = _session_factory()()
     firm = _firm(session)
     product = _product(session, firm_id=firm.id)
@@ -2388,7 +2392,7 @@ def test_best_offer_only_gives_the_single_offer_worth_most() -> None:
     combined = PromotionService(session).evaluate(request, firm_scope=firm.id)
     assert combined.applied_promotion_codes == ["TEN", "FIFTEEN"]
 
-    _best_offer_only(session, firm.id)
+    _best_offer_only(session, firm.id, mode)
     best = PromotionService(session).evaluate(request, firm_scope=firm.id)
 
     assert best.applied_promotion_codes == ["FIFTEEN"]

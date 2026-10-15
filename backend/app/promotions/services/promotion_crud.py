@@ -257,6 +257,8 @@ class PromotionCrudService:
             priority=data.priority,
             status=data.status.value,
             allow_stacking=data.allow_stacking,
+            # Not on the form until L7 step 7: the revision keeps the switch.
+            allow_part_share=row.allow_part_share,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
             requires_coupon=data.requires_coupon,

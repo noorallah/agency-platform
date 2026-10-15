@@ -5,6 +5,7 @@ from app.quotation.models.quotation import (
     SalesQuotationAttachment,
     SalesQuotationLine,
     SalesQuotationNote,
+    SalesQuotationOffer,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "SalesQuotationAttachment",
     "SalesQuotationLine",
     "SalesQuotationNote",
+    "SalesQuotationOffer",
 ]

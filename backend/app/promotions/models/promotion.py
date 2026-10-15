@@ -75,6 +75,13 @@ class Promotion(BaseEntity):
     allow_stacking: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    #: Buy N get M free of the same item, given in proportion at every
+    #: quantity rather than in whole rounds (L7, section 3.7 of
+    #: `docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md`). Off by default;
+    #: nothing reads it yet.
+    allow_part_share: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     #: Judged against the document's own date, never the server clock: an offer
     #: that ran in April must still explain an April order in September.
     effective_from: Mapped[date | None] = mapped_column(Date)

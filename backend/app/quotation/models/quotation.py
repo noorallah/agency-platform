@@ -33,6 +33,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.promotions.models.line_offer import LineOfferMixin
 from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
@@ -252,6 +253,11 @@ class SalesQuotationLine(BoxAndPieceLineMixin, BaseEntity):
     #: this it re-sent every rate as typed, and a ladder never moved with
     #: the quantity (plan item 9.2, 2026-09-13).
     discount_source: Mapped[str | None] = mapped_column(String(20))
+    #: Whether a person chose this line's offers or standing arrangement (L7);
+    #: false where the server's start stands. Nothing reads it yet.
+    offer_choice_made: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -288,6 +294,29 @@ class SalesQuotationLine(BoxAndPieceLineMixin, BaseEntity):
     #: log that also says so is purged.
     tax_rule_code: Mapped[str | None] = mapped_column(String(50))
     tax_rule_version: Mapped[int | None] = mapped_column(Integer)
+
+
+class SalesQuotationOffer(LineOfferMixin, BaseEntity):
+    """An arrangement applied to, or refused on, a line or the whole document.
+
+    L7 step 1 (``docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md``, section 3.9).
+    A null line is an offer on the whole bill. Nothing writes these yet.
+    """
+
+    __tablename__ = "sales_quotation_offers"
+
+    sales_quotation_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("sales_quotations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sales_quotation_line_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("sales_quotation_lines.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
 
 class SalesQuotationAttachment(BaseEntity):

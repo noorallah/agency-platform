@@ -603,7 +603,8 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     delivery_note_stage: bool
     default_branch_id: UUID | None
     default_warehouse_id: UUID | None
-    #: COMBINE or BEST_OFFER (backlog 59).
+    #: COMBINE, BEST_OFFER (backlog 59) or ASK (L7): ASK starts a line on the
+    #: best offer and lets the bill maker tick more.
     promotion_mode: str = "COMBINE"
     #: Combine mode's cap on one line's offer discount, % of gross; null none.
     max_line_discount_percent: Decimal | None = None
@@ -648,8 +649,8 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     delivery_note_stage: bool
     default_branch_id: UUID | None = None
     default_warehouse_id: UUID | None = None
-    #: COMBINE or BEST_OFFER. Omitted is left as it is, like the defaults.
-    promotion_mode: Literal["COMBINE", "BEST_OFFER"] | None = None
+    #: COMBINE, BEST_OFFER or ASK. Omitted is left as it is, like the defaults.
+    promotion_mode: Literal["COMBINE", "BEST_OFFER", "ASK"] | None = None
     #: Combine mode's cap on one line's offer discount, as % of its gross
     #: (backlog 59 item 3). Omitted is left as it is; an explicit null clears.
     max_line_discount_percent: Decimal | None = Field(
