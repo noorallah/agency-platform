@@ -593,6 +593,10 @@ class Product {
     this.stockOnHand = '',
     this.lowStock = false,
     this.packCodes = const <String>[],
+    this.packSize = '',
+    this.packUnitCode = '',
+    this.buyingPackSize = '',
+    this.buyingPackUnitCode = '',
     this.goodsTypeId = '',
     this.unitSetId = '',
     this.retailMarginPercent = '',
@@ -753,6 +757,16 @@ class Product {
   /// product box finds it by a carton's code as by its own (backlog 89).
   final List<String> packCodes;
 
+  /// L5: how many stock units the selling pack holds, and the pack's unit
+  /// code ('' where the item has no pack). A box-and-piece line splits its
+  /// quantity by it.
+  final String packSize;
+  final String packUnitCode;
+
+  /// L5: the same for the pack it is bought in.
+  final String buyingPackSize;
+  final String buyingPackUnitCode;
+
   factory Product.fromJson(Json json) => Product(
         id: stringValue(json['id']),
         version: (json['version'] as num?)?.toInt() ?? 0,
@@ -841,6 +855,10 @@ class Product {
               in json['pack_codes'] as List<dynamic>? ?? const <dynamic>[])
             if (stringValue(code).isNotEmpty) stringValue(code),
         ],
+        packSize: stringValue(json['pack_size']),
+        packUnitCode: stringValue(json['pack_unit_code']),
+        buyingPackSize: stringValue(json['buying_pack_size']),
+        buyingPackUnitCode: stringValue(json['buying_pack_unit_code']),
         goodsTypeId: stringValue(json['goods_type_id']),
         unitSetId: stringValue(json['unit_set_id']),
         retailMarginPercent: stringValue(json['retail_margin_percent']),

@@ -131,6 +131,7 @@ void main() {
       'sales_invoice_approval': true,
       'round_bills_to_rupee': false,
       'salesman_required': false,
+      'box_and_piece_entry': false,
     });
   });
 
@@ -269,6 +270,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.saved.single['max_line_discount_percent'], '25');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('L5: boxes and pieces is off, switched here and sent',
+      (tester) async {
+    final _StagesApi api = _StagesApi(failReads: 0);
+    await _open(tester, api);
+
+    final Finder toggle =
+        find.byKey(const ValueKey('sales-box-and-piece-entry-switch'));
+    await tester.ensureVisible(toggle);
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+    expect(find.text('Type quantities as boxes and pieces'), findsOneWidget);
+    await tester.tap(find.descendant(of: toggle, matching: find.byType(Switch)));
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.saved.single['box_and_piece_entry'], isTrue);
     expect(tester.takeException(), isNull);
   });
 }

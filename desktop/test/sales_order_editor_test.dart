@@ -27,6 +27,7 @@ import 'package:agency_desktop/ui/sales/sales_order_editor_dialog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/first_line.dart';
@@ -127,6 +128,9 @@ class _OrderApi extends ApiClient {
   /// The firm's default for a new order's "Rate includes GST" (backlog 64.4).
   bool rateIncludesTax = false;
 
+  /// L5: the firm's selling switch for boxes and pieces.
+  bool boxAndPieces = false;
+
   /// Every draft phase 2 asked to be priced.
   final List<Json> previews = <Json>[];
 
@@ -192,6 +196,7 @@ class _OrderApi extends ApiClient {
           'sales_order_stage': true,
           'delivery_note_stage': true,
           'rate_includes_tax': rateIncludesTax,
+          'box_and_piece_entry': boxAndPieces,
           'is_configured': true,
         },
       };
@@ -1485,6 +1490,210 @@ void main() {
       final Text total = tester.widget<Text>(
           find.byKey(const ValueKey('document-margin-total')));
       expect(total.data, contains('as last saved'));
+    });
+  });
+
+  group('L5: boxes and pieces on one line', () {
+    _OrderApi boxApi() => _OrderApi(
+          customerRows: <Json>[
+            _customer('c1', 'Anand Agencies'),
+            <String, dynamic>{
+              ..._customer('c3', 'Box Mart'),
+              'box_and_piece_entry': true,
+            },
+          ],
+          productRows: <Json>[
+            <String, dynamic>{
+              ..._product('p1', 'P1', 'Shampoo 180ml', '10', '12'),
+              'pack_size': '12.0000',
+              'pack_unit_code': 'BOX',
+            },
+            _product('p2', 'P2', 'Rice 5kg', '250', '300'),
+          ],
+        )..boxAndPieces = true;
+
+    Future<void> openPhase2(
+      WidgetTester tester,
+      _OrderApi api, {
+      String? orderId,
+      Size window = const Size(800, 600),
+    }) async {
+      tester.view.physicalSize = window;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: SalesOrderEditorDialog(
+              api: api,
+              today: DateTime(2026, 8, 14),
+              orderId: orderId,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    EditableText cell(WidgetTester tester, String key) =>
+        tester.widget<EditableText>(find.descendant(
+          of: find.byKey(ValueKey<String>(key)),
+          matching: find.byType(EditableText),
+        ));
+
+    bool focused(WidgetTester tester, String key) =>
+        cell(tester, key).focusNode.hasFocus;
+
+    testWidgets(
+        'a marked customer opens boxes and pieces; Tab and Enter run Box, '
+        'Pcs, Free box, Free pcs, Rate; the line sends pieces and the pack',
+        (tester) async {
+      final _OrderApi api = boxApi();
+      // 1366x768, the smallest window the screens are laid out for: at the
+      // 800x600 test window the order's header leaves its lines no room to
+      // be tapped, toggle or not (the test below checks that one).
+      await openPhase2(tester, api, window: const Size(1366, 768));
+      // The switch is on, so the toggle is offered, and a new order starts
+      // in pieces until its customer is chosen.
+      expect(find.byKey(const ValueKey('sales-order-box-and-pieces')),
+          findsOneWidget);
+      expect(find.text('Box'), findsNothing);
+      await _choose(tester, 'sales-order-customer', 'Box Mart');
+      expect(find.text('Box'), findsOneWidget);
+      expect(find.text('Free pcs'), findsOneWidget);
+
+      await tester.tap(
+          find.byKey(const ValueKey<String>('sales-order-line-product-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Shampoo').last);
+      await tester.pumpAndSettle();
+
+      const String row = 'sales-order-line-0';
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('$row-box')), '2');
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(focused(tester, '$row-pcs'), isTrue);
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('$row-pcs')), '17');
+      await tester.pump();
+      // Enter moves on as Tab does, and leaving the cell makes full boxes.
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pumpAndSettle();
+      expect(focused(tester, '$row-free-box'), isTrue);
+      expect(cell(tester, '$row-box').controller.text, '3');
+      expect(cell(tester, '$row-pcs').controller.text, '5');
+      expect(find.text('17 pcs is 1 box + 5'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(focused(tester, '$row-free-pcs'), isTrue);
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('$row-free-pcs')), '2');
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      // On to the rate: what the person types next is the rate of a piece.
+      final EditableText focusedBox = tester
+          .widgetList<EditableText>(find.byType(EditableText))
+          .firstWhere((EditableText box) => box.focusNode.hasFocus);
+      expect(focusedBox.controller.text, '10');
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pumpAndSettle();
+      final Json sent = api.created!;
+      expect(sent['box_and_piece_entry'], isTrue);
+      final Json line = _firstLine(sent);
+      expect(line['quantity'], '41');
+      expect(line['free_quantity'], '2');
+      expect(line['pack_size'], '12.0000');
+    });
+
+    testWidgets('at 800x600 the boxes-and-pieces layout draws without overflow',
+        (tester) async {
+      final _OrderApi api = boxApi();
+      await openPhase2(tester, api);
+      await _choose(tester, 'sales-order-customer', 'Box Mart');
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('sales-order-box-and-pieces')),
+          findsOneWidget);
+      expect(find.text('Free box'), findsOneWidget);
+    });
+
+    testWidgets(
+        'an item with no pack shows closed box cells; pieces only sends no '
+        'pack, and an unmarked customer starts in pieces', (tester) async {
+      final _OrderApi api = boxApi();
+      await openPhase2(tester, api, window: const Size(1600, 900));
+      await _choose(tester, 'sales-order-customer', 'Anand Agencies');
+      expect(find.text('Box'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('box-piece-toggle-on')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+          find.byKey(const ValueKey<String>('sales-order-line-product-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Rice').last);
+      await tester.pumpAndSettle();
+      expect(
+          find.byKey(const ValueKey('sales-order-line-0-box-closed')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('sales-order-line-0-free-box-closed')),
+          findsOneWidget);
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('sales-order-line-0-pcs')), '7');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pumpAndSettle();
+      final Json line = _firstLine(api.created!);
+      expect(api.created!['box_and_piece_entry'], isTrue);
+      expect(line['quantity'], '7');
+      expect(line.containsKey('pack_size'), isFalse);
+      // Blank free cells take the offer: nothing is sent.
+      expect(line.containsKey('free_quantity'), isFalse);
+    });
+
+    testWidgets(
+        'a saved order reopens as saved, and the toggle changes no quantity',
+        (tester) async {
+      final _OrderApi api = boxApi()
+        ..boxAndPieces = false
+        ..existing = <String, dynamic>{
+          ..._draft(),
+          'box_and_piece_entry': true,
+          'lines': <Json>[
+            <String, dynamic>{
+              'line_number': 1,
+              'product_id': 'p1',
+              'quantity': '41.0000',
+              'free_quantity': '0',
+              'unit_price': '10',
+              'discount_percent': '0',
+              'discount_source': 'percent',
+              'discount_amount': '0',
+              'pack_size': '12.0000',
+            },
+          ],
+        };
+      await openPhase2(tester, api,
+          orderId: 'so-1', window: const Size(1600, 900));
+      expect(cell(tester, 'sales-order-line-0-box').controller.text, '3');
+      expect(cell(tester, 'sales-order-line-0-pcs').controller.text, '5');
+      expect(find.byKey(const ValueKey('sales-order-side-boxes')),
+          findsOneWidget);
+      expect(
+          find.text('Box of 12. 3 boxes + 5 pcs = 41 pcs. '
+              'Rate of a box 120.00.'),
+          findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('box-piece-toggle-off')));
+      await tester.pumpAndSettle();
+      expect(find.text('Box'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pumpAndSettle();
+      final Json sent = api.updated!;
+      expect(sent['box_and_piece_entry'], isFalse);
+      expect(_firstLine(sent)['quantity'], '41.0000');
+      expect(_firstLine(sent).containsKey('pack_size'), isFalse);
     });
   });
 }

@@ -14,6 +14,7 @@ import '../../models/product.dart';
 import '../../models/quotation.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/party_place.dart';
@@ -87,11 +88,17 @@ class _LineDraft {
   /// What this line adds to the offer, before tax.
   double get netOfDiscount => _quantity * _price * (1 - _discount / 100);
 
+  /// L5: the line's Box, Pcs, Free box and Free pcs cells, used while the
+  /// offer is typed in boxes and pieces. [quantity] and [free] stay the
+  /// figures sent, in pieces.
+  final BoxPieceEntry boxes = BoxPieceEntry();
+
   void dispose() {
     quantity.dispose();
     unitPrice.dispose();
     discount.dispose();
     free.dispose();
+    boxes.dispose();
   }
 }
 
@@ -116,6 +123,7 @@ class QuotationEditorDialog extends StatefulWidget {
     this.existing,
     this.preview,
     this.rateIncludesTax = false,
+    this.boxAndPieces = false,
     this.loadUnitPrices,
     this.loadAttributes,
     this.onSave,
@@ -162,6 +170,10 @@ class QuotationEditorDialog extends StatefulWidget {
   /// The firm's default for a new quotation's "Rate includes GST" switch
   /// (backlog 64 row 4). A revision keeps its own.
   final bool rateIncludesTax;
+
+  /// L5: the firm's selling switch for boxes and pieces, for a new offer.
+  /// A revision keeps its own.
+  final bool boxAndPieces;
 
   @override
   State<QuotationEditorDialog> createState() => _QuotationEditorDialogState();
@@ -210,6 +222,12 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
 
   /// Whether the rates typed on this offer include GST (backlog 64 row 4).
   late bool _rateIncludesTax;
+
+  /// L5: whether the lines are typed as boxes and pieces; whether the toggle
+  /// is offered at all; and whether somebody moved it by hand.
+  bool _boxAndPieces = false;
+  bool _offersBoxes = false;
+  bool _boxesTouched = false;
 
   void _setState(VoidCallback change) => setState(change);
 
@@ -374,6 +392,42 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       }
     }
     if (_lines.isEmpty) _lines.add(_newLine());
+    // L5: a revision reopens as it was saved.
+    _boxAndPieces = existing?.boxAndPieceEntry ?? false;
+    _offersBoxes = widget.boxAndPieces || _boxAndPieces;
+    _loadBoxes(_lines);
+  }
+
+  /// L5: the pack a line's cells split by, or null for an item with none.
+  double? _packFor(String? productId) => packOf(_packSizeOf(productId));
+
+  /// L5: the item's pack size as the server sent it.
+  String _packSizeOf(String? productId) {
+    for (final Product item in widget.products) {
+      if (item.id == productId) return item.packSize;
+    }
+    return '';
+  }
+
+  /// L5: fill [lines]' box cells from their figures in pieces.
+  void _loadBoxes(Iterable<_LineDraft> lines) {
+    if (!_boxAndPieces) return;
+    for (final _LineDraft line in lines) {
+      line.boxes.load(
+        quantity: line.quantity.text,
+        free: line.free.text,
+        pack: _packFor(line.productId),
+      );
+    }
+  }
+
+  /// L5: the toggle above the lines. Changes no quantity.
+  void _setBoxAndPieces(bool value, {bool touched = true}) {
+    setState(() {
+      _boxAndPieces = value;
+      if (touched) _boxesTouched = true;
+      _loadBoxes(_lines);
+    });
   }
 
   /// The delivery charge a quotation asked for, blank where it asked none.
@@ -520,6 +574,15 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
 
   /// Move every untouched line onto the newly chosen customer's rate.
   void _chooseCustomer(String? value) {
+    // L5: a new offer follows the customer's mark until the toggle is moved
+    // by hand.
+    if (widget.existing == null && _offersBoxes && !_boxesTouched) {
+      bool marked = false;
+      for (final Customer item in widget.customers) {
+        if (item.id == value) marked = item.boxAndPieceEntry;
+      }
+      _setBoxAndPieces(marked, touched: false);
+    }
     setState(() {
       _customerId = value;
       // Nothing is stamped into the discount boxes. The helper text under
@@ -793,6 +856,8 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       // Sent on every save: absent is off on a new offer and keeps the
       // offer's own on a revision, and the switch is the user's to say.
       'rate_includes_tax': _rateIncludesTax,
+      // L5: only where the toggle is offered; absent takes the server's.
+      if (_offersBoxes) 'box_and_piece_entry': _boxAndPieces,
       if (_reference.text.trim().isNotEmpty)
         'customer_reference': _reference.text.trim(),
       // Omitted when blank: an empty string is a code that matches nothing,
@@ -824,6 +889,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
         'line_number': number,
         'product_id': line.productId,
         'quantity': line.quantity.text.trim(),
+        // L5: the pack the two cells were added up with, only on a line
+        // typed as boxes and pieces; the server refuses one that moved.
+        if (_boxAndPieces && _packFor(line.productId) != null)
+          'pack_size': _packSizeOf(line.productId),
         // With GST included, blank is the product's own price -- before
         // tax, as the server resolves it -- not a typed shelf price.
         if (!(_rateIncludesTax && line.unitPrice.text.trim().isEmpty))

@@ -26,6 +26,7 @@ import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
 import '../document_framework/document_steps.dart';
 import '../workspace/batch_picker_panel.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/brand_filter.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
@@ -194,6 +195,46 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// Phase 2, backlog 64 row 4: whether the rates typed on this bill include
   /// GST. A new bill starts from the firm's setting; a draft keeps its own.
   bool _rateIncludesTax = false;
+
+  /// L5: whether the products typed on this bill are typed as boxes and
+  /// pieces. A new bill follows its customer's mark where the firm's switch
+  /// is on; a saved one keeps its own.
+  bool _boxAndPieces = false;
+
+  /// Whether the bill was saved in boxes and pieces.
+  bool _savedInBoxes = false;
+
+  /// Set once somebody moves the toggle, so choosing a customer after that
+  /// leaves their choice alone.
+  bool _boxesTouched = false;
+
+  /// L5: whether the toggle is offered: on a bill of products, or a saved
+  /// counter bill taking more, where the firm's switch is on or the bill was
+  /// saved in boxes and pieces.
+  bool get _offersBoxes =>
+      _phase2 &&
+      (_direct || _addsProducts) &&
+      (_stages.boxAndPieceEntry || _savedInBoxes);
+
+  /// L5: the pack a line's cells split by, or null for an item with none.
+  double? _packFor(String? productId) => packOf(_packSizeOf(productId));
+
+  /// L5: the item's pack size as the server sent it.
+  String _packSizeOf(String? productId) {
+    for (final Product item in _products) {
+      if (item.id == productId) return item.packSize;
+    }
+    return '';
+  }
+
+  /// L5: the toggle above the lines. Changes no quantity: the cells are
+  /// filled from the figures in pieces as the rows are drawn.
+  void _setBoxAndPieces(bool value, {bool touched = true}) {
+    setState(() {
+      _boxAndPieces = value;
+      if (touched) _boxesTouched = true;
+    });
+  }
 
   /// Backlog 79 row 7: the firm takes a counter line's rate from its batch's
   /// selling price. Read once on opening; unreadable means off.
@@ -816,6 +857,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     _hadTenders = _tenders.isNotEmpty;
     _splitTender = _hadTenders;
     _rateIncludesTax = invoice['rate_includes_tax'] == true;
+    // L5: a saved bill reopens as it was saved.
+    _savedInBoxes = invoice['box_and_piece_entry'] == true;
+    _boxAndPieces = _savedInBoxes;
   }
 
   /// What the counter took, sent on every save from the phase 2 bill: an
@@ -1259,6 +1303,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       'customer_id': document.customerId,
       ..._salesmanPayload(),
       if (adds && _drafting) 'rate_includes_tax': _rateIncludesTax,
+      // L5: only where the toggle is offered; absent keeps the bill's own.
+      if (_offersBoxes) 'box_and_piece_entry': _boxAndPieces,
       if (document.branchId.isNotEmpty) 'branch_id': document.branchId,
       'invoice_date': _iso(widget.today),
       // Null is "as delivered"; the key is sent in phase 2, which has the box.
@@ -1304,6 +1350,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       'product_id': product,
       'line_number': number,
       'current_invoice_quantity': quantity,
+      ..._boxFields(line),
       // With GST included, blank is the product's own price -- before tax,
       // as the server resolves it -- rather than a typed shelf price.
       if (!(_rateIncludesTax && price.isEmpty))
@@ -1319,6 +1366,16 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         'batches': _batchesPayload(line.batchPicks!),
     };
   }
+
+  /// L5: a product line's free goods -- blank takes any offer, so it is not
+  /// sent; 0 refuses it -- and, on a line typed as boxes and pieces, the
+  /// pack the two cells were added up with.
+  Json _boxFields(_DirectLine line) => <String, dynamic>{
+        if (line.free.text.trim().isNotEmpty)
+          'free_quantity': line.free.text.trim(),
+        if (_boxAndPieces && _packFor(line.productId) != null)
+          'pack_size': _packSizeOf(line.productId),
+      };
 
   /// A saved line restated as a product line, to price it beside the new
   /// ones. Its discount is what the bill shows now: this only draws figures
@@ -1396,6 +1453,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         'product_id': product,
         'line_number': lines.length + 1,
         'current_invoice_quantity': quantity,
+        ..._boxFields(line),
         // With GST included, blank is the product's own price -- before tax,
         // as the server resolves it -- rather than a typed shelf price.
         if (!(_rateIncludesTax && price.isEmpty))
@@ -1419,6 +1477,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       // Sent on every bill of products: the phase 1 screen types rates
       // before tax, whatever the firm's default.
       'rate_includes_tax': _phase2 && _rateIncludesTax,
+      // L5: only where the toggle is offered; absent takes the server's.
+      if (_offersBoxes) 'box_and_piece_entry': _boxAndPieces,
       // M13: null is the customer's usual level. Only on a bill of bare
       // product lines, which is all this function builds: the server refuses
       // it on a bill whose lines name documents.
@@ -2593,6 +2653,14 @@ class _DirectLine {
   final TextEditingController quantity = TextEditingController();
   final TextEditingController price = TextEditingController();
   final TextEditingController discount = TextEditingController();
+
+  /// Goods given with the line (L5): blank takes any offer, 0 refuses it.
+  final TextEditingController free = TextEditingController();
+
+  /// L5: the line's Box, Pcs, Free box and Free pcs cells, used while the
+  /// bill is typed in boxes and pieces. [quantity] and [free] stay the
+  /// figures sent, in pieces.
+  final BoxPieceEntry boxes = BoxPieceEntry();
 
   /// The batches chosen for the product (backlog 79 row 2): null while
   /// nobody has, an empty map once the choice is handed back to the server.

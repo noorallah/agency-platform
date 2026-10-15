@@ -13,6 +13,7 @@ import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
+import '../../models/sales_invoice.dart' show SalesWorkflowSettings;
 import '../../models/document_file.dart';
 import '../purchases/document_attachments_dialog.dart';
 import '../workspace/desktop_framework.dart';
@@ -175,10 +176,15 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
     // The firm's default for a new offer's "Rate includes GST" switch;
     // unreadable settings leave it off, as every offer was before.
     bool rateIncludesTax = false;
+    // L5: and whether the firm types selling quantities as boxes and
+    // pieces, from the same answer.
+    bool boxAndPieces = false;
     if (existing == null && Phase2Scope.of(context)) {
       try {
-        rateIncludesTax =
-            (await widget.api.salesWorkflowSettings()).rateIncludesTax;
+        final SalesWorkflowSettings stages =
+            await widget.api.salesWorkflowSettings();
+        rateIncludesTax = stages.rateIncludesTax;
+        boxAndPieces = stages.boxAndPieceEntry;
       } on ApiException {
         rateIncludesTax = false;
       }
@@ -207,6 +213,7 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
         today: widget.today ?? DateTime.now(),
         existing: existing,
         rateIncludesTax: rateIncludesTax,
+        boxAndPieces: boxAndPieces,
         // The firm's own fields on a quotation (MST-6).
         loadAttributes: () =>
             widget.api.applicableAttributeDefinitions('QUOTATION'),

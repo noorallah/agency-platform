@@ -178,6 +178,7 @@ class SalesWorkflowSettings {
     this.salesInvoiceApproval = true,
     this.roundBillsToRupee = false,
     this.salesmanRequired = false,
+    this.boxAndPieceEntry = false,
   });
 
   final bool quotationStage;
@@ -223,6 +224,10 @@ class SalesWorkflowSettings {
   /// salesman. Default off.
   final bool salesmanRequired;
 
+  /// L5: whether a selling line may be typed as boxes and loose pieces.
+  /// Default off.
+  final bool boxAndPieceEntry;
+
   /// What a firm gets before anybody configures anything, and what the client
   /// falls back to when the settings cannot be read. Failing open matters: an
   /// unreachable endpoint must not hide screens a firm depends on.
@@ -255,6 +260,7 @@ class SalesWorkflowSettings {
         salesInvoiceApproval: json['sales_invoice_approval'] != false,
         roundBillsToRupee: boolValue(json['round_bills_to_rupee']),
         salesmanRequired: boolValue(json['salesman_required']),
+        boxAndPieceEntry: boolValue(json['box_and_piece_entry']),
       );
 
   /// The three switches only. No screen here edits the default branch or
@@ -276,6 +282,7 @@ class SalesWorkflowSettings {
         'sales_invoice_approval': salesInvoiceApproval,
         'round_bills_to_rupee': roundBillsToRupee,
         'salesman_required': salesmanRequired,
+        'box_and_piece_entry': boxAndPieceEntry,
       };
 
   SalesWorkflowSettings copyWith({
@@ -292,6 +299,7 @@ class SalesWorkflowSettings {
     bool? salesInvoiceApproval,
     bool? roundBillsToRupee,
     bool? salesmanRequired,
+    bool? boxAndPieceEntry,
   }) =>
       SalesWorkflowSettings(
         quotationStage: quotationStage ?? this.quotationStage,
@@ -315,6 +323,7 @@ class SalesWorkflowSettings {
         salesInvoiceApproval: salesInvoiceApproval ?? this.salesInvoiceApproval,
         roundBillsToRupee: roundBillsToRupee ?? this.roundBillsToRupee,
         salesmanRequired: salesmanRequired ?? this.salesmanRequired,
+        boxAndPieceEntry: boxAndPieceEntry ?? this.boxAndPieceEntry,
       );
 }
 

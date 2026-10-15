@@ -71,6 +71,10 @@ class _InvoiceApi extends ApiClient {
   /// The firm's default for a new bill's "Rate includes GST" (backlog 64.4).
   bool rateIncludesTax = false;
 
+  /// L5: the firm's selling switch for boxes and pieces. On, the customer is
+  /// marked and the product packed 12 to a box.
+  bool boxAndPieces = false;
+
   /// The draft an edit reads back, when one is being corrected.
   Json? existing;
 
@@ -138,6 +142,7 @@ class _InvoiceApi extends ApiClient {
           'sales_order_stage': salesOrderStage,
           'delivery_note_stage': deliveryNoteStage,
           'rate_includes_tax': rateIncludesTax,
+          'box_and_piece_entry': boxAndPieces,
           'is_configured': true,
         },
       };
@@ -171,6 +176,7 @@ class _InvoiceApi extends ApiClient {
             'code': 'C-1',
             'name': 'Walk-in Customer',
             'display_name': 'Walk-in Customer',
+            if (boxAndPieces) 'box_and_piece_entry': true,
           },
         ],
       };
@@ -178,7 +184,11 @@ class _InvoiceApi extends ApiClient {
     if (method == 'GET' && path.startsWith('/api/v1/products')) {
       return <String, dynamic>{
         'data': <Json>[
-          <String, dynamic>{'id': 'prod-1', 'name': 'Widget'},
+          <String, dynamic>{
+            'id': 'prod-1',
+            'name': 'Widget',
+            if (boxAndPieces) 'pack_size': '12.0000',
+          },
         ],
       };
     }
@@ -734,7 +744,7 @@ void main() {
       matching: find.byType(EditableText),
     );
     await tester.enterText(cells.at(1), '3');
-    await tester.enterText(cells.at(2), '150');
+    await tester.enterText(cells.at(3), '150');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
   }
@@ -1111,8 +1121,8 @@ void main() {
       matching: find.byType(EditableText),
     );
     await tester.enterText(cells.at(1), '3');
-    await tester.enterText(cells.at(2), '150');
-    if (discount != null) await tester.enterText(cells.at(3), discount);
+    await tester.enterText(cells.at(3), '150');
+    if (discount != null) await tester.enterText(cells.at(4), discount);
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
   }
@@ -1160,7 +1170,7 @@ void main() {
       of: find.byKey(const ValueKey<String>('sales-invoice-direct-0')),
       matching: find.byType(EditableText),
     );
-    expect(tester.widget<EditableText>(box.at(3)).controller.text, isEmpty);
+    expect(tester.widget<EditableText>(box.at(4)).controller.text, isEmpty);
     await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
     await tester.pumpAndSettle();
 
@@ -1505,5 +1515,98 @@ void main() {
     expect(find.text('Cost'), findsNothing);
     expect(find.text('Margin'), findsNothing);
     expect(find.byKey(const ValueKey('document-margin-total')), findsNothing);
+  });
+
+  group('L5: boxes and pieces', () {
+    Future<void> chooseWidget(WidgetTester tester) async {
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-customer')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Walk-in Customer').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find
+          .byKey(const ValueKey<String>('sales-invoice-direct-product-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Widget').last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'a bill for a marked customer takes boxes, pieces and free goods, '
+        'and sends pieces with the pack', (tester) async {
+      final _InvoiceApi api = _InvoiceApi()
+        ..salesOrderStage = false
+        ..deliveryNoteStage = false
+        ..boxAndPieces = true;
+      await pumpPhase2(tester, api);
+      expect(find.byKey(const ValueKey('sales-invoice-box-and-pieces')),
+          findsOneWidget);
+      await chooseWidget(tester);
+      expect(find.text('Free box'), findsOneWidget);
+      const String row = 'sales-invoice-direct-0';
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('$row-box')), '3');
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('$row-pcs')), '5');
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('$row-free-pcs')), '2');
+      // Product, Box, Pcs, Free box, Free pcs, then the rate.
+      await tester.enterText(
+          find
+              .descendant(
+                of: find.byKey(const ValueKey<String>(row)),
+                matching: find.byType(EditableText),
+              )
+              .at(5),
+          '10');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(api.previews.last['lines'][0]['current_invoice_quantity'], '41');
+      expect(
+          find.text('Box of 12. 3 boxes + 5 pcs = 41 pcs. Free 2 pcs. '
+              'Rate of a box 120.00.'),
+          findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      final Json sent = api.created!;
+      expect(sent['box_and_piece_entry'], isTrue);
+      final Json line = (sent['lines'] as List).first as Json;
+      expect(line['current_invoice_quantity'], '41');
+      expect(line['free_quantity'], '2');
+      expect(line['pack_size'], '12.0000');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'with the switch off the bill gains one Free box: blank is not sent, '
+        'a typed 0 is', (tester) async {
+      final _InvoiceApi api = _InvoiceApi()
+        ..salesOrderStage = false
+        ..deliveryNoteStage = false;
+      await pumpPhase2(tester, api);
+      expect(find.byKey(const ValueKey('sales-invoice-box-and-pieces')),
+          findsNothing);
+      await fillDirectBill(tester);
+      expect(
+          find.byKey(const ValueKey('sales-invoice-direct-free-0')),
+          findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      Json line = (api.created!['lines'] as List).first as Json;
+      expect(api.created!.containsKey('box_and_piece_entry'), isFalse);
+      expect(line.containsKey('free_quantity'), isFalse);
+      expect(line.containsKey('pack_size'), isFalse);
+
+      api.created = null;
+      await pumpPhase2(tester, api);
+      await fillDirectBill(tester);
+      await tester.enterText(
+          find.byKey(const ValueKey('sales-invoice-direct-free-0')), '0');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      line = (api.created!['lines'] as List).first as Json;
+      expect(line['free_quantity'], '0');
+    });
   });
 }

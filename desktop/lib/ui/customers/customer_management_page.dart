@@ -17,6 +17,7 @@ import '../../models/file_import.dart';
 import '../../models/firm_member.dart';
 import '../../models/geography.dart';
 import '../../models/product.dart';
+import '../../models/sales_invoice.dart' show SalesWorkflowSettings;
 import '../../models/sales_territory.dart';
 import '../../models/salesman.dart';
 import '../../models/trade_licence.dart';
@@ -161,6 +162,13 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
   String? _type;
   bool _includeDeleted = false;
 
+  /// L5: the firm's selling switch for boxes and pieces. Off until read, so
+  /// the tick and the filter stay hidden when the settings cannot be read.
+  bool _boxAndPieces = false;
+
+  /// L5: '' all, 'true' only customers marked, 'false' only those not.
+  String? _boxAndPiecesFilter;
+
   bool get _canCreate =>
       widget.hasActiveFirm &&
       widget.permissions.hasPermission('CUSTOMER_CREATE');
@@ -246,6 +254,21 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
     _searchFocus.addListener(_changed);
     _controller.load();
     unawaited(_loadSummary());
+    unawaited(_loadBoxAndPieces());
+  }
+
+  /// L5: whether the firm types selling quantities as boxes and pieces,
+  /// which decides whether the customer's mark is offered at all.
+  Future<void> _loadBoxAndPieces() async {
+    if (!widget.hasActiveFirm) return;
+    try {
+      final SalesWorkflowSettings settings =
+          await widget.api.salesWorkflowSettings();
+      if (!mounted) return;
+      setState(() => _boxAndPieces = settings.boxAndPieceEntry);
+    } on Object {
+      // Unreadable: the mark stays hidden, and nothing about it is sent.
+    }
   }
 
   /// How many customers stand in each status, for the phase 2 counters.
@@ -330,6 +353,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           // Passed as loaders rather than the client itself, matching `onSave`:
           // the dialog stays a form and does not grow an API dependency.
           loadPlaces: widget.api.geoPlaces,
+          offerBoxAndPieces: _boxAndPieces,
           // Advisory: names who else holds the GSTIN or PAN (decision A7).
           checkIdentity: (gst, pan) => widget.api.customerIdentityCheck(
             gstNumber: gst,
@@ -672,6 +696,9 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
       createdFrom: _createdFrom.text.trim(),
       createdTo: _createdTo.text.trim(),
       includeDeleted: _includeDeleted,
+      boxAndPieceEntry: _boxAndPieces && _boxAndPiecesFilter != null
+          ? _boxAndPiecesFilter == 'true'
+          : null,
     );
     _controller.load(requestedPage: 1);
     unawaited(_loadSummary());
@@ -686,6 +713,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
       _createdFrom.clear();
       _createdTo.clear();
       _includeDeleted = false;
+      _boxAndPiecesFilter = null;
     });
     _applyFilters();
   }
@@ -698,6 +726,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         _createdFrom.text.trim().isNotEmpty,
         _createdTo.text.trim().isNotEmpty,
         _includeDeleted,
+        _boxAndPieces && _boxAndPiecesFilter != null,
       ].where((active) => active).length;
 
   void _contextAction(WorkspaceContextAction action, Customer customer) {
@@ -881,6 +910,23 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           values: const ['INDIVIDUAL', 'BUSINESS'],
           onChanged: (value) => setState(() => _type = value),
         ),
+        if (_boxAndPieces)
+          SizedBox(
+            width: 220,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('customer-filter-box-and-pieces'),
+              isExpanded: true,
+              initialValue: _boxAndPiecesFilter,
+              decoration:
+                  const InputDecoration(labelText: 'Bills in boxes and pieces'),
+              items: const [
+                DropdownMenuItem(value: 'true', child: Text('Yes')),
+                DropdownMenuItem(value: 'false', child: Text('No')),
+              ],
+              onChanged: (value) =>
+                  setState(() => _boxAndPiecesFilter = value),
+            ),
+          ),
         SizedBox(
           width: 220,
           child: TextField(
@@ -1120,6 +1166,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadFamily,
     this.mayChangeCreditLimit = true,
     this.mayChangeStandingDiscount = true,
+    this.offerBoxAndPieces = false,
     this.onApprove,
     this.loadLicences,
     this.canManageLicences = false,
@@ -1202,6 +1249,10 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// it the rate is shown and not editable, on a new customer as well: the
   /// server refuses a new customer that starts with one just the same.
   final bool mayChangeStandingDiscount;
+
+  /// L5: the firm's selling switch for boxes and pieces is on, so the form
+  /// offers the tick *Bills in boxes and pieces* and sends it. Off: neither.
+  final bool offerBoxAndPieces;
 
   /// Approves the customer waiting for the office (SEL-15). Null when the
   /// caller may not (`CUSTOMER_APPROVE`), which hides the button.
@@ -1346,6 +1397,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   late String _priceLevelId = widget.customer?.priceLevelId ?? '';
   // Empty string is "not set", sent as null.
   late String _tradeClass = widget.customer?.tradeClass ?? '';
+  // L5: sent only while the form offers the tick (`offerBoxAndPieces`).
+  late bool _boxAndPieces = widget.customer?.boxAndPieceEntry ?? false;
   List<PriceLevelRecord> _priceLevels = const [];
   bool _priceLevelsLoaded = false;
   // The buyer this customer is a shop of; empty is "on its own", sent as
@@ -1530,6 +1583,22 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               }),
     );
   }
+
+  /// L5: a new selling document for this customer takes boxes and loose
+  /// pieces on each line. The bill maker can still change it per document.
+  Widget _boxAndPiecesTick() => CheckboxListTile(
+        key: const ValueKey('customer-box-and-piece-entry'),
+        contentPadding: EdgeInsets.zero,
+        controlAffinity: ListTileControlAffinity.leading,
+        value: _boxAndPieces,
+        title: const Text('Bills in boxes and pieces'),
+        onChanged: _readOnly
+            ? null
+            : (value) => setState(() {
+                  _boxAndPieces = value ?? false;
+                  _dirty = true;
+                }),
+      );
 
   /// Whether the price level is somebody else's to set
   /// (`CUSTOMER_MANAGE_SETTINGS`, D-PRC-2). The server refuses a moved level
@@ -2107,6 +2176,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             !(_priceLevelLocked && widget.customer == null))
           'price_level_id': _priceLevelId.isEmpty ? null : _priceLevelId,
         'trade_class': _tradeClass.isEmpty ? null : _tradeClass,
+        if (widget.offerBoxAndPieces) 'box_and_piece_entry': _boxAndPieces,
         'credit_limit': _fields['credit_limit']!.text.trim(),
         'default_discount_percent':
             _fields['default_discount_percent']!.text.trim().isEmpty
@@ -2457,6 +2527,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             if (widget.loadPriceLevels != null && _priceLevelsLoaded)
               _priceLevelDropdown(),
             _tradeClassDropdown(),
+            if (widget.offerBoxAndPieces) _boxAndPiecesTick(),
             _number(
               'credit_limit',
               'Credit limit',

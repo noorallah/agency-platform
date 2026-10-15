@@ -15,10 +15,29 @@ part of 'quotation_editor_dialog.dart';
 extension _Phase2QuotationEditor on _QuotationEditorDialogState {
   List<DocumentColumn> get _columns => [
     const DocumentColumn('#', 28),
-    const DocumentColumn('Product (code, name or barcode)', 0),
+    DocumentColumn(
+      'Product (code, name or barcode)',
+      0,
+      // L5: the toggle above the lines, where the firm's switch is on,
+      // with room kept for it before the table scrolls sideways.
+      minWidth: _offersBoxes ? 300 : DocumentLineTable.minFlexWidth,
+      heading: _offersBoxes
+          ? BoxPieceToggle(
+              key: const ValueKey('quotation-box-and-pieces'),
+              label: 'Product (code, name or barcode)',
+              value: _boxAndPieces,
+              onChanged: _setBoxAndPieces,
+            )
+          : null,
+    ),
     const DocumentColumn('HSN', 66),
-    const DocumentColumn('Qty', 66, numeric: true),
-    const DocumentColumn('Free', 56, numeric: true),
+    // L5: typed as boxes and pieces, Qty and Free become four cells.
+    if (_boxAndPieces)
+      ...boxPieceColumns
+    else ...const [
+      DocumentColumn('Qty', 66, numeric: true),
+      DocumentColumn('Free', 56, numeric: true),
+    ],
     const DocumentColumn('Unit', 50),
     // The rate says which rate it holds (backlog 64 row 4).
     _rateIncludesTax
@@ -484,11 +503,25 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
               ],
               onSelected: (value) {
                 _chooseProduct(line, value);
-                _setState(() => _current = index);
+                _setState(() {
+                  _current = index;
+                  // L5: the same pieces, split by this item's pack.
+                  _loadBoxes([line]);
+                });
                 _schedulePreview();
               },
             ),
-            if (companion != null)
+            if (_boxAndPieces && line.boxes.note.isNotEmpty)
+              Text(
+                line.boxes.note,
+                key: ValueKey<String>('quotation-line-box-note-$index'),
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 11,
+                  color: theme.colorScheme.primary,
+                ),
+              )
+            else if (companion != null)
               Text(
                 'Stock ${documentQuantity(companion.availableQuantity)}'
                 '${companion.lastPrice.isEmpty ? '' : '  ·  last to them '
@@ -502,18 +535,37 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
           ],
         ),
         Text(product?.hsnSac ?? '', style: text),
-        _numberBox(
-          context,
-          line.quantity,
-          validator: (value) => _positive(value, 'quantity'),
-          onTyped: () {},
-        ),
-        _numberBox(
-          context,
-          line.free,
-          validator: _freeQuantity,
-          onTyped: () {},
-        ),
+        if (_boxAndPieces)
+          ...boxPieceCells(
+            context,
+            entry: line.boxes,
+            pack: _packFor(line.productId),
+            readOnly: false,
+            keyPrefix: 'quotation-line-$index',
+            onChanged: () {
+              final double? pack = _packFor(line.productId);
+              _setState(() {
+                line.quantity.text = line.boxes.quantityText(pack);
+                line.free.text = line.boxes.freeText(pack);
+                _current = index;
+              });
+              _schedulePreview();
+            },
+          )
+        else ...[
+          _numberBox(
+            context,
+            line.quantity,
+            validator: (value) => _positive(value, 'quantity'),
+            onTyped: () {},
+          ),
+          _numberBox(
+            context,
+            line.free,
+            validator: _freeQuantity,
+            onTyped: () {},
+          ),
+        ],
         Text(product?.displayUnit ?? '', style: text),
         _numberBox(
           context,
@@ -641,8 +693,18 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
         documentLineTaxable(priced?.netAmount, priced?.taxAmount) ??
             line.netOfDiscount;
     final double tax = double.tryParse(priced?.taxAmount ?? '') ?? 0;
+    final String boxes = _boxAndPieces && product != null
+        ? boxPieceSummary(
+            packSize: product.packSize,
+            quantity: line.quantity.text,
+            free: line.free.text,
+            rate: line.unitPrice.text,
+          )
+        : '';
     return DocumentSidePanel(children: [
       DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
+      if (boxes.isNotEmpty)
+        DocumentSideNote(boxes, key: const ValueKey('quotation-side-boxes')),
       DocumentSidePair('Rate', documentMoney(line.unitPrice.text)),
       DocumentSideNote(
         line.priceEdited

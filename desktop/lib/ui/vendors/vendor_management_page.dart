@@ -9,6 +9,7 @@ import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/geography.dart';
+import '../../models/purchase.dart' show PurchaseWorkflowSettings;
 import '../../models/entities.dart';
 import '../../models/firm_member.dart';
 import '../../models/vendor_rating.dart';
@@ -67,6 +68,13 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
   bool _includeDeleted = false;
   String? _status;
 
+  /// L5: the firm's buying switch for boxes and pieces. Off until read, so
+  /// the tick and the filter stay hidden when the settings cannot be read.
+  bool _boxAndPieces = false;
+
+  /// L5: 'true' only suppliers marked, 'false' only those not; null all.
+  String? _boxAndPiecesFilter;
+
   bool get _canCreate =>
       widget.hasActiveFirm && widget.permissions.hasPermission('VENDOR_CREATE');
   bool get _canEdit => widget.permissions.hasPermission('VENDOR_UPDATE');
@@ -80,6 +88,21 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
     super.initState();
     _load();
     unawaited(_loadSummary());
+    unawaited(_loadBoxAndPieces());
+  }
+
+  /// L5: whether the firm types buying quantities as boxes and pieces,
+  /// which decides whether the supplier's mark is offered at all.
+  Future<void> _loadBoxAndPieces() async {
+    if (!widget.hasActiveFirm) return;
+    try {
+      final PurchaseWorkflowSettings settings =
+          await widget.api.purchaseWorkflowSettings();
+      if (!mounted) return;
+      setState(() => _boxAndPieces = settings.boxAndPieceEntry);
+    } on Object {
+      // Unreadable: the mark stays hidden, and nothing about it is sent.
+    }
   }
 
   /// How many vendors stand in each status, for the phase 2 counters.
@@ -140,6 +163,9 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
         filters: VendorQuery(
           status: _status,
           includeDeleted: _includeDeleted,
+          boxAndPieceEntry: _boxAndPieces && _boxAndPiecesFilter != null
+              ? _boxAndPiecesFilter == 'true'
+              : null,
         ),
       );
       if (!mounted) return;
@@ -202,6 +228,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
               api: widget.api,
               vendor: vendor,
               onSave: saveIt,
+              offerBoxAndPieces: _boxAndPieces,
               loadLicences: vendor != null &&
                       widget.permissions.hasPermission('TRADE_LICENCE_VIEW')
                   ? () => widget.api.tradeLicences(vendorId: vendor.id)
@@ -520,12 +547,15 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
       onSearch: (_) => _load(requestedPage: 1),
     );
     final filterPanel = FilterPanel(
-      activeFilterCount: (_status == null ? 0 : 1) + (_includeDeleted ? 1 : 0),
+      activeFilterCount: (_status == null ? 0 : 1) +
+          (_includeDeleted ? 1 : 0) +
+          (_boxAndPieces && _boxAndPiecesFilter != null ? 1 : 0),
       onApply: () => _load(requestedPage: 1),
       onClear: () {
         setState(() {
           _status = null;
           _includeDeleted = false;
+          _boxAndPiecesFilter = null;
         });
         _load(requestedPage: 1);
       },
@@ -542,6 +572,23 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             onChanged: (value) => setState(() => _status = value),
           ),
         ),
+        if (_boxAndPieces)
+          SizedBox(
+            width: 220,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('vendor-filter-box-and-pieces'),
+              isExpanded: true,
+              initialValue: _boxAndPiecesFilter,
+              decoration:
+                  const InputDecoration(labelText: 'Buys in boxes and pieces'),
+              items: const [
+                DropdownMenuItem(value: 'true', child: Text('Yes')),
+                DropdownMenuItem(value: 'false', child: Text('No')),
+              ],
+              onChanged: (value) =>
+                  setState(() => _boxAndPiecesFilter = value),
+            ),
+          ),
         FilterChip(
           label: const Text('Include deleted'),
           selected: _includeDeleted,
@@ -776,7 +823,12 @@ class _VendorEditorDialog extends StatefulWidget {
     this.loadFamily,
     this.onSave,
     this.branchOf,
+    this.offerBoxAndPieces = false,
   });
+
+  /// L5: the firm's buying switch for boxes and pieces is on, so the form
+  /// offers the tick *Buys in boxes and pieces* and sends it. Off: neither.
+  final bool offerBoxAndPieces;
 
   /// The main office a new supplier starts as a branch of, where the form
   /// was opened from a document for exactly that. Null starts it on its own.
@@ -930,6 +982,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   late bool _tdsApplicable = widget.vendor?.tdsApplicable ?? true;
   late bool _msmeAgreement = widget.vendor?.msmeWrittenAgreement ?? false;
   late bool _issuesEInvoices = widget.vendor?.issuesEInvoices ?? false;
+  // L5: sent only while the form offers the tick (`offerBoxAndPieces`).
+  late bool _boxAndPieces = widget.vendor?.boxAndPieceEntry ?? false;
   late final TextEditingController _email =
       TextEditingController(text: widget.vendor?.email ?? '');
   late final TextEditingController _phone =
@@ -1749,6 +1803,16 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             value: _issuesEInvoices,
             onChanged: (value) => setState(() => _issuesEInvoices = value),
           ),
+          if (widget.offerBoxAndPieces)
+            CheckboxListTile(
+              key: const ValueKey('vendor-box-and-piece-entry'),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('Buys in boxes and pieces'),
+              value: _boxAndPieces,
+              onChanged: (value) =>
+                  setState(() => _boxAndPieces = value ?? false),
+            ),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -2367,6 +2431,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'tds_applicable': _tdsApplicable,
         'msme_written_agreement': _msmeAgreement,
         'issues_e_invoices': _issuesEInvoices,
+        if (widget.offerBoxAndPieces) 'box_and_piece_entry': _boxAndPieces,
         'email': _email.text.trim(),
         'phone': _phone.text.trim(),
         'mobile': _mobile.text.trim(),

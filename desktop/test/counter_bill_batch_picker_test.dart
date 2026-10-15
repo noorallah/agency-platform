@@ -255,7 +255,7 @@ Future<void> _fillCounterBill(WidgetTester tester, {String? rate = '40'}) async 
     matching: find.byType(EditableText),
   );
   await tester.enterText(cells.at(1), '10');
-  if (rate != null) await tester.enterText(cells.at(2), rate);
+  if (rate != null) await tester.enterText(cells.at(3), rate);
   await tester.pump(const Duration(milliseconds: 400));
   await tester.pumpAndSettle();
 }

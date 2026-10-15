@@ -111,6 +111,7 @@ class Quotation {
     required this.customerReference,
     this.couponCode = '',
     this.rateIncludesTax = false,
+    this.boxAndPieceEntry = false,
     required this.paymentTerms,
     required this.deliveryTerms,
     required this.status,
@@ -166,6 +167,9 @@ class Quotation {
 
   /// Whether the rates typed on this offer include GST (backlog 64 row 4).
   final bool rateIncludesTax;
+
+  /// L5: whether the lines were typed as boxes and pieces.
+  final bool boxAndPieceEntry;
   final String paymentTerms;
   final String deliveryTerms;
   final String status;
@@ -228,6 +232,7 @@ class Quotation {
         customerReference: stringValue(json['customer_reference']),
         couponCode: stringValue(json['coupon_code']),
         rateIncludesTax: boolValue(json['rate_includes_tax']),
+        boxAndPieceEntry: boolValue(json['box_and_piece_entry']),
         paymentTerms: stringValue(json['payment_terms']),
         deliveryTerms: stringValue(json['delivery_terms']),
         status: stringValue(json['status']),

@@ -304,6 +304,23 @@ class _PurchaseWorkflowSettingsDialogState
                         : null,
                     title: const Text('Supplier bills wait for approval'),
                   ),
+                  const SizedBox(height: AppSpacing.md),
+                  // L5: a line typed as boxes and loose pieces.
+                  SwitchListTile(
+                    key: const ValueKey('purchase-box-and-piece-entry-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _settings.boxAndPieceEntry,
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings =
+                            _settings.copyWith(boxAndPieceEntry: value))
+                        : null,
+                    title: const Text('Type quantities as boxes and pieces'),
+                    subtitle: Text(
+                      'On: a supplier can be marked Buys in boxes and '
+                      'pieces. The rate stays the rate of a piece.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
                   const SizedBox(height: AppSpacing.lg),
                   Text('Bill matching', style: theme.textTheme.titleSmall),
                   const SizedBox(height: AppSpacing.sm),

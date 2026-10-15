@@ -179,6 +179,7 @@ class Customer {
     this.linkedVendorId = '',
     this.priceLevelId,
     this.tradeClass,
+    this.boxAndPieceEntry = false,
     this.collectorId,
     this.isCashSale = false,
     this.parentCustomerId,
@@ -287,6 +288,10 @@ class Customer {
   /// (PTR or PTS) a blank sales price takes.
   final String? tradeClass;
 
+  /// L5: whether a new selling document for this customer takes boxes and
+  /// loose pieces on each line (only where the firm's selling switch is on).
+  final bool boxAndPieceEntry;
+
   /// The firm member who chases this customer's dues (backlog 87 #8), or
   /// null when nobody in particular does.
   final String? collectorId;
@@ -377,6 +382,7 @@ class Customer {
         linkedVendorId: stringValue(json['linked_vendor_id']),
         priceLevelId: json['price_level_id'] as String?,
         tradeClass: json['trade_class'] as String?,
+        boxAndPieceEntry: boolValue(json['box_and_piece_entry']),
         collectorId: json['collector_id'] as String?,
         isCashSale: boolValue(json['is_cash_sale']),
         parentCustomerId: json['parent_customer_id'] as String?,
@@ -480,10 +486,14 @@ class CustomerQuery {
     this.createdFrom,
     this.createdTo,
     this.includeDeleted = false,
+    this.boxAndPieceEntry,
   });
 
   final String? status;
   final String? customerType;
+
+  /// L5: only customers marked (true) or not marked (false); null is all.
+  final bool? boxAndPieceEntry;
   final String? city;
   final String? state;
   final String? createdFrom;
@@ -498,6 +508,8 @@ class CustomerQuery {
         if (createdFrom?.isNotEmpty == true) 'created_from': createdFrom!,
         if (createdTo?.isNotEmpty == true) 'created_to': createdTo!,
         if (includeDeleted) 'include_deleted': 'true',
+        if (boxAndPieceEntry != null)
+          'box_and_piece_entry': '$boxAndPieceEntry',
       };
 }
 

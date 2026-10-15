@@ -7,6 +7,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/geography.dart';
+import 'package:agency_desktop/models/purchase.dart';
 import 'package:agency_desktop/models/vendor.dart';
 import 'package:agency_desktop/ui/vendors/vendor_management_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
@@ -62,6 +63,21 @@ class _VendorApi extends ApiClient {
   final List<Json> rows;
   Json? saved;
 
+  /// L5: the firm's buying switch for boxes and pieces.
+  bool boxAndPieces = false;
+
+  /// The filters the list was last read with.
+  VendorQuery? lastFilters;
+
+  @override
+  Future<PurchaseWorkflowSettings> purchaseWorkflowSettings() async =>
+      PurchaseWorkflowSettings.fromJson(<String, dynamic>{
+        'purchase_order_stage': true,
+        'goods_receipt_stage': true,
+        'is_configured': true,
+        'box_and_piece_entry': boxAndPieces,
+      });
+
   @override
   Future<PagedResult<Vendor>> vendors({
     int page = 1,
@@ -70,11 +86,13 @@ class _VendorApi extends ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     VendorQuery filters = const VendorQuery(),
-  }) async =>
-      PagedResult<Vendor>(
-        items: <Vendor>[for (final Json row in rows) Vendor.fromJson(row)],
-        total: rows.length,
-      );
+  }) async {
+    lastFilters = filters;
+    return PagedResult<Vendor>(
+      items: <Vendor>[for (final Json row in rows) Vendor.fromJson(row)],
+      total: rows.length,
+    );
+  }
 
   @override
   Future<List<GeoPlaceRecord>> geoPlaces(
@@ -294,6 +312,77 @@ void main() {
       await tester.pumpAndSettle();
       await tester.ensureVisible(control);
       expect(tester.widget<CheckboxListTile>(control).value, false);
+    });
+  });
+
+  group('L5: buys in boxes and pieces', () {
+    Future<_VendorApi> pump(
+      WidgetTester tester, {
+      required bool on,
+      List<Json> rows = const <Json>[],
+    }) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _VendorApi api = _VendorApi(rows: rows)..boxAndPieces = on;
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: VendorManagementPage(
+            api: api,
+            permissions: _permissions(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    const ValueKey<String> tick = ValueKey('vendor-box-and-piece-entry');
+
+    testWidgets('with the buying switch on the tick is shown and sent',
+        (tester) async {
+      final _VendorApi api = await pump(tester, on: true);
+      await tester.tap(find.text('New vendor'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Vendor Name'), 'Supplier Two');
+      await tester.ensureVisible(find.byKey(tick));
+      expect(find.text('Buys in boxes and pieces'), findsOneWidget);
+      await tester.tap(find.byKey(tick));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('vendor-save')));
+      await tester.pumpAndSettle();
+      expect(api.saved!['box_and_piece_entry'], isTrue);
+    });
+
+    testWidgets('the supplier list filters by the mark', (tester) async {
+      final _VendorApi api =
+          await pump(tester, on: true, rows: <Json>[_vendorJson()]);
+      await tester.tap(find.text('+ filter'));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.byKey(const ValueKey('vendor-filter-box-and-pieces')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Yes').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+      expect(api.lastFilters!.toQuery()['box_and_piece_entry'], 'true');
+    });
+
+    testWidgets('with the switch off there is no tick and nothing is sent',
+        (tester) async {
+      final _VendorApi api = await pump(tester, on: false);
+      await tester.tap(find.text('New vendor'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Vendor Name'), 'Supplier Two');
+      expect(find.byKey(tick), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('vendor-save')));
+      await tester.pumpAndSettle();
+      expect(api.saved!.containsKey('box_and_piece_entry'), isFalse);
     });
   });
 }
