@@ -386,6 +386,123 @@ def test_with_only_receipts_off_the_bill_receives_the_order_it_names(
     assert firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED) == 0
 
 
+def _bill_off_order(firm: _Firm, quantity: str) -> PurchaseInvoice:
+    """Bill a person's approved order directly, receiving its own goods."""
+    order = firm.approved_order()
+    order_line = firm.session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert order_line is not None
+    return firm.bills().create_invoice(
+        PurchaseInvoiceCreate.model_validate(
+            {
+                "invoice_date": "2026-08-10",
+                "supplier_invoice_number": "S-2",
+                "supplier_invoice_date": "2026-08-09",
+                "lines": [
+                    {
+                        "source_document_type": "PURCHASE_ORDER",
+                        "source_document_id": order.id,
+                        "source_document_line_id": order_line.id,
+                        "line_number": 1,
+                        "current_invoice_quantity": quantity,
+                    }
+                ],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+
+
+def _as_the_edit_window_sends(
+    firm: _Firm, bill: PurchaseInvoice, quantity: str
+) -> PurchaseInvoiceCreate:
+    """Return the draft as its Edit window sends it: lines on its own receipt."""
+    line = firm.bills().invoice_response(bill).lines[0]
+    return PurchaseInvoiceCreate.model_validate(
+        {
+            "invoice_date": "2026-08-10",
+            "supplier_invoice_number": "S-2",
+            "supplier_invoice_date": "2026-08-09",
+            "lines": [
+                {
+                    "source_document_type": "GOODS_RECEIPT",
+                    "source_document_id": line.source_document_id,
+                    "source_document_line_id": line.source_document_line_id,
+                    "line_number": 1,
+                    "current_invoice_quantity": quantity,
+                    "batch_number": "B-2",
+                }
+            ],
+        }
+    )
+
+
+def test_editing_a_bill_off_an_order_receives_what_it_now_says(
+    firm: _Firm,
+) -> None:
+    """D-UI-100: a lowered bill receives the lower quantity, not the original.
+
+    Its own draft receipt is withdrawn and received again from the bill; the
+    order a person raised is left alone.
+    """
+    firm.stages(order=True, receipt=False)
+    bills = firm.bills()
+    bill = _bill_off_order(firm, "4")
+    order, first_receipt = firm.raised(bill)
+    bills.update_invoice(
+        bill.id,
+        _as_the_edit_window_sends(firm, bill, "2"),
+        firm_scope=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    firm.session.refresh(first_receipt)
+    assert first_receipt.status == "CANCELLED"
+    raised_order, receipt = firm.raised(bill)
+    assert raised_order.id == order.id
+    assert receipt.id != first_receipt.id
+    assert order.raised_by_purchase_invoice_id is None
+    receipt_line = firm.session.scalar(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    )
+    assert receipt_line is not None
+    assert receipt_line.batch_number == "B-2"
+    bills.approve_invoice(bill.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    firm.session.refresh(order)
+    assert firm.stock() == Decimal("2")
+    assert order.status == "PARTIALLY_RECEIVED"
+    assert firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED) == 0
+
+
+def test_a_preview_of_an_edit_prices_the_draft_as_the_save_would(
+    firm: _Firm,
+) -> None:
+    """D-UI-99: the draft's own quantity and number do not count against it.
+
+    Staged as a new bill, all ten of the order already on the draft were
+    counted again. Priced as the update, then rolled back: the draft and its
+    receipt are as they were.
+    """
+    firm.stages(order=True, receipt=False)
+    bills = firm.bills()
+    bill = _bill_off_order(firm, "10")
+    _, receipt = firm.raised(bill)
+    preview = bills.preview_invoice(
+        _as_the_edit_window_sends(firm, bill, "10"),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+        replacing=bill.id,
+    )
+    assert Decimal(str(preview.invoice.grand_total)) == Decimal("1000")
+    assert preview.invoice.id == bill.id
+    firm.session.refresh(receipt)
+    assert receipt.status == "DRAFT"
+    assert firm.raised(bill)[1].id == receipt.id
+    assert firm.session.scalar(select(func.count(PurchaseInvoice.id))) == 1
+    assert firm.session.scalar(select(func.count(GoodsReceipt.id))) == 1
+
+
 def test_a_draft_receipt_is_billable_only_by_the_bill_that_raised_it(
     firm: _Firm,
 ) -> None:

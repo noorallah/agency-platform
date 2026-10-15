@@ -296,15 +296,6 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
               ),
               for (final String message in [
                 if (_error != null) _error!,
-                // D-UI-39: the server keeps the receipt such a bill raised
-                // as it is when the bill is edited, so a quantity changed
-                // here would leave the two disagreeing about what arrives.
-                if (_ownReceipt)
-                  'This bill receives its own goods'
-                      '${_ownOrderNumber.isEmpty ? '' : ' against $_ownOrderNumber'}'
-                      '. Its rates, dates and numbers can be changed here; '
-                      'its quantities, batches and expiry dates cannot yet. '
-                      'To change those, cancel the bill and enter it again.',
                 if (duplicate.isNotEmpty &&
                     _supplierInvoiceNumber.trim().isNotEmpty &&
                     !ownNumber)
@@ -1170,15 +1161,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     Map<String, dynamic>? priced,
     double typed, {
     bool billing = true,
-    bool owed = false,
   }) {
     final TextStyle? text =
         Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13);
-    if (owed) {
-      // D-UI-39: changed since the bill was saved and not priced again, so
-      // no figure is shown rather than one worked out here.
-      return [Text('—', style: text), Text('', style: text), Text('—', style: text)];
-    }
     final double taxable = priced == null
         ? typed
         // With the bill discount's share and the line's charges (D-UI-96):
@@ -1268,8 +1253,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             context,
             entry: _billEntry(line),
             pack: packOf(line.packSize),
-            // The receipt this bill raised keeps its quantity on an edit.
-            readOnly: _saving || _ownReceipt,
+            readOnly: _saving,
             keyPrefix: 'purchase-invoice-line-$index',
             // A line not billed now stays at nothing.
             chargedRequired: false,
@@ -1289,8 +1273,6 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             name: 'billing',
             value: line.invoiceQuantity,
             over: billing > line.outstanding,
-            // The receipt this bill raised keeps its quantity on an edit.
-            locked: _ownReceipt,
             onChanged: (value) => line.invoiceQuantity = value,
           ),
         _cellBox(
@@ -1307,7 +1289,6 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           priced,
           _typedTaxable(line),
           billing: billing > 0,
-          owed: _figuresOwed && priced == null && billing > 0,
         ),
       ],
     );
@@ -1481,17 +1462,11 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     if (_editBlock != null) {
       return const DocumentTotalsBar(figures: []);
     }
-    if (_figuresOwed) {
-      // D-UI-39: see [_figuresOwed]. The saved totals are no longer this
-      // bill's, and none is worked out here in their place.
-      return const DocumentTotalsBar(
-        key: ValueKey('purchase-invoice-totals-owed'),
-        figures: [],
-        note: 'Changed since it was saved: its tax and total are worked out '
-            'when the bill is saved.',
-      );
-    }
-    final Map<String, dynamic>? invoice = _preview?.invoice;
+    // A draft changed since it was saved shows what is typed until the
+    // preview prices it as replacing itself (D-UI-99): the saved totals are
+    // no longer the bill's.
+    final Map<String, dynamic>? invoice =
+        _savedFigures && _changedSinceSaved ? null : _preview?.invoice;
     double typed = 0;
     if (_direct) {
       for (final PurchaseDirectLine line in _directLines) {
@@ -1793,22 +1768,18 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
               companion.lastInvoiceDate, companion.lastDiscountPercent),
         ),
       ],
-      if (_figuresOwed && priced == null && billing > 0)
-        const DocumentSideNote(
-          'Changed since the bill was saved: its tax and amount are worked '
-          'out when the bill is saved.',
-        )
-      else
-        ...documentTaxLines(
-          taxable: taxable,
-          tax: tax,
-          interstate: _interstate,
-          taxRule: LineTaxRule.fromJson(priced),
-        ),
-      if (order)
+      ...documentTaxLines(
+        taxable: taxable,
+        tax: tax,
+        interstate: _interstate,
+        taxRule: LineTaxRule.fromJson(priced),
+      ),
+      // A bill receiving its own goods types its batch and expiry on an
+      // edit too (D-UI-100): saving raises its receipt again from them.
+      if (order || line.expiryTyped)
         ..._batchFields(
           context,
-          keyPart: '${_order?.id}-$index',
+          keyPart: '${_order?.id ?? _receipt?.id}-$index',
           batch: line.batchNumber,
           expiry: line.expiryDate,
           onBatch: (value) => line.batchNumber = value,

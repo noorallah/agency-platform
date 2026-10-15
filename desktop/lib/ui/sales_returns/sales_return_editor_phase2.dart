@@ -388,10 +388,9 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
     return true;
   }
 
-  /// The return as the server priced it: the preview of a new return, or
-  /// the Draft's own figures while nothing on it has been changed. A Draft
-  /// with a figure changed is priced by the save, not here -- the preview
-  /// would count the Draft against itself (D-UI-39).
+  /// The return as the server priced it last, or the Draft's own figures
+  /// while nothing on it has been changed. A Draft with a figure changed is
+  /// priced by the preview as replacing itself (D-UI-99).
   Map<String, dynamic>? get _pricing {
     final Map<String, dynamic>? priced = _preview?.salesReturn;
     final SalesReturn? editing = widget.editing;
@@ -992,11 +991,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
       total: priced == null ? null : total,
       note: typed <= 0
           ? 'Type how many came back on each line.'
-          : widget.editing != null
-              // Not priced as it is typed, for the reason beside
-              // [_pricing]; the figures here are quantity at the rate.
-              ? 'The credit and its tax are worked out when this is saved.'
-              : 'Totals follow as the lines are priced.',
+          : 'Totals follow as the lines are priced.',
       figures: [
         ('Taxable', taxable),
         if (interstate == null)

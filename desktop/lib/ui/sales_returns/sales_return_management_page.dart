@@ -229,6 +229,10 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
           sourceType: document.sourceType.code,
           sourceLineId: line.id,
         ),
+        // Priced as replacing this Draft (D-UI-99), so its own quantities
+        // do not count against the lines it is on.
+        preview: (Json draft) =>
+            widget.api.previewSalesReturn(draft, replacing: row.id),
         onSave: (Json payload) async {
           saved = await widget.api.updateSalesReturn(
             row.id,

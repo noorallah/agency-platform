@@ -132,7 +132,10 @@ class _Api extends ApiClient {
       };
 
   @override
-  Future<PurchaseInvoicePreviewRecord> previewPurchaseInvoice(Json data) async =>
+  Future<PurchaseInvoicePreviewRecord> previewPurchaseInvoice(
+    Json data, {
+    String? replacing,
+  }) async =>
       PurchaseInvoicePreviewRecord.fromJson(<String, dynamic>{
         'invoice': <String, dynamic>{
           'invoice_number': 'PI-9',

@@ -114,6 +114,11 @@ class PurchaseInvoiceDraftLine {
 
   bool get billsAnOrder => sourceDocumentType == 'PURCHASE_ORDER';
 
+  /// D-UI-100: the line's expiry is in a box -- a line of an order, or of
+  /// the draft receipt a bill being edited raised for itself.
+  bool expiryTyped = false;
+  bool get typesExpiry => billsAnOrder || expiryTyped;
+
   /// D-UI-39: what the saved bill line holds that this screen has no box
   /// for -- a charge on the line, a discount somebody typed, an expiry --
   /// sent back as held, because the server replaces the line with what it
@@ -172,7 +177,7 @@ class PurchaseInvoiceDraftLine {
         if (purchaseUomId.isNotEmpty) 'invoice_uom_id': purchaseUomId,
         if (warehouseId.isNotEmpty) 'warehouse_id': warehouseId,
         if (batchNumber.trim().isNotEmpty) 'batch_number': batchNumber.trim(),
-        if (billsAnOrder && expiryDate.trim().isNotEmpty)
+        if (typesExpiry && expiryDate.trim().isNotEmpty)
           'expiry_date': expiryDate.trim(),
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
       };
@@ -405,8 +410,9 @@ class _PurchaseInvoiceEditorDialogState
   PurchaseBillMode? _editMode;
 
   /// The bill raised the receipt its lines name, against an order somebody
-  /// typed. The server keeps that receipt as it is on an edit, so the
-  /// quantities and batches it holds cannot be changed from the bill.
+  /// typed. On an edit the server withdraws that draft receipt and raises
+  /// it again from what the bill says (D-UI-100), so its quantities,
+  /// batches and expiry dates are typed here like any other bill's.
   bool _ownReceipt = false;
   String _ownOrderNumber = '';
 
@@ -456,12 +462,6 @@ class _PurchaseInvoiceEditorDialogState
             _savedLineCount ||
         _lines.any((line) => line.changedSinceSaved);
   }
-
-  /// A bill of receipts cannot be priced again while it is edited: the
-  /// preview prices a new bill, which would count this draft's own quantity
-  /// as billed by another and refuse it. So a changed bill says its tax and
-  /// total follow on saving rather than showing figures nobody worked out.
-  bool get _figuresOwed => _editing && !_direct && _changedSinceSaved;
 
   /// How the tax splits: the server's answer for what is typed, or what the
   /// saved bill's own tax lines say. Null when neither says.
@@ -730,6 +730,12 @@ class _PurchaseInvoiceEditorDialogState
         } else {
           draft.invoiceQuantity = _trim(quantity[source.id] ?? 0);
           draft.batchNumber = stringValue(was['batch_number']);
+          // A bill receiving its own goods types its expiry (D-UI-100);
+          // any other bill of receipts sends it back as held.
+          if (_ownReceipt) {
+            draft.expiryTyped = true;
+            draft.expiryDate = stringValue(was['expiry_date']);
+          }
           draft.remarks = stringValue(was['remarks']);
           // A rate is in the box only where somebody typed one: the saved
           // price differs from the receipt line's. Left blank it takes the
@@ -747,7 +753,7 @@ class _PurchaseInvoiceEditorDialogState
           draft.echo = {
             ..._heldLineExtras(was),
             ..._typedDiscount(was, source),
-            if (stringValue(was['expiry_date']).isNotEmpty)
+            if (!_ownReceipt && stringValue(was['expiry_date']).isNotEmpty)
               'expiry_date': stringValue(was['expiry_date']),
           };
           draft.saved = was;
@@ -1157,16 +1163,20 @@ class _PurchaseInvoiceEditorDialogState
   /// lands. A bill with no receipt or nothing being billed is not sent.
   void _schedulePreview() {
     if (!_phase2) return;
-    // D-UI-39: a bill of receipts being edited is not priced again here;
-    // see [_figuresOwed].
-    if (_editing && (_editHeld || !_direct)) return;
+    // Nothing is priced while a draft is read or cannot be edited.
+    if (_editing && _editHeld) return;
     _previewTimer?.cancel();
     _previewTimer = Timer(const Duration(milliseconds: 350), () async {
       if (!_hasSource || !_hasSomethingToBill) return;
       final int serial = ++_previewSerial;
       try {
         final PurchaseInvoicePreviewRecord priced =
-            await widget.api.previewPurchaseInvoice(_payload(pricing: true));
+            await widget.api.previewPurchaseInvoice(
+          _payload(pricing: true),
+          // A draft being edited is priced as replacing itself (D-UI-99):
+          // its own quantities and bill number do not count against it.
+          replacing: _editing ? _held('id') : null,
+        );
         if (!mounted || serial != _previewSerial) return;
         setState(() {
           _preview = priced;

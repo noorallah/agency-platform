@@ -141,6 +141,10 @@ class _Api extends ApiClient {
   int listReads = 0;
   final List<Json> previews = <Json>[];
 
+  /// The path each preview went to: a draft being edited is priced as
+  /// replacing itself, at `/purchase-invoices/{id}/preview` (D-UI-99).
+  final List<String> previewPaths = <String>[];
+
   @override
   Future<Json> request(
     String method,
@@ -162,8 +166,9 @@ class _Api extends ApiClient {
         'data': {...bill, 'version': 3},
       };
     }
-    if (tail == '/purchase-invoices/preview') {
+    if (tail.startsWith('/purchase-invoices/') && tail.endsWith('/preview')) {
       previews.add(body!);
+      previewPaths.add(tail);
       return {'data': serverPricing('purchase_invoice_preview')};
     }
     if (tail == '/purchase-invoices/summary') {
@@ -498,12 +503,12 @@ void main() {
       await _openWindow(tester, api);
       await _type(tester, 'purchase-invoice-billing-id-7-0', '6');
 
-      // Not priced again here, and no figure invented in its place.
-      expect(api.previews, isEmpty);
-      expect(_key('purchase-invoice-totals-owed'), findsOneWidget);
+      // Priced again as it is typed, as replacing the draft (D-UI-99), and
+      // nothing says the figures wait for the save any more.
+      expect(api.previews, isNotEmpty);
+      expect(_key('purchase-invoice-totals-owed'), findsNothing);
       expect(find.textContaining('worked out when the bill is saved'),
-          findsWidgets);
-      expect(find.textContaining('1,121.00'), findsNothing);
+          findsNothing);
 
       await _pressSave(tester);
       final Json sent = api.sent!;
@@ -514,6 +519,23 @@ void main() {
       expect(_line(api).containsKey('discount_percent'), isFalse);
       expect(_line(api).containsKey('discount_amount'), isFalse);
       expect(_line(api)['charges_amount'], '50.0000');
+    });
+
+    testWidgets('a changed draft is priced as replacing itself', (
+      tester,
+    ) async {
+      final _Api api = _Api();
+      await _openWindow(tester, api);
+      await _type(tester, 'purchase-invoice-billing-id-7-0', '6');
+
+      // D-UI-99: the draft's own quantity and bill number do not count
+      // against it, so the preview names it.
+      expect(api.previewPaths, isNotEmpty);
+      expect(
+        api.previewPaths,
+        everyElement('/purchase-invoices/${api.bill['id']}/preview'),
+      );
+      expect(api.previews.last['lines'], isNotEmpty);
     });
 
     testWidgets('a rate somebody typed is back in its box', (tester) async {
@@ -673,8 +695,13 @@ void main() {
       );
       await _openWindow(tester, api, stages: _direct, listed: false);
       await _type(tester, 'purchase-invoice-direct-quantity-direct-0', '12');
-      // A bill of products is priced again as it is typed.
+      // A bill of products is priced again as it is typed, as replacing
+      // the draft (D-UI-99).
       expect(api.previews, isNotEmpty);
+      expect(
+        api.previewPaths,
+        everyElement('/purchase-invoices/${api.bill['id']}/preview'),
+      );
       await _pressSave(tester);
 
       final Json sent = api.sent!;
@@ -719,15 +746,16 @@ void main() {
   });
 
   group('a bill that received its own goods against an order', () {
-    testWidgets('keeps its quantities and says why', (tester) async {
+    testWidgets('its quantity, batch and expiry can be changed', (
+      tester,
+    ) async {
+      // D-UI-100: saving withdraws the draft receipt the bill raised and
+      // raises it again from what the bill says, so nothing is locked.
       final _Api api = _Api(receipt: _receipt(status: 'DRAFT'));
       await _openWindow(tester, api, stages: _ordersOnly, listed: false);
 
       expect(find.text('against PO-0001'), findsOneWidget);
-      expect(
-        find.textContaining('its quantities, batches and expiry dates cannot'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('cannot yet'), findsNothing);
       expect(
         tester
             .widget<TextField>(find.descendant(
@@ -735,10 +763,18 @@ void main() {
               matching: find.byType(TextField),
             ))
             .readOnly,
-        isTrue,
+        isFalse,
       );
+      expect(_key('purchase-invoice-batch-id-7-0'), findsOneWidget);
+      expect(_key('purchase-invoice-expiry-id-7-0'), findsOneWidget);
 
-      // The rate can still be put right.
+      await _type(tester, 'purchase-invoice-billing-id-7-0', '8');
+      await _type(tester, 'purchase-invoice-batch-id-7-0', 'B-NEW');
+      // Priced as replacing the draft, its receipt included (D-UI-99).
+      expect(
+        api.previewPaths,
+        everyElement('/purchase-invoices/${api.bill['id']}/preview'),
+      );
       await _type(tester, 'purchase-invoice-rate-id-7-0', '98');
       await _pressSave(tester);
       final Json sent = api.sent!;
@@ -749,7 +785,8 @@ void main() {
         {'source_document_type': 'GOODS_RECEIPT', 'source_document_id': 'id-7'},
       ]);
       expect(_line(api)['source_document_type'], 'GOODS_RECEIPT');
-      expect(_line(api)['current_invoice_quantity'], '10');
+      expect(_line(api)['current_invoice_quantity'], '8');
+      expect(_line(api)['batch_number'], 'B-NEW');
       expect(_line(api)['unit_price'], '98');
       expect(sent['payment_terms'], 'Net 30');
     });
