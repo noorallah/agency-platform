@@ -70,6 +70,14 @@ class _PromotionDialogState extends State<PromotionDialog> {
   /// meant for coupon holders reached everybody (D-QA-7).
   bool _requiresCoupon = false;
 
+  /// L7 step 8: free goods in proportion rather than whole rounds. Only a
+  /// buy N get M free of the same item can carry it; the server refuses it
+  /// on any other offer, so it is sent false wherever the box is hidden.
+  bool _allowPartShare = false;
+
+  bool get _givesFreeGoods =>
+      _actions.any((a) => a.actionType == 'FREE_QUANTITY');
+
   /// The principal funding the scheme (SEL-11); null is the firm's own offer.
   String? _principalId;
   List<PrincipalRecord> _principals = const <PrincipalRecord>[];
@@ -110,6 +118,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
     _status = _statuses.contains(row.status) ? row.status : 'DRAFT';
     _allowStacking = row.allowStacking;
     _requiresCoupon = row.requiresCoupon;
+    _allowPartShare = row.allowPartShare;
     _maxRedemptions.text = row.maxRedemptions?.toString() ?? '';
     _maxPerCustomer.text = row.maxRedemptionsPerCustomer?.toString() ?? '';
     _maxBenefit.text = _plain(row.maxBenefitAmount);
@@ -207,6 +216,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
         // Sent every time: an update replaces the offer, so leaving these
         // out would clear a coupon rule or a limit set anywhere else.
         'requires_coupon': _requiresCoupon,
+        'allow_part_share': _givesFreeGoods && _allowPartShare,
         'max_redemptions': int.tryParse(_maxRedemptions.text.trim()),
         'max_redemptions_per_customer':
             int.tryParse(_maxPerCustomer.text.trim()),
@@ -670,6 +680,21 @@ class _PromotionDialogState extends State<PromotionDialog> {
                     label: const Text('Add benefit'),
                   ),
                 ),
+                if (_givesFreeGoods)
+                  CheckboxListTile(
+                    key: const ValueKey('promotion-allow-part-share'),
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: _allowPartShare,
+                    onChanged: (value) =>
+                        setState(() => _allowPartShare = value ?? false),
+                    title: const Text('Allow a part share'),
+                    subtitle: Text(
+                      'Free goods in proportion: 5.5 bought gives 0.5 free '
+                      'on 11 + 1',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
                 const SizedBox(height: AppSpacing.md),
                 Text('Applies when', style: theme.textTheme.titleSmall),
                 Text(
