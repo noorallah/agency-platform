@@ -12,7 +12,7 @@ SRC = (ROOT / "docs" / "INDEPENDENT_TEST_CASES.md").read_text(encoding="utf-8")
 TABS = json.loads((SCRATCH / "tabs.json").read_text(encoding="utf-8"))
 MATRIX = json.loads((SCRATCH / "matrix.json").read_text(encoding="utf-8"))
 ROLES = json.loads((SCRATCH / "roles.json").read_text(encoding="utf-8"))["roles"]
-TODAY = "2026-10-05"
+TODAY = "2026-10-15"
 RELEASE = "1.3.0"
 
 # --------------------------------------------------------------------------
@@ -176,7 +176,7 @@ FILES = [
      [("Quotations", None), ("Sales Orders", None), ("Delivery Notes", None), ("Sales Invoices", None), ("Sales Returns", None),
       ("Sales", ["Proforma", "Credit Notes", "Counter Shifts", "Customer Rebates"])]),
     ("09_PRICING_AND_INCENTIVES", "Pricing, promotions, loyalty, commission and targets",
-     ["Pricing, promotions and incentives"],
+     ["Pricing, promotions and incentives", "Offers chosen on the bill line"],
      [("Sales", ["Price Lists", "Promotions", "Commission", "Targets"]), ("Masters", ["Loyalty"])]),
     ("10_TERRITORY", "Territory, routes and beats",
      ["Territory, routes and beats"],
@@ -345,8 +345,8 @@ HEADER_NOTE = """Part of the QA test suite in `docs/qa/` for **release {release}
 end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
-bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
-daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+bar, `Sell > Documents > Proforma` is a screen in the
+Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
 right of the bar. Generated on {today} from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
@@ -422,8 +422,8 @@ People > Users > + New*, naming the job in **Job template**. Sign in as each and
 things, recording one result per job:
 
 1. **The menu offers exactly the screens listed** for that job, no more and
-   no fewer (the paths are the 1.3.0 menu: a screen under *All Sell screens* is
-   one click further than the daily list). A business profile can hide a whole module (for example batches
+   no fewer (the paths are the 1.3.0 menu: a path names the area, the group and
+   the screen, and every screen of the area is in its drop-down). A business profile can hide a whole module (for example batches
    on a profile that does not track them); note any such difference.
 2. **Actions.** On each screen, write buttons appear only where the job holds
    a matching code. A screen marked *none beyond viewing* offers no New, Edit,

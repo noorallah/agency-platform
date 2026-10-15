@@ -6,7 +6,7 @@ explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
 bar, `Sell > Documents > Proforma` is a screen in the
 Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
-right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+right of the bar. Generated on 2026-10-15 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -187,7 +187,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
 - **Also needs:** an invoice to a buyer whose GSTIN has a wrong check character; a product with no HSN; an approved invoice to a registered buyer for a firm that e-invoices but with no IRN; a credit note dated late; a credit note on a cancelled invoice; a supplier bill with a bad GSTIN.
 - **Steps:** as the prepared **Firm admin**: Accounts > Tax filing > **GST checks** → choose the month → Run. Read each finding. Click a row. Fix one problem and run again. As a role without SALES_VIEW open the screen.
-- **Expect:** findings are named by code and each row names its document (type, number, date, party): GSTIN_INVALID (the firm's own, a buyer's on invoices and notes, a supplier's on bills as a **warning**), HSN_MISSING and HSN_SHORT (six digits once the firm e-invoices, four below), PLACE_OF_SUPPLY_MISSING, IRN_MISSING, CREDIT_NOTE_LATE (after 30 November following the supply's year) and CREDIT_NOTE_ON_CANCELLED_INVOICE. The checks read the same invoices GSTR-1 declares. *Open document* is disabled (the desktop cannot open a sales invoice by id yet). After fixing, the finding is gone on the next run. Needs SALES_VIEW.
+- **Expect:** findings are named by code and each row names its document (type, number, date, party): GSTIN_INVALID (the firm's own, a buyer's on invoices and notes, a supplier's on bills as a **warning**), HSN_MISSING and HSN_SHORT (six digits once the firm e-invoices, four below), PLACE_OF_SUPPLY_MISSING, IRN_MISSING (on a bill, a credit note, a debit note and a completed sales return that credits a bill), CREDIT_NOTE_LATE (after 30 November following the supply's year) and CREDIT_NOTE_ON_CANCELLED_INVOICE. The checks read the same invoices GSTR-1 declares. *Open document* is disabled (the desktop cannot open a sales invoice by id yet). After fixing, the finding is gone on the next run. Needs SALES_VIEW.
 ### TC-COMP-022 — A filed return is kept, and a change becomes an amendment
 
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
@@ -226,6 +226,22 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Steps:** as the prepared **Firm admin**: Sell > **Quotations** → New with a DET line; open the line's tax detail. Save, convert and bill. Open the invoice line's tax detail. Settings > Tax > **Rule Simulator** and simulate the same line. Open an old document made before this change; open a credit note.
 - **Expect:** the line's tax detail names the **rule code and version** that taxed it, and the simulator answers with the same matched rule code and version. Lines saved before this change show none; credit and debit notes copy their tax from the invoice and are left out.
+### TC-COMP-027 — Input credit given up on stock given away or written off
+
+*Added 2026-10-13 (D-CMP-24, row G1). Driven over HTTP on a preparation firm; the screens were not clicked.*
+
+- **Preconditions:** a firm with a GST number; a product bought on an approved supplier bill at 100 plus 18% local GST (CGST 9%, SGST 9%), ten in stock at a cost of 100; Settings > Stock > **Adjustment Reasons** as shipped (*Sample*, *Given free to customer*, *Loss*, *Damage*, *Expiry* show **Reversed** under *Input credit*; *Internal use*, *Staff*, *Display* do not).
+- **Steps:** (1) Stock > write off **2** as *Sample*. Open GSTR-3B for today. (2) Adjust stock by **-1** with the reason *Loss*. (3) Adjust by **-1** with no reason. (4) Write off **1** as *Internal use*. (5) Adjust by **+1** with the reason *Sample* (one came back). (6) Add a reason of the firm's own with *Reverses input credit* on, write off 1 under it; switch it off, write off 1 more.
+- **Expect:** (1) table 4 shows *4(B)(1) ITC reversed — stock given free, lost or written off* CGST **18.00**, SGST **18.00**, and *4(C) Net ITC* is down by the same; the ledger shows Dr *Input Tax Not Claimable* 36.00, Cr input CGST 18.00 and input SGST 18.00, dated the write-off. (2) the line rises by 9.00 and 9.00. (3) and (4) it does not move. (5) *4(A)(5) ITC claimed again — stock that came back* shows 9.00 and 9.00, the 4(B)(1) line stays, the net credit rises by 9.00 and 9.00. (6) the first write-off adds 9.00 and 9.00, the second adds nothing.
+- **Also:** a product whose bill's credit was blocked, or that has no bill in these books, reverses nothing under any reason. Rule 37's list and its "of which rule 37" line do not change.
+### TC-COMP-028 — A return in another unit on the HSN summary, and a return with no IRN in the GST checks
+
+*Added 2026-10-14 (D-CMP-25, D-CMP-26, D-CMP-27, row G5). Driven over HTTP on a preparation firm; the screens were not clicked.*
+
+- **Preconditions:** a product kept in PIECE at 100.00 with 18% local GST and an HSN code of its own, a rule that 1 BOX is 12 PIECE; a customer with a valid GST number; stock on hand.
+- **Steps:** (1) Order **2 BOX**, deliver them, and bill the note typed as **24 PIECE**. Open Reports > **HSN summary** for today. (2) Raise a sales return off the bill for **1 BOX**, approve and complete it. Open the HSN summary again. (3) Settings > GST documents: set *E-invoicing applies from* to today. Open Sell > Tax filing > **GST checks** for today. (4) Open E-invoice > the list of documents waiting to be registered. (5) Put the e-invoicing date back.
+- **Expect:** (1) one row for the code: unit **PIECE**, quantity **24**, taxable value **2,400.00**. (2) still one row: **PIECE**, quantity **12**, taxable value **1,200.00**; no row in BOX and no negative quantity. (3) *No IRN* is listed on the bill as *Sales invoice* and on the return as *Sales return*. (4) the list opens and holds both the bill and the return.
+- **Also:** 7 PIECE back off a bill typed 2 BOX leaves one row, BOX 1.4167 worth 1,700.00. A return of goods no bill had charged, a return not yet completed and a return to a customer with no GST number are not listed under *No IRN*.
 
 ## Screen checks
 

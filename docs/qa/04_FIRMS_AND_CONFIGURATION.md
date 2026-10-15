@@ -6,7 +6,7 @@ explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
 bar, `Sell > Documents > Proforma` is a screen in the
 Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
-right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+right of the bar. Generated on 2026-10-15 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -333,6 +333,108 @@ opens any screen by name.
 - **Expect:** (1) the refund is accepted; one dated tomorrow is refused, "A refund cannot be received on a future date." (2) the opening bill dated today is accepted and the one dated tomorrow refused, "An opening bill is one raised before the books here start, so its date cannot be after <today>." (3) the promise is accepted and reads **Due today**. (4) the valuation includes the stock that arrived today and its total equals account 1200 Inventory on the trial balance. (5) a document the server dates is dated today, the firm's day, not yesterday. (6) an offer that starts today is in force today, and one whose last day was yesterday is not; the same holds for a price list, a rate contract and a supplier scheme (this step, #1226, is unit-tested and was not driven on a running server). Nothing asks the tester to date a document on another day or to wait for the morning. The Counter Shifts list and the printed shift report use the same day (#1228).
 ---
 
+### TC-CONF-010 — Settings > Tax opens as one screen, and Start here says where the firm stands
+
+*Added 2026-10-14 (customer task T1, backlog 148). Covered by widget tests and by the state read over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. ((set up from the GST template), as its **Firm admin**; for step 8 a firm with no tax set up)
+- **Steps**
+  1. Press the gear, choose the **Tax** section and read what it shows.
+  2. Press the **Tax** card and read the tabs from left to right.
+  3. Read the note on top of **Start here** and the five rows.
+  4. Press **Open** on row 2.
+  5. Go to tab **4 GST on documents** and press **Open GST on documents**; close the window.
+  6. Go to **Check: Rule simulator**, then back to **Start here**.
+  7. Go back to Settings, type **Tax Rules** in *Search settings* and press the card found.
+  8. On a firm with no tax set up, open the **Tax** card.
+- **Expect**
+  - Step 1: one card, **Tax**, *GST rates and rules, GST on documents, TDS*, *Opens one screen*; not seven cards.
+  - Step 2: a tab **Tax settings** opens on **Start here**, then **1 Rates and profiles, 2 Tax rules, 3 Tax settings, 4 GST on documents, 5 TDS on purchases**, and after them **Check: Rule simulator** and **Check: Execution log**.
+  - Step 3: *Tax is ready for this firm.* Rows 1 and 2 read **Done** with a count and *from the GST template*; rows 3, 4 and 5 read **Optional** (*Set for this firm*, *Off*, *Off*).
+  - Step 4: the Tax Rules list, as it is under its own name, with one line above it saying a rule picks a profile from step 1.
+  - Step 5: the tab says what the step is and what it is set to; the button opens the same GST Documents window as before.
+  - Step 6: each tab shows its screen; Start here shows the same states without reading them again.
+  - Step 7: the Tax Rules screen opens on its own, as it always did.
+  - Step 8: the note reads **2 steps to do.** and rows 1 and 2 read **To do**, *None yet*.
+### TC-CONF-011 — Settings > Firm, Selling and Buying open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**; for step 6 a firm with no open financial year)
+- **Steps**
+  1. Press the gear and read the cards of the Firm, Selling and Buying sections.
+  2. Press the **Firm** card and read the tabs from left to right, then Start here.
+  3. Press the **Selling** card and read Start here.
+  4. In *Sales stages*, make a salesman required on a bill; on a firm with no active salesman, open **Selling** again.
+  5. Press the **Buying** card and read the tabs.
+  6. On a firm with no open financial year, open the **Firm** card.
+  7. Go back to Settings, type **Credit Control** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: one card per section, each saying it opens one screen.
+  - Step 2: **Start here, 1 Firm settings, 2 Financial years, 3 Numbering, 4 Goods types, 5 Custom fields, 6 Custom field rules, 7 Messaging, 8 Approval levels**, then **Yours: My branch and warehouse** set apart. Row 2 reads **Done** with the open year; the others read **Optional** with what the firm holds.
+  - Step 3: seven rows, Sales stages first and Salesmen second, all **Optional**.
+  - Step 4: Salesmen reads **To do**, *None yet: every bill must name one*.
+  - Step 5: **1 Purchase settings, 2 Approval limits, 3 Purchase budgets**, all **Optional**.
+  - Step 6: row 2 reads **To do**, *None open: nothing can be posted*.
+  - Step 7: the Credit Control window opens on its own, as it always did.
+### TC-CONF-012 — Settings > Stock, Business profile and Pricing open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**)
+- **Steps**
+  1. Press the gear and press the **Stock** card; read the tabs from left to right, then Start here.
+  2. Press the **Business profile** card and read the tabs and Start here.
+  3. Press the **Pricing** card (under SET UP) and read the tabs and Start here.
+  4. Go back to Settings, type **Unit Sets** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: **Start here, 1 Adjustment reasons, 2 Adjustment limits, 3 Batch rules**, then **Yours: Inventory settings** set apart. Row 1 reads **Optional**, *8 built in* (and the firm's own count where it has any).
+  - Step 2: **1 Profile assignment, 2 Feature management, 3 Module configuration, 4 Attribute definitions, 5 Mandatory attributes, 6 Unit sets**, all **Optional**; row 1 names the firm's profile, rows 2 and 3 read *N of M features on* / *modules on*.
+  - Step 3: **1 Price lists, 2 Price levels, 3 Promotions, 4 Loyalty**, all **Optional**, each with what the firm holds or *None yet*.
+  - No section shows a **To do**, and the note on top says the section is ready.
+  - Step 4: Unit Sets opens on its own, as it always did.
+### TC-CONF-013 — Settings > Territories & routes, Account structure and Party lists open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**)
+- **Steps**
+  1. Press the gear and press the **Territories & routes** card (under SET UP); read the tabs from left to right, then Start here.
+  2. Press the **Account structure** card and read the tabs and Start here.
+  3. Press the **Party lists** card, read Start here, then press the button of row 1.
+  4. Go back to Settings, type **Route Builder** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: **Start here, 1 Territories, 2 Route types, 3 Route builder, 4 Transporters**, all **Optional**, each with what the firm holds or *None yet*; Route builder's tab says it needs a territory from step 1.
+  - Step 2: **1 Control accounts, 2 Cost centres, 3 Profit centres**. Row 1 reads **Done**, *All 64 mapped* (the ready firm's accounts are seeded); rows 2 and 3 **Optional**.
+  - Step 3: **1 Customer groups, 2 Vendor categories, 3 Vendor types, 4 Licence types, 5 Licence check**, all **Optional**; row 5 reads *Left as it comes* or *Set for this firm*. The button opens the Customer Groups list inside the subject.
+  - Step 4: Route Builder opens on its own, as it always did.
+### TC-CONF-014 — Settings > Item lists and Locations open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**)
+- **Steps**
+  1. Press the gear and press the **Item lists** card (under SET UP); read the tabs from left to right, then Start here.
+  2. Press the **Locations** card and read the tabs and Start here.
+  3. Go back to Settings, type **Product Categories** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: **Start here, 1 Units of Measure, 2 UOM groups, 3 Conversion rules, 4 Packaging types, 5 Packaging levels, 6 Product categories, 7 Principals, 8 Brands**. Row 1 reads **Done** with the number of units (the store's units are seeded with it); the rest **Optional**, each with what the firm holds or *None yet*; UOM groups and Conversion rules say they need units from step 1, Brands a principal from step 7.
+  - Step 2: **1 Places, 2 Branch types, 3 Warehouse types, 4 Storage areas**, all **Optional**; Places names the countries and states the store holds; Storage areas reads *None yet* (or a count) since the ready firm has a warehouse.
+  - Step 3: Product Categories opens on its own, as it always did.
+### TC-CONF-015 — Settings > People and Firms open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**, then as the **platform administrator**)
+- **Steps**
+  1. As the Firm admin, press the gear and press the **People** card (under PLATFORM); read the tabs from left to right, then Start here.
+  2. Sign in as the platform administrator and do step 1 again; then press the **Firms** card and read the tabs and Start here.
+  3. Press the **System** section; then type **Users** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: **Start here, 1 Roles, 2 User templates, 3 Users**, then **Check: Permissions**; no User-firm assignments tab and no row for it. Roles reads **Done** with the ready-made roles a firm is offered and any of the firm's own; Users **Done** with the number of the firm's people (platform administrators not counted); Templates **Optional**.
+  - Step 2: People also shows **4 User-firm assignments**, reading the memberships and how many firms they span, and the counts are the whole installation's. Firms shows **1 Business profiles** (Optional, the count of active profiles) and **2 Firms** (Done, the number of live firms).
+  - Step 3: System shows its items as cards (Audit Logs, Diagnostics, ...), with no Start here; Users opens on its own, as it always did.
+
 ## Custom fields — how a profile reaches a record
 
 A definition applies to a record when it targets the record's entity type
@@ -527,7 +629,6 @@ other case that saves a customer or a product.
 - **Preconditions:** Two SHARED firms, QASH1 and QASH2, each with its own firm administrator.
 - **Steps:** as the **Firm admin of QASH1**: Settings > Firm > **Custom Fields** → New *Dock number* on Customer; Settings > Firm > **Custom Field Rules** → make it mandatory for a category. Try a code that already exists in the shared catalogue. Edit and delete the field; try to delete it after a customer holds a value. As the **Firm admin of QASH2**: open Customer → New and the field list. As the platform administrator open Attribute Definitions.
 - **Expect:** the field is **QASH1's own**: offered on its forms and on no other firm's. The shared catalogue rows (existing before this change) are listed read-only to the firms. A firm's code is unique among its own and the shared live rows. A held type cannot change and a held field cannot be deleted. The platform's Attribute Definitions list shows the shared rows only.
----
 
 ## Screen checks
 

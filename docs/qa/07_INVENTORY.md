@@ -4,9 +4,9 @@ Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
 end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
-bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
-daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
-right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
+bar, `Sell > Documents > Proforma` is a screen in the
+Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+right of the bar. Generated on 2026-10-15 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
 
@@ -437,7 +437,7 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 *Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
-- **Also needs:** a firm of its own still on Average, made for this case on the Firms screen -- **never TEST01, TEST02 or a demo firm**, because the switch cannot be undone and every other case needs them on Average; in it a batch-tracked product with two batches holding stock, a plain product with unbatched stock, and the stock valuation read before the switch.
+- **Also needs:** a firm of its own still on Average, made for this case on the Firms screen -- **never QA01, QA02 or a demo firm**, because the switch cannot be undone and every other case needs them on Average; in it a batch-tracked product with two batches holding stock, a plain product with unbatched stock, and the stock valuation read before the switch.
 - **Steps:** (1) Note *Stock valuation* for both products and the Inventory account balance. (2) *Settings > Stock > Costing method*: pick today, confirm the one-way warning, switch. (3) Reopen the screen. (4) Read *Stock valuation by lot* and *Stock valuation* again. (5) **(HTTP)** `POST /api/v1/inventory/lot-settings/switch` a second time. (6) Try an adjustment dated before the switch day.
 - **Expect:** (2) The switch succeeds. (3) The screen shows *By lot*, the switch day, and the switch *allow billing when no lot holds the stock*; there is no way back. (4) Each batch is a lot, at the item's average (Average kept no cost per batch, so 10 at 40 and 6 at 44 carry as two lots at 41.5); the unbatched stock is one new lot (source *Carried forward*) at the item's average. Totals per item, and the Inventory account, are exactly what they were before; no journal was posted. (5) Refused: already by lot. (6) Refused: dated before the switch.
 ### TC-LOT-003 — A receipt makes a lot for each line
