@@ -933,6 +933,21 @@ as the server does when the flag is absent. What the line already holds
 its box cells closed, and a purchase order line typed in boxes names no
 buying unit, because the server puts a boxes line in the stock unit.
 
+### Stock shown as boxes (L5 step 11)
+
+Stock rows -- the stock list and ledger, the stock valuation and its lots, the
+stock statement, the batch list, below reorder level and the count lines --
+answer `pack_size` and `pack_unit_code`: the item's selling pack on the firm's
+today, read once for the page by `display_packs` (`display_packs_by_code` for a
+report that names its items by code) in `backend/app/uom/services/packs.py`.
+Both are null unless either box-and-piece switch is on, which is how a screen
+knows to offer *Show boxes* without a call of its own. The toggle is display
+only: `stockInBoxes` in `box_piece_cells.dart` reads 89 pieces of a 12-pack as
+"7 x 12 + 5 (89)", a sheet download writes boxes, pieces and total as three
+number columns, and nothing stored changes. The choice is kept per user on the
+machine. On the counter bill a scan of the line's own pack adds one to Box and
+any other scan adds its pieces to Pcs.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and
