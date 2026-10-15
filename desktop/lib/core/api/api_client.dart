@@ -6869,11 +6869,22 @@ class ApiClient {
       );
 
   /// Price a sales return as saving it would, and save nothing: the credit
-  /// the phase 2 return screen shows while its lines are typed.
-  Future<SalesReturnPreviewRecord> previewSalesReturn(Json data) async =>
+  /// the phase 2 return screen shows while its lines are typed. [replacing]
+  /// names the Draft being edited (D-UI-99), priced as replacing it, so its
+  /// own quantities do not count against itself.
+  Future<SalesReturnPreviewRecord> previewSalesReturn(
+    Json data, {
+    String? replacing,
+  }) async =>
       SalesReturnPreviewRecord.fromJson(
         _unwrapMap(
-          await request('POST', '/api/v1/sales-returns/preview', body: data),
+          await request(
+            'POST',
+            replacing == null
+                ? '/api/v1/sales-returns/preview'
+                : '/api/v1/sales-returns/$replacing/preview',
+            body: data,
+          ),
         ),
       );
 
@@ -7114,14 +7125,22 @@ class ApiClient {
       );
 
   /// Price a supplier bill as saving it would, and save nothing: what the
-  /// phase 2 bill screen shows while its lines are typed.
+  /// phase 2 bill screen shows while its lines are typed. [replacing] names
+  /// the Draft being edited (D-UI-99), priced as replacing it, so its own
+  /// quantities and bill number do not count against itself.
   Future<PurchaseInvoicePreviewRecord> previewPurchaseInvoice(
-    Json data,
-  ) async =>
+    Json data, {
+    String? replacing,
+  }) async =>
       PurchaseInvoicePreviewRecord.fromJson(
         _unwrapMap(
-          await request('POST', '/api/v1/purchase-invoices/preview',
-              body: data),
+          await request(
+            'POST',
+            replacing == null
+                ? '/api/v1/purchase-invoices/preview'
+                : '/api/v1/purchase-invoices/$replacing/preview',
+            body: data,
+          ),
         ),
       );
 

@@ -607,6 +607,43 @@ def test_editing_a_draft_does_not_count_its_own_lines() -> None:
     assert updated.total_current_return_quantity == Decimal("4.0000")
 
 
+def test_a_preview_of_an_edit_does_not_count_the_draft_being_edited() -> None:
+    """D-UI-99: all four reopened is priced, and the draft is left as it was.
+
+    Staged as a new return, the draft's own four counted against itself and
+    the Edit window was refused while typing.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    row = service.create_return(
+        setup.payload(quantity=Decimal("4")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    with pytest.raises(ValidationError, match="exceeds what was dispatched"):
+        service.preview_return(
+            setup.payload(quantity=Decimal("4")),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    audits = session.scalar(select(func.count()).select_from(AuditLog))
+
+    preview = service.preview_return(
+        setup.payload(quantity=Decimal("3")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+        replacing=row.id,
+    )
+
+    assert preview.sales_return.id == row.id
+    assert preview.sales_return.return_number == row.return_number
+    assert preview.sales_return.grand_total == Decimal("300.0000")
+    session.refresh(row)
+    assert row.total_current_return_quantity == Decimal("4.0000")
+    assert session.scalar(select(func.count()).select_from(AuditLog)) == audits
+
+
 def test_cancelling_a_completed_return_undoes_all_three() -> None:
     """Otherwise the firm holds goods it has already been paid for."""
     session = _session_factory()()

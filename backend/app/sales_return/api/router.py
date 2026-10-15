@@ -528,6 +528,28 @@ def update_sales_return(
     return ApiResponse(data=service.return_response(row))
 
 
+@router.post("/{return_id}/preview", response_model=ApiResponse[SalesReturnPreview])
+def preview_sales_return_edit(
+    return_id: UUID,
+    payload: SalesReturnUpdate,
+    scope: SalesReturnUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesReturnPreview]:
+    """Price a draft being edited as saving it would, and save nothing.
+
+    Staged as the update rather than as a new return, so the draft's own
+    quantities do not count against itself (D-UI-99).
+    """
+    return ApiResponse(
+        data=SalesReturnService(db).preview_return(
+            payload,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            replacing=return_id,
+        )
+    )
+
+
 @router.post("/{return_id}/approve", response_model=ApiResponse[SalesReturnResponse])
 def approve_sales_return(
     return_id: UUID,

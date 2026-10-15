@@ -618,7 +618,12 @@ class SalesReturnService(TransactionalDocumentService):
         return row
 
     def preview_return(
-        self, data: SalesReturnCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: SalesReturnCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        replacing: UUID | None = None,
     ) -> SalesReturnPreview:
         """Price a return exactly as saving it would, then save nothing.
 
@@ -626,9 +631,19 @@ class SalesReturnService(TransactionalDocumentService):
         tax at the rates in force -- read back, and the unit of work rolled
         back: no return, no number used up, no audit row. What is shown is
         the credit the customer will be given.
+
+        ``replacing`` names the draft being edited, which is staged through
+        the update instead (D-UI-99): staged as a new return, the draft's own
+        quantities counted against itself and 5 of 5 reopened was refused.
         """
         try:
-            row = self._stage_return(data, firm_id=firm_id, actor_id=actor_id)
+            row = (
+                self._stage_return(data, firm_id=firm_id, actor_id=actor_id)
+                if replacing is None
+                else self._stage_update(
+                    replacing, data, firm_scope=firm_id, actor_id=actor_id
+                )
+            )
             response = self.return_response(row)
             interstate = (
                 self._tax.outward_transaction_type(
@@ -775,6 +790,21 @@ class SalesReturnService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> SalesReturn:
         """Replace one draft sales return."""
+        row = self._stage_update(
+            return_id, data, firm_scope=firm_scope, actor_id=actor_id
+        )
+        self._session.commit()
+        return row
+
+    def _stage_update(
+        self,
+        return_id: UUID,
+        data: SalesReturnCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> SalesReturn:
+        """Replace one draft sales return without committing it."""
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status != SalesReturnStatus.DRAFT.value:
             raise ValidationError("Only draft sales returns can be edited.")
@@ -851,7 +881,6 @@ class SalesReturnService(TransactionalDocumentService):
             },
         )
         self._flush_or_conflict("Sales return number already exists in this firm.")
-        self._session.commit()
         return row
 
     def approve_return(

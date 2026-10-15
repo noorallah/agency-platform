@@ -68,8 +68,9 @@ class _TcsApi extends ApiClient {
   /// does: a typed amount wins, a rate alone is taken on the grand total.
   @override
   Future<PurchaseInvoicePreviewRecord> previewPurchaseInvoice(
-    Json data,
-  ) async {
+    Json data, {
+    String? replacing,
+  }) async {
     previews.add(data);
     const double total = 500;
     final double tcs = data['tcs_amount'] != null

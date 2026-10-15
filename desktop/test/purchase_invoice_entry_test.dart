@@ -85,8 +85,9 @@ class _InvoiceApi extends ApiClient {
   /// Prices each draft at 18% within the state, the way the server would.
   @override
   Future<PurchaseInvoicePreviewRecord> previewPurchaseInvoice(
-    Json data,
-  ) async {
+    Json data, {
+    String? replacing,
+  }) async {
     previews.add(data);
     final Json? server = serverPriced;
     if (server != null) return PurchaseInvoicePreviewRecord.fromJson(server);

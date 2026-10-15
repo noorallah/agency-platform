@@ -584,6 +584,31 @@ def update_purchase_invoice(
     return ApiResponse(data=service.invoice_response(row))
 
 
+@router.post(
+    "/{invoice_id}/preview", response_model=ApiResponse[PurchaseInvoicePreview]
+)
+def preview_purchase_invoice_edit(
+    invoice_id: UUID,
+    data: PurchaseInvoiceCreate,
+    scope: PurchaseInvoiceUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseInvoicePreview]:
+    """Price a draft bill being edited as saving it would, and save nothing.
+
+    Staged as the update rather than as a new bill, so the draft's own
+    quantities do not count against itself and its own number is not read
+    as a duplicate (D-UI-99).
+    """
+    return ApiResponse(
+        data=PurchaseInvoiceService(db).preview_invoice(
+            data,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            replacing=invoice_id,
+        )
+    )
+
+
 @router.put(
     "/{invoice_id}/supplier-irn", response_model=ApiResponse[PurchaseInvoiceResponse]
 )

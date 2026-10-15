@@ -108,6 +108,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceResponse,
     PurchaseInvoiceSourceResponse,
     PurchaseInvoiceSourceType,
+    PurchaseInvoiceSourceWrite,
     PurchaseInvoiceStatus,
     PurchaseInvoiceSummary,
     PurchaseInvoiceVendorOutstandingRecord,
@@ -484,7 +485,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
 
     def preview_invoice(
-        self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: PurchaseInvoiceCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        replacing: UUID | None = None,
     ) -> PurchaseInvoicePreview:
         """Price a bill exactly as saving it would, then save nothing.
 
@@ -493,9 +499,24 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         of work rolled back: no bill, no number used up, no audit row. The
         response carries the duplicate-number warning the save would, so the
         clerk learns of a bill entered twice while typing it.
+
+        ``replacing`` names the draft being edited, which is staged through
+        the update instead (D-UI-99): staged as a new bill, the draft's own
+        quantities counted against itself and its own number read as a
+        duplicate.
         """
         try:
-            row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+            row = (
+                self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+                if replacing is None
+                else self._stage_update(
+                    replacing,
+                    data,
+                    firm_scope=firm_id,
+                    actor_id=actor_id,
+                    previewing=True,
+                )
+            )
             response = self.invoice_response(row)
             interstate = (
                 self._tax.inward_transaction_type(
@@ -738,6 +759,26 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> PurchaseInvoice:
         """Replace one purchase invoice."""
+        row = self._stage_update(
+            invoice_id, data, firm_scope=firm_scope, actor_id=actor_id
+        )
+        self._session.commit()
+        return row
+
+    def _stage_update(
+        self,
+        invoice_id: UUID,
+        data: PurchaseInvoiceCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        previewing: bool = False,
+    ) -> PurchaseInvoice:
+        """Replace one draft purchase invoice without committing it.
+
+        A preview is not refused a line of 0: the line being typed has no
+        quantity yet.
+        """
         assert_feature_fields(
             self._session,
             firm_scope,
@@ -747,7 +788,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be updated.")
-        self._refuse_empty_bill_lines(data)
+        if not previewing:
+            self._refuse_empty_bill_lines(data)
         # Absent keeps the IRN on file: a client that never showed it cannot
         # clear it. Read before the chain may hand back a rebuilt request.
         if "supplier_irn" in data.model_fields_set:
@@ -785,12 +827,18 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         self._delete_children(row.id)
         own_receipts = frozenset(receipt.id for receipt in self._raised_receipts(row))
-        if any(line.source_document_line_id is None for line in data.lines):
+        data = self._back_to_the_order(row, data, own_receipts=own_receipts)
+        if any(
+            line.source_document_line_id is None
+            or line.source_document_type == PurchaseInvoiceSourceType.PURCHASE_ORDER
+            for line in data.lines
+        ):
             # A bill of products restates the whole purchase. The order and
             # the receipt it raised before are drafts that moved nothing, so
             # they are withdrawn and raised again from what the bill now says
             # -- the one-person firm edits the bill, never the documents
-            # behind it.
+            # behind it. A bill off an order pointed back at it above has
+            # only its receipt withdrawn and received again (D-UI-100).
             self._withdraw_raised(
                 row,
                 firm_scope=firm_scope,
@@ -912,7 +960,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 firm_id=row.firm_id,
                 actor_id=actor_id,
             )
-        self._session.commit()
         return row
 
     def approve_invoice(
@@ -3197,6 +3244,95 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             order.raised_by_purchase_invoice_id = row.id
         for receipt in receipts:
             receipt.raised_by_purchase_invoice_id = row.id
+
+    def _back_to_the_order(
+        self,
+        row: PurchaseInvoice,
+        data: PurchaseInvoiceCreate,
+        *,
+        own_receipts: frozenset[UUID],
+    ) -> PurchaseInvoiceCreate:
+        """Point a bill off an order at that order again, so it is received anew.
+
+        A bill that received its own goods against an order names the draft
+        receipt it raised, which kept its quantity and batch: a lowered bill
+        still received the original at approval, so the Edit window locked
+        them (D-UI-100). Its lines are pointed back at the order lines that
+        receipt came from; the receipt is withdrawn and raised again below,
+        from what the bill now says. Left alone where the firm types receipts
+        again, or where this bill raised its order too (a bill of products is
+        edited as products), or where a line bills another receipt.
+        """
+        if not own_receipts or any(
+            line.source_document_id not in own_receipts
+            or line.source_document_line_id is None
+            for line in data.lines
+        ):
+            return data
+        from app.purchase.services.workflow_settings_service import (
+            PurchaseWorkflowService,
+        )
+
+        if PurchaseWorkflowService(self._session).settings_for(
+            row.firm_id
+        ).goods_receipt_stage or self._session.scalar(
+            select(PurchaseOrder.id).where(
+                PurchaseOrder.raised_by_purchase_invoice_id == row.id,
+                PurchaseOrder.is_deleted.is_(False),
+            )
+        ):
+            return data
+        receipt_lines = {
+            line.id: line
+            for line in self._session.scalars(
+                select(GoodsReceiptLine).where(
+                    GoodsReceiptLine.goods_receipt_id.in_(own_receipts),
+                    GoodsReceiptLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        order_ids = {
+            receipt.purchase_order_id
+            for receipt in self._session.scalars(
+                select(GoodsReceipt).where(GoodsReceipt.id.in_(own_receipts))
+            ).all()
+        }
+        if len(order_ids) != 1 or None in order_ids:
+            return data
+        order_id = order_ids.pop()
+        lines = []
+        for line in data.lines:
+            receipt_line = (
+                receipt_lines.get(line.source_document_line_id)
+                if line.source_document_line_id is not None
+                else None
+            )
+            if receipt_line is None or receipt_line.purchase_order_line_id is None:
+                return data
+            lines.append(
+                line.model_copy(
+                    update={
+                        "source_document_type": (
+                            PurchaseInvoiceSourceType.PURCHASE_ORDER
+                        ),
+                        "source_document_id": order_id,
+                        "source_document_line_id": (
+                            receipt_line.purchase_order_line_id
+                        ),
+                    }
+                )
+            )
+        return data.model_copy(
+            update={
+                "source_documents": [
+                    PurchaseInvoiceSourceWrite(
+                        source_document_type=PurchaseInvoiceSourceType.PURCHASE_ORDER,
+                        source_document_id=order_id,
+                    )
+                ],
+                "lines": lines,
+            }
+        )
 
     def _raised_receipts(self, row: PurchaseInvoice) -> list[GoodsReceipt]:
         """Return the goods receipts this bill raised for itself."""

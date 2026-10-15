@@ -119,8 +119,9 @@ class SalesReturnEditorDialog extends StatefulWidget {
     ReturnableLine line,
   )? loadSerials;
 
-  /// Price a draft as saving it would (`POST /sales-returns/preview`); the
-  /// phase 2 screen calls it as lines are typed. Null leaves it unpriced.
+  /// Price a draft as saving it would (`POST /sales-returns/preview`, or
+  /// `/sales-returns/{id}/preview` for the Draft in [editing]); the phase 2
+  /// screen calls it as lines are typed. Null leaves it unpriced.
   final Future<SalesReturnPreviewRecord> Function(Json draft)? preview;
 
   /// Writes the return. Run inside the dialog (D-UI-37): a refusal leaves it
@@ -180,10 +181,9 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog>
   /// lands. A return nothing is coming back on is not sent.
   void _schedulePreview() {
     final previewer = widget.preview;
-    // Not while a Draft is edited (D-UI-39): the preview prices a new return,
-    // so the Draft's own quantity counts against the line it is on -- five
-    // of five opened again would be refused as five more.
-    if (!_phase2 || previewer == null || widget.editing != null) return;
+    // A Draft being edited is priced as replacing itself (D-UI-99): the
+    // caller's [preview] names it, so five of five opened again is five.
+    if (!_phase2 || previewer == null) return;
     _previewTimer?.cancel();
     _previewTimer = Timer(const Duration(milliseconds: 350), () async {
       final Json? draft = _phase2Payload(pricing: true);

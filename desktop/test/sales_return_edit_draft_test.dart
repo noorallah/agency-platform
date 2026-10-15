@@ -13,6 +13,7 @@ import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/batch_serial.dart';
 import 'package:agency_desktop/models/branch_warehouse.dart';
+import 'package:agency_desktop/models/document_preview.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/sales_return.dart';
 import 'package:agency_desktop/ui/sales_returns/sales_return_editor_dialog.dart';
@@ -193,6 +194,29 @@ class _EditApi extends ApiClient {
   int? sentVersion;
   int updates = 0;
   int previews = 0;
+
+  /// The Draft each preview was asked to price as replacing (D-UI-99).
+  final List<String?> previewedAs = <String?>[];
+
+  @override
+  Future<SalesReturnPreviewRecord> previewSalesReturn(
+    Json data, {
+    String? replacing,
+  }) async {
+    previews += 1;
+    previewedAs.add(replacing);
+    return SalesReturnPreviewRecord.fromJson(<String, dynamic>{
+      'sales_return': <String, dynamic>{
+        'subtotal': '300.00',
+        'tax_total': '54.00',
+        'grand_total': '354.00',
+        'round_off': '0.00',
+        'lines': <Json>[],
+      },
+      'interstate': false,
+      'lines': <Json>[],
+    });
+  }
 
   @override
   Future<PagedResult<SalesReturn>> salesReturns({
@@ -475,13 +499,14 @@ void main() {
         find.byKey(const ValueKey<String>('sales-return-returning-inv-1-0')),
         '3',
       );
-      // Long enough for a preview to have been asked for, had one been.
+      // Past the pause after typing, so the preview has been asked.
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      // Priced by the save, and said so: the Draft's own figures no longer
-      // describe three coming back.
+      // Priced as it is typed, as replacing the Draft (D-UI-99); nothing
+      // says the figures wait for the save any more.
+      expect(api.previews, greaterThan(0));
       expect(find.textContaining('worked out when this is saved'),
-          findsOneWidget);
+          findsNothing);
       await tester.tap(find.byKey(const ValueKey('sales-return-save')));
       await tester.pumpAndSettle();
 
@@ -492,6 +517,26 @@ void main() {
       expect(sent['reference_number'], 'PO-77');
       expect(sent['notes'], hasLength(1));
       expect(api.sentVersion, 4);
+    });
+
+    testWidgets('a changed Draft is priced as replacing itself',
+        (tester) async {
+      final _EditApi api =
+          _EditApi(rows: [_return()], documents: [_invoice()]);
+      await _pump(tester, api);
+      await _openEdit(tester);
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('sales-return-returning-inv-1-0')),
+        '3',
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      // D-UI-99: the preview named the Draft, so its own five do not count
+      // against the line, and the totals are the server's.
+      expect(api.previewedAs, isNotEmpty);
+      expect(api.previewedAs, everyElement('ret-1'));
+      expect(find.textContaining('354'), findsWidgets);
     });
 
     testWidgets('free goods a Draft brought back stay free', (tester) async {
