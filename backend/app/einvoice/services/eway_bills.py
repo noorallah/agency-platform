@@ -283,7 +283,9 @@ class EWayBillService:
         number = "".join(eway_bill_number.split())
         if not (number.isdigit() and len(number) == 12):
             raise ValidationError("An e-way bill number is twelve digits.")
-        if (invoice_id is None) == (note_id is None):
+        if invoice_id is None and note_id is None:
+            raise ValidationError("Name the invoice or the delivery note it is for.")
+        if invoice_id is not None and note_id is not None:
             raise ValidationError("Name an invoice or a delivery note, not both.")
         if invoice_id is not None:
             invoice = self._session.get(SalesInvoice, invoice_id)
