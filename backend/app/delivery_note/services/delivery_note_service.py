@@ -134,6 +134,7 @@ from app.sales_order.services.discount_limit import (
     DiscountLimitService,
     note_reduction,
 )
+from app.sales_order.services.part_share import part_share_order_lines
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.salesmen.services.nameable import nameable_salesman
 from app.salesmen.services.required import assert_salesman_named
@@ -152,6 +153,7 @@ from app.uom.services import (
     PackedLine,
     UomService,
     assert_quantity_fits_unit,
+    counts_in_whole_numbers,
     held_packs,
     line_packs,
     stock_unit_of,
@@ -2563,6 +2565,48 @@ class DeliveryNoteService(TransactionalDocumentService):
         ).one()
         return self._q(charged or ZERO), self._q(free or ZERO)
 
+    def _assert_part_share_whole(
+        self,
+        row: DeliveryNote,
+        *,
+        line_number: int,
+        source: SalesOrderLine,
+        sales_uom_id: UUID | None,
+        charged: Decimal,
+        free: Decimal,
+        shipped: tuple[Decimal, Decimal],
+    ) -> None:
+        """Refuse part of a part-share order line counted in whole pieces.
+
+        5.5 charged and 0.5 free is six whole pieces; half of it is no number
+        of pieces, so such a line leaves on one note, all of it at once
+        (``docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md``, section 3.7). A
+        unit that takes fractions is not held to it.
+        """
+        if not counts_in_whole_numbers(
+            self._session,
+            uom_id=sales_uom_id,
+            product_id=source.product_id,
+            firm_id=row.firm_id,
+        ):
+            return
+        ordered = self._q(source.quantity)
+        ordered_free = self._q(source.free_quantity)
+        before, already = shipped
+        if (
+            before <= ZERO
+            and already <= ZERO
+            and charged == ordered
+            and free == ordered_free
+        ):
+            return
+        raise ValidationError(
+            f"Line {line_number} is a part share of an offer "
+            f"({plain_quantity(ordered)} + {plain_quantity(ordered_free)} free): it is "
+            f"delivered whole, all {plain_quantity(ordered + ordered_free)} at once.",
+            details={"field": "lines"},
+        )
+
     def _free_goods(
         self,
         item: DeliveryNoteLineWrite,
@@ -2684,6 +2728,17 @@ class DeliveryNoteService(TransactionalDocumentService):
         if not source_lines:
             raise ValidationError("Sales order does not contain any lines.")
         packs = self._line_packs(row, lines, source_lines, existing)
+        # Read once for the note: which order lines are a part share of an
+        # offer, which move whole (design section 3.7).
+        part_shares = part_share_order_lines(
+            self._session,
+            firm_id=row.firm_id,
+            order_line_ids={
+                item.sales_order_line_id
+                for item in lines
+                if item.sales_order_line_id in source_lines
+            },
+        )
         totals: dict[str, Decimal] = defaultdict(lambda: ZERO)
         # Read once for the whole document rather than per line. A line that
         # says nothing about a discount gets this; one that says anything at
@@ -2801,6 +2856,16 @@ class DeliveryNoteService(TransactionalDocumentService):
                     "off the note."
                 )
             sales_uom_id, inventory_uom_id = self._line_units(row, item, source_line)
+            if source_line.id in part_shares:
+                self._assert_part_share_whole(
+                    row,
+                    line_number=item.line_number,
+                    source=source_line,
+                    sales_uom_id=sales_uom_id,
+                    charged=current_qty,
+                    free=free_qty,
+                    shipped=shipped[index],
+                )
             conversion = self._conversion(
                 quantity=self._q(current_qty + free_qty),
                 sales_uom_id=sales_uom_id,

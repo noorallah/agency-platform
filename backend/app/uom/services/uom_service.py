@@ -99,6 +99,50 @@ def quantize_by_rule(converted: Decimal, rule: ConversionRule) -> Decimal:
     )
 
 
+def counts_in_whole_numbers(
+    session: Session,
+    *,
+    uom_id: UUID | object | None,
+    product_id: UUID | None,
+    firm_id: UUID,
+) -> bool:
+    """Say whether a line in this unit of this product counts in whole numbers.
+
+    The same test ``assert_quantity_fits_unit`` applies: the product's
+    ``allow_decimal`` is off, or the unit's ``is_decimal_allowed`` is. A line
+    with no unit of its own is in the product's stock unit. Used where a part
+    share of an offer must move whole (design section 3.7).
+
+    Args:
+        session: The unit of work the document is being written in.
+        uom_id: The line's unit, or None for the stock unit.
+        product_id: The product the line is of.
+        firm_id: The firm the product must belong to.
+
+    Returns:
+        True where a fraction of the unit could not be entered.
+
+    """
+    product = (
+        None
+        if product_id is None
+        else session.scalar(
+            select(Product).where(
+                Product.id == product_id,
+                Product.firm_id == firm_id,
+                Product.is_deleted.is_(False),
+            )
+        )
+    )
+    if product is not None and not product.allow_decimal:
+        return True
+    unit_id = None if uom_id is None else UUID(str(uom_id))
+    if unit_id is None and product is not None:
+        unit_id = product.inventory_uom_id or product.base_uom_id
+    unit = None if unit_id is None else session.get(Uom, unit_id)
+    return unit is not None and not unit.is_decimal_allowed
+
+
 def assert_quantity_fits_unit(
     session: Session,
     *,
