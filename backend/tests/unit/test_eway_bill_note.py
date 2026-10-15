@@ -80,3 +80,27 @@ def test_a_withdrawn_note_bill_can_be_raised_again() -> None:
     )
     assert cancelled.status == "CANCELLED"
     assert _raise(shop, note).status == "GENERATED"  # type: ignore[attr-defined]
+
+
+def test_a_hand_recorded_bill_must_name_its_document() -> None:
+    """Naming neither document is told so, not told "not both" (D-CMP-29)."""
+    shop = _Shop()
+    service = EWayBillService(shop.session, mode="SANDBOX", provider="SANDBOX")
+    common = {
+        "eway_bill_number": "123456789012",
+        "valid_until": None,
+        "distance_km": None,
+        "vehicle_number": None,
+        "firm_scope": shop.firm_id,
+        "actor_id": shop.actor_id,
+    }
+
+    with pytest.raises(ValidationError, match="Name the invoice or the delivery"):
+        service.record(invoice_id=None, note_id=None, **common)  # type: ignore[arg-type]
+    note = _approved_note(shop)
+    with pytest.raises(ValidationError, match="not both"):
+        service.record(
+            invoice_id=note.id,  # type: ignore[attr-defined]
+            note_id=note.id,  # type: ignore[attr-defined]
+            **common,  # type: ignore[arg-type]
+        )
