@@ -16,7 +16,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     final Server me = await Server.connect();
     await Server.connectAs(
-        't10069cwy.tradeadmin@fixtures.local', fixturePassword);
+        fixtureAdminEmail, fixturePassword);
     await startAndSignIn(tester);
     collectAppErrors();
     final FlowLog log = FlowLog('ly-$itHandle');

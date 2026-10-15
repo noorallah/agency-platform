@@ -11,7 +11,7 @@ import 'sell_data.dart';
 /// Run once as the fixture firm's administrator, then once per role:
 ///
 ///     for h in tradeadmin qsmgr qsexe qro; do
-///       IT_EMAIL=t10069cwy.$h@fixtures.local IT_PASSWORD=Fixture@2026pw \
+///       IT_EMAIL=<suffix>.$h@fixtures.local IT_PASSWORD=Fixture@2026pw \
 ///         LIMIT=900 bash integration_test/run.sh sc_pf_test.dart; done
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -21,7 +21,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     final Server me = await Server.connect();
     final Server admin = await Server.connectAs(
-        't10069cwy.tradeadmin@fixtures.local', fixturePassword);
+        fixtureAdminEmail, fixturePassword);
     await startAndSignIn(tester);
     collectAppErrors();
     final FlowLog log = FlowLog('pf-$itHandle');

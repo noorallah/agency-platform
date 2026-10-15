@@ -97,7 +97,7 @@ void main() {
         if (!await openClaims()) throw StateError('not offered');
         await tapNew(tester);
         await pumpFor(tester, const Duration(seconds: 1));
-        await chooseIn(tester, 'claim-principal', 'Principal t10069cwy');
+        await chooseIn(tester, 'claim-principal', 'Principal $itSuffix');
         await tapKey(tester, 'claim-preview');
         await pumpFor(tester, const Duration(seconds: 3));
         final bool nothing = screenHas(tester, 'Nothing to claim');
@@ -120,7 +120,7 @@ void main() {
         await tapKey(tester, 'claim-new-price-cut');
         await pumpFor(tester, const Duration(seconds: 1));
         log.saw = await refuse('pc-raise', 'pc-raise', () async {
-          await chooseIn(tester, 'pc-principal', 'Principal t10069cwy');
+          await chooseIn(tester, 'pc-principal', 'Principal $itSuffix');
         }, problemKey: 'pc-problem');
       });
       await closeOpenEditor(tester);
@@ -130,7 +130,7 @@ void main() {
         if (!await openClaims()) throw StateError('not offered');
         await tapNew(tester);
         await pumpFor(tester, const Duration(seconds: 1));
-        await chooseIn(tester, 'claim-principal', 'Principal t10069cwy');
+        await chooseIn(tester, 'claim-principal', 'Principal $itSuffix');
         await typeInKeyed(tester, 'claim-remarks', 'typed then left');
         await tapButton(tester, 'Cancel');
         await pumpFor(tester, const Duration(seconds: 1));

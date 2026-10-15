@@ -887,7 +887,7 @@ void main() {
         await searchList(tester, 'INVSCR-S');
         final bool mine = screenHas(tester, 'INVSCR-S');
         final bool other = screenHas(tester, 'INVSCR-B') ||
-            screenHas(tester, 'T10069CWY-DET');
+            screenHas(tester, '${itSuffix.toUpperCase()}-DET');
         log.saw = 'INVSCR-S shown=$mine, other products shown=$other';
         await searchList(tester, '');
         if (!mine || other) throw StateError(log.saw!);

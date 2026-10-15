@@ -11,12 +11,21 @@ import 'harness.dart';
 /// The part of the sign-in address after the last dot ("tradeadmin", "qsexe").
 final String itHandle = itEmail.split('@').first.split('.').last;
 
+/// The fixture run's suffix, the part of the sign-in address before the
+/// first dot ("t10069cwy" in `t10069cwy.tradeadmin@fixtures.local`). Every
+/// name the selling-firm fixture makes carries it, so a flow pointed at a
+/// fresh fixture run needs only a new IT_EMAIL.
+final String itSuffix = itEmail.split('@').first.split('.').first;
+
+/// The fixture firm's administrator, whatever user the flow signs in as.
+final String fixtureAdminEmail = '$itSuffix.tradeadmin@fixtures.local';
+
 /// The firm's password for the fixture users.
 const String fixturePassword = 'Fixture@2026pw';
 
 /// Sign in over HTTP as one of the fixture firm's users ("qsmgr", ...).
 Future<Server> asUser(String handle) =>
-    Server.connectAs('t10069cwy.$handle@fixtures.local', fixturePassword);
+    Server.connectAs('$itSuffix.$handle@fixtures.local', fixturePassword);
 
 /// Retire the offers a flow raised in this run: every promotion still in
 /// force (or in draft) whose code carries the run's own [stamp]. An offer left

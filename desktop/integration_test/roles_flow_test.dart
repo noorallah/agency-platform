@@ -9,7 +9,7 @@ import 'harness.dart';
 /// file once per user, one after another, signed in as that user:
 ///
 ///     for u in qsexe qsmgr qstore qacct qpexe qpmgr qro qgone; do
-///       IT_EMAIL=t10069cwy.$u@fixtures.local IT_PASSWORD='Fixture@2026pw' \
+///       IT_EMAIL=<suffix>.$u@fixtures.local IT_PASSWORD='Fixture@2026pw' \
 ///         bash integration_test/run.sh roles_flow_test.dart
 ///     done
 ///
