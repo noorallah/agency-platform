@@ -138,6 +138,14 @@ class GoodsReceiptLineWrite(GoodsReceiptSchema):
     #: already holds; an empty list clears it. A draft may hold fewer than
     #: the units; completing the receipt refuses until the count matches.
     serial_numbers: list[SerialText] | None = Field(default=None, max_length=10000)
+    #: The pack size the screen added two cells up at -- boxes and pieces,
+    #: sent only by a line typed that way (L5, design 3.4). The line comes in
+    #: at its order line's pack, and is refused where this differs or the
+    #: order line is counted in another unit than stock. The quantities are
+    #: pieces either way.
+    pack_size: Decimal | None = Field(
+        default=None, gt=1, max_digits=18, decimal_places=4
+    )
 
 
 class GoodsReceiptCreate(GoodsReceiptSchema):
@@ -158,6 +166,10 @@ class GoodsReceiptCreate(GoodsReceiptSchema):
     eway_bill_date: date | None = None
     invoice_reference: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
+    #: Typed as boxes and pieces (L5, design 3.8): how the document is shown
+    #: and typed, nothing else. Absent on a new one takes its order's;
+    #: absent or null on an edit keeps the receipt's own.
+    box_and_piece_entry: bool | None = None
     #: Each line numbered once (D-PRC-60).
     lines: Annotated[list[GoodsReceiptLineWrite], NumberedOnce] = Field(
         min_length=1, max_length=1000
@@ -269,6 +281,11 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
     inventory_uom_id: UUID | None
     conversion_factor: Decimal
     conversion_version: int | None
+    #: The pack the line came in at (L5): its order line's. Boxes and pieces
+    #: are worked out from each quantity with it and never stored. Null
+    #: where the item has no pack.
+    pack_uom_id: UUID | None = None
+    pack_size: Decimal | None = None
     warehouse_id: UUID
     storage_node_id: UUID | None
     scheme_name: str | None = None
@@ -350,6 +367,8 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
     eway_bill_date: date | None = None
     invoice_reference: str | None
     remarks: str | None
+    #: The layout the receipt was saved in: boxes and pieces (L5).
+    box_and_piece_entry: bool = False
     status: GoodsReceiptStatus
     total_ordered_quantity: Decimal
     total_previous_received_quantity: Decimal

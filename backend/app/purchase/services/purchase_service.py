@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import json
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
@@ -113,9 +113,13 @@ from app.trade_licences.services.licence_check import (
 )
 from app.uom.schemas import ConversionRequest
 from app.uom.services import (
+    Pack,
+    PackedLine,
     UomService,
     assert_quantity_fits_unit,
     buying_units_of,
+    held_packs,
+    line_packs,
     stock_unit_of,
 )
 from app.vendors.models import Vendor
@@ -374,6 +378,7 @@ class PurchaseService(TransactionalDocumentService):
                     (number, line.product_id, line.ordered_quantity)
                     for number, line in enumerate(data.lines, start=1)
                 ],
+                pack_sizes=self._typed_pack_sizes(data.lines),
             )
         ]
         try:
@@ -603,6 +608,7 @@ class PurchaseService(TransactionalDocumentService):
             header_discount_amount=data.header_discount_amount,
             additional_charges=data.additional_charges,
             round_off=data.round_off,
+            box_and_piece_entry=bool(data.box_and_piece_entry),
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -796,6 +802,9 @@ class PurchaseService(TransactionalDocumentService):
         row.header_discount_amount = data.header_discount_amount
         row.additional_charges = data.additional_charges
         row.round_off = data.round_off
+        # Absent or null keeps the layout the order was saved in (L5).
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         row.updated_by = actor_id
         self._assert_order_quantities(row, data.lines)
         totals = self._replace_lines(row, data=data, actor_id=actor_id)
@@ -1351,6 +1360,8 @@ class PurchaseService(TransactionalDocumentService):
             select(
                 PurchaseOrderLine.rate_contract_line_id,
                 PurchaseOrderLine.ordered_quantity,
+                PurchaseOrderLine.purchase_uom_id,
+                PurchaseOrderLine.pack_size,
             ).where(
                 PurchaseOrderLine.purchase_order_id == row.id,
                 PurchaseOrderLine.is_deleted.is_(False),
@@ -1358,7 +1369,7 @@ class PurchaseService(TransactionalDocumentService):
         ).all()
         return overdraw_warnings(
             self._session,
-            [(row.id, row.status, [(line_id, qty) for line_id, qty in lines])],
+            [(row.id, row.status, [tuple(line) for line in lines])],
         ).get(row.id)
 
     def _check_budgets(
@@ -1958,7 +1969,12 @@ class PurchaseService(TransactionalDocumentService):
                     row.id,
                     row.status,
                     [
-                        (item.rate_contract_line_id, item.ordered_quantity)
+                        (
+                            item.rate_contract_line_id,
+                            item.ordered_quantity,
+                            item.purchase_uom_id,
+                            item.pack_size,
+                        )
                         for item in lines[row.id]
                     ],
                 )
@@ -2127,6 +2143,7 @@ class PurchaseService(TransactionalDocumentService):
                 (number, line.product_id, line.ordered_quantity)
                 for number, line in enumerate(lines, start=1)
             ],
+            pack_sizes=self._typed_pack_sizes(lines),
         )
         if hints:
             raise ValidationError(
@@ -2143,8 +2160,6 @@ class PurchaseService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         """Replace lines."""
-        priced, sources, schemes = self._priced_from_supplier(order, data.lines)
-        data = data.model_copy(update={"lines": priced})
         # Lines are matched on their line number and updated in place;
         # re-inserting them minted a new UUID per line on every save, and
         # downstream documents reference those ids with no foreign key.
@@ -2156,6 +2171,30 @@ class PurchaseService(TransactionalDocumentService):
                 )
             ).all()
         }
+        # The pack each line is written at (L5): a saved draft line's own,
+        # else the item's buying pack on the order's date. A line typed as
+        # boxes and pieces is in the stock unit, and refused here where it
+        # names another or was added up at another pack size.
+        typed_lines = self._pair_lines_in_pieces(data.lines)
+        packs = line_packs(
+            self._session,
+            [
+                PackedLine(
+                    line_number=idx,
+                    product_id=line.product_id,
+                    pack_size=line.pack_size,
+                    sales_uom_id=line.purchase_uom_id,
+                )
+                for idx, line in enumerate(typed_lines, start=1)
+            ],
+            side="BUY",
+            on_date=order.purchase_date,
+            kept=held_packs(existing.values()),
+        )
+        priced, sources, schemes = self._priced_from_supplier(
+            order, typed_lines, packs=packs
+        )
+        data = data.model_copy(update={"lines": priced})
         seen: set[int] = set()
         gross_total = Decimal("0")
         line_discount_total = Decimal("0")
@@ -2263,6 +2302,8 @@ class PurchaseService(TransactionalDocumentService):
                 warehouse_id=line.warehouse_id or order.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 remarks=line.remarks,
+                pack_uom_id=None if idx not in packs else packs[idx].uom_id,
+                pack_size=None if idx not in packs else packs[idx].size,
                 status=PurchaseOrderStatus.ORDERED.value,
                 created_by=actor_id,
                 updated_by=actor_id,
@@ -2308,7 +2349,11 @@ class PurchaseService(TransactionalDocumentService):
         }
 
     def _priced_from_supplier(
-        self, order: PurchaseOrder, lines: list[PurchaseLineWrite]
+        self,
+        order: PurchaseOrder,
+        lines: list[PurchaseLineWrite],
+        *,
+        packs: Mapping[int, Pack] | None = None,
     ) -> tuple[
         list[PurchaseLineWrite], list[tuple[str, UUID | None]], list[LineScheme]
     ]:
@@ -2325,6 +2370,10 @@ class PurchaseService(TransactionalDocumentService):
         ``resolve_line_discount``. A blank free quantity takes the supplier's
         free scheme on the same product (PG-11, ``line_schemes``). A typed
         value, zero included, stands.
+
+        A line typed as boxes and pieces is in pieces, so a contract kept per
+        box prices it at the box's rate over the line's pack size (L5, design
+        5); ``packs`` is the pack each line is written at, by position.
 
         Returns:
             The priced lines; per line where its price came from and the
@@ -2403,7 +2452,7 @@ class PurchaseService(TransactionalDocumentService):
         )
         priced: list[PurchaseLineWrite] = []
         sources: list[tuple[str, UUID | None]] = []
-        for line, scheme in zip(lines, schemes, strict=True):
+        for idx, (line, scheme) in enumerate(zip(lines, schemes, strict=True), 1):
             product = self._session.get(Product, line.product_id)
             if scheme.in_stock_unit:
                 # A scheme's free units of the line's own product are stock
@@ -2423,6 +2472,26 @@ class PurchaseService(TransactionalDocumentService):
                 ),
                 None,
             )
+            contract_rate = None if contract is None else Decimal(str(contract.rate))
+            pack = (packs or {}).get(idx)
+            if (
+                contract is None
+                and line.pack_size is not None
+                and pack is not None
+                and unit == stock_unit
+            ):
+                # A line typed as boxes and pieces against a contract kept
+                # per box: the box's rate over the pieces in it (L5).
+                contract = next(
+                    (
+                        candidate
+                        for candidate in contracts.get(line.product_id, [])
+                        if candidate.uom_id == pack.uom_id
+                    ),
+                    None,
+                )
+                if contract is not None:
+                    contract_rate = self._q(Decimal(str(contract.rate)) / pack.size)
             listed = catalogue.get(line.product_id)
             # The stock units one of the line's units holds: the factor the
             # line's quantity is about to be converted at (`_conversion`,
@@ -2466,9 +2535,7 @@ class PurchaseService(TransactionalDocumentService):
             list_rate = lists.price_for(line.product_id, line.ordered_quantity * factor)
             resolved = resolve_supplier_unit_price(
                 typed=line.unit_price,
-                contract_rate=(
-                    Decimal(str(contract.rate)) if contract is not None else None
-                ),
+                contract_rate=contract_rate,
                 list_rate=(
                     list_rate if list_rate is None else self._q(list_rate * factor)
                 ),
@@ -2512,6 +2579,39 @@ class PurchaseService(TransactionalDocumentService):
                 )
             priced.append(line.model_copy(update=update) if update else line)
         return priced, sources, schemes
+
+    def _pair_lines_in_pieces(
+        self, lines: Sequence[PurchaseLineWrite]
+    ) -> list[PurchaseLineWrite]:
+        """Put a line typed as boxes and pieces that names no unit in pieces.
+
+        Its quantity is the total in the stock unit (L5, design 3.4), where a
+        line naming no unit is otherwise read in the item's buying unit, and
+        41 pieces would be taken for 41 boxes.
+        """
+        answer: list[PurchaseLineWrite] = []
+        for line in lines:
+            if line.pack_size is not None and line.purchase_uom_id is None:
+                product = self._session.get(Product, line.product_id)
+                stock = stock_unit_of(product, line.inventory_uom_id)
+                if stock is not None:
+                    line = line.model_copy(update={"purchase_uom_id": stock})
+            answer.append(line)
+        return answer
+
+    @staticmethod
+    def _typed_pack_sizes(lines: Sequence[PurchaseLineWrite]) -> dict[int, Decimal]:
+        """Return, by line number, the pack size each pair line was added up at.
+
+        The supplier's minimum and multiple count the buying unit, so a line
+        typed as boxes and pieces is judged in boxes (L5, design 5): 41
+        pieces at 12 to a box are 3.4167 boxes against a minimum of 5.
+        """
+        return {
+            number: line.pack_size
+            for number, line in enumerate(lines, start=1)
+            if line.pack_size is not None
+        }
 
     def _line_discount_amount(
         self, line: PurchaseLineWrite, gross_amount: Decimal

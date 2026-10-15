@@ -98,6 +98,14 @@ class PurchaseLineWrite(PurchaseSchema):
     warehouse_id: UUID | None = None
     storage_node_id: UUID | None = None
     remarks: str | None = None
+    #: The pack size the screen added two cells up at -- boxes and pieces,
+    #: sent only by a line typed that way (L5, design 3.4). The line is then
+    #: in the item's stock unit (one naming no unit is put there); the server
+    #: works the line's pack out itself and refuses the line where this
+    #: differs. ``ordered_quantity`` is the total in pieces either way.
+    pack_size: Decimal | None = Field(
+        default=None, gt=1, max_digits=18, decimal_places=4
+    )
 
 
 class PurchaseDeliveryScheduleWrite(PurchaseSchema):
@@ -172,6 +180,10 @@ class PurchaseOrderWrite(PurchaseSchema):
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
     round_off: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
+    #: Typed as boxes and pieces (L5, design 3.8): how the document is shown
+    #: and typed, nothing else. Absent on a new one is off; absent or null on
+    #: an edit keeps the order's own.
+    box_and_piece_entry: bool | None = None
     lines: list[PurchaseLineWrite] = Field(min_length=1, max_length=1000)
     delivery_schedules: list[PurchaseDeliveryScheduleWrite] = Field(
         default_factory=list, max_length=2000
@@ -298,6 +310,11 @@ class PurchaseOrderLineResponse(PurchaseSchema):
     #: label as it read then ("10+2").
     scheme_id: UUID | None = None
     scheme_name: str | None = None
+    #: The pack the line was written at (L5): its unit and the stock units
+    #: in one. Boxes and pieces are worked out from ``ordered_quantity`` with
+    #: it and never stored. Null where the item has no pack.
+    pack_uom_id: UUID | None = None
+    pack_size: Decimal | None = None
 
 
 class PurchaseDeliveryScheduleResponse(PurchaseSchema):
@@ -409,6 +426,8 @@ class PurchaseOrderResponse(PurchaseSchema):
     sent_at: datetime | None = None
     sent_via: str | None = None
     sent_by: UUID | None = None
+    #: The layout the order was saved in: boxes and pieces (L5).
+    box_and_piece_entry: bool = False
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
