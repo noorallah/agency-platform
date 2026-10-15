@@ -50,6 +50,7 @@ DEFAULT_SETTINGS = PurchaseWorkflowSettings(
     purchase_order_approval=True,
     goods_receipt_approval=True,
     purchase_invoice_approval=True,
+    box_and_piece_entry=False,
 )
 
 #: The approval switch of each document that has one (backlog 120).
@@ -133,7 +134,10 @@ class PurchaseWorkflowService:
         if sent & {"default_branch_id", "default_warehouse_id"}:
             self._assert_defaults(firm_id, branch_id, warehouse_id)
         if row is None:
-            row = PurchaseWorkflowSettings(firm_id=firm_id, created_by=actor_id)
+            # Off until chosen: a row not yet flushed has no column default.
+            row = PurchaseWorkflowSettings(
+                firm_id=firm_id, created_by=actor_id, box_and_piece_entry=False
+            )
             self._session.add(row)
         else:
             before = self._snapshot(row)
@@ -156,6 +160,8 @@ class PurchaseWorkflowService:
             elif getattr(row, switch) is None:
                 # A row not yet flushed has no column default to read.
                 setattr(row, switch, True)
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -244,6 +250,7 @@ class PurchaseWorkflowService:
             purchase_order_approval=bool(row.purchase_order_approval),
             goods_receipt_approval=bool(row.goods_receipt_approval),
             purchase_invoice_approval=bool(row.purchase_invoice_approval),
+            box_and_piece_entry=bool(row.box_and_piece_entry),
             is_configured=is_configured,
         )
 
@@ -272,4 +279,5 @@ class PurchaseWorkflowService:
             "order_quantity_policy": row.order_quantity_policy,
             "budget_policy": row.budget_policy,
             **{switch: getattr(row, switch) for switch in APPROVAL_SWITCHES},
+            "box_and_piece_entry": row.box_and_piece_entry,
         }

@@ -195,6 +195,10 @@ class VendorWrite(VendorSchema):
     msme_written_agreement: bool = False
     #: The supplier e-invoices, so its bills carry an IRN (backlog 78 row 5).
     issues_e_invoices: bool = False
+    #: Buys in boxes and pieces (L5): a new buying document from this
+    #: supplier opens with the box cells, where the firm's switch is on.
+    #: Absent on an update keeps it.
+    box_and_piece_entry: bool = False
     #: The TDS section a payment to it is usually deducted under (ACC-7).
     default_tds_section: str | None = Field(default=None, max_length=10)
     #: For 194C (PG-5): an individual or HUF, deducted at the lower rate.
@@ -529,6 +533,7 @@ class VendorResponse(VendorSchema):
     msme_category: str | None = None
     msme_written_agreement: bool = False
     issues_e_invoices: bool = False
+    box_and_piece_entry: bool = False
     default_tds_section: str | None = None
     tds_individual_huf: bool | None = None
     tds_technical_services: bool = False
@@ -611,6 +616,8 @@ class VendorListFilters(VendorSchema):
     firm_id: UUID | None = None
     created_from: date | None = None
     created_to: date | None = None
+    #: Only suppliers marked, or not marked, to buy in boxes and pieces (L5).
+    box_and_piece_entry: bool | None = None
     include_deleted: bool = False
 
     @model_validator(mode="after")

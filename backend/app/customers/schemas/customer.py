@@ -246,6 +246,10 @@ class CustomerWrite(CustomerSchema):
     #: Which batch trade rate this buyer takes (PG-14): RETAILER the price to
     #: retailer, STOCKIST the price to stockist; blank or OTHER neither.
     trade_class: Literal["RETAILER", "STOCKIST", "OTHER"] | None = None
+    #: Bills in boxes and pieces (L5): a new selling document for this
+    #: customer opens with the box cells, where the firm's switch is on.
+    #: Absent on an update keeps it.
+    box_and_piece_entry: bool = False
     #: Tried first when an event offers it; blank follows the firm's order.
     preferred_channel: Literal["EMAIL", "WHATSAPP", "SMS"] | None = None
     #: The customer agreed to WhatsApp messages. The server records when.
@@ -389,6 +393,7 @@ class CustomerResponse(CustomerSchema):
     minimum_shelf_life_days: int | None = None
     bill_page_size: str | None = None
     trade_class: str | None = None
+    box_and_piece_entry: bool = False
     preferred_channel: str | None = None
     whatsapp_opt_in: bool = False
     whatsapp_opt_in_at: datetime | None = None
@@ -478,6 +483,8 @@ class CustomerListFilters(CustomerSchema):
     state: str | None = Field(default=None, max_length=100)
     created_from: date | None = None
     created_to: date | None = None
+    #: Only customers marked, or not marked, to bill in boxes and pieces (L5).
+    box_and_piece_entry: bool | None = None
     include_deleted: bool = False
 
     @model_validator(mode="after")

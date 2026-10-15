@@ -167,6 +167,7 @@ def _filters(
     created_from: date | None,
     created_to: date | None,
     include_deleted: bool,
+    box_and_piece_entry: bool | None = None,
 ) -> CustomerListFilters:
     try:
         return CustomerListFilters(
@@ -178,6 +179,7 @@ def _filters(
             created_from=created_from,
             created_to=created_to,
             include_deleted=include_deleted,
+            box_and_piece_entry=box_and_piece_entry,
         )
     except ValueError as error:
         raise ValidationError(str(error)) from error
@@ -243,6 +245,7 @@ def list_customers(
     created_from: date | None = None,
     created_to: date | None = None,
     include_deleted: bool = False,
+    box_and_piece_entry: bool | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[CustomerResponse]:
     """Search, filter, sort, and paginate visible customers."""
@@ -256,6 +259,7 @@ def list_customers(
         created_from=created_from,
         created_to=created_to,
         include_deleted=include_deleted,
+        box_and_piece_entry=box_and_piece_entry,
     )
     rows, total = CustomerService(db).list_customers(
         firm_scope=scope.firm_id,

@@ -209,6 +209,10 @@ class CustomerRepository:
             conditions.append(Customer.status == filters.status.value)
         if filters.customer_type is not None:
             conditions.append(Customer.customer_type == filters.customer_type.value)
+        if filters.box_and_piece_entry is not None:
+            conditions.append(
+                Customer.box_and_piece_entry.is_(filters.box_and_piece_entry)
+            )
         if filters.city:
             conditions.append(
                 exists(

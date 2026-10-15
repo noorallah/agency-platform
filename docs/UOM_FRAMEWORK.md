@@ -901,6 +901,21 @@ order confirmation, the quotation, the challan, the purchase order and the
 credit note all ask it. Any other line, and any document not in the layout,
 prints as before. `tests/unit/test_box_and_piece_prints.py` is the guard.
 
+### The two switches and the party's mark (L5 step 9)
+
+`sales_workflow_settings.box_and_piece_entry` and
+`purchase_workflow_settings.box_and_piece_entry` are the firm's switch for each
+side: read and written on the settings routes, off for a firm with no row and
+on a first write that does not name them, and an edit that does not name them
+keeps them. A customer's `box_and_piece_entry` (*Bills in boxes and pieces*)
+and a supplier's (*Buys in boxes and pieces*) are written on create (absent is
+false) and on edit (absent keeps), on the import as the `BoxesAndPieces`
+column (Yes or No, blank leaves it), recorded on the audit trail, and both lists
+take `?box_and_piece_entry=true|false`. The server stores the mark whatever the
+switch says; the screens read it only where the switch is on, to choose the
+layout a new document opens in (design section 4). A saved document keeps its
+own header flag.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and
