@@ -24,6 +24,7 @@ control wherever a person raises the order; here nobody would ever see the
 order, and the bill's approval is the decision.
 """
 
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -53,7 +54,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSourceType,
     PurchaseInvoiceSourceWrite,
 )
-from app.uom.services import UomService, buying_units_of
+from app.uom.services import Pack, UomService, buying_units_of, stock_unit_of
 from app.vendors.services.supplier_family import same_company
 
 ZERO = Decimal("0")
@@ -73,13 +74,23 @@ class PurchaseChainService:
         self.raised_orders: list[PurchaseOrder] = []
 
     def ensure_invoice_source(
-        self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: PurchaseInvoiceCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
     ) -> PurchaseInvoiceCreate:
         """Return a bill payload whose every line names a goods-receipt line.
 
         Unchanged for a firm on the whole chain, which is every firm until one
         switches a stage off: the product-line and order-sourced paths below
         are the only ones that write anything.
+
+        ``inherited_packs`` is the pack a bill line of products keeps, by its
+        line number, for the product it names: a draft bill edited raises its
+        order again today, and its lines keep the pack they were first
+        written at (L5, design 3.3).
         """
         settings = PurchaseWorkflowService(self._session).settings_for(firm_id)
         bare = [line for line in data.lines if line.source_document_line_id is None]
@@ -93,7 +104,11 @@ class PurchaseChainService:
                 "never a mixture of the two."
             )
         return self._order_and_receipt(
-            data, firm_id=firm_id, actor_id=actor_id, settings=settings
+            data,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            settings=settings,
+            inherited_packs=inherited_packs or {},
         )
 
     def _order_and_receipt(
@@ -103,8 +118,14 @@ class PurchaseChainService:
         firm_id: UUID,
         actor_id: UUID,
         settings: PurchaseWorkflowSettings,
+        inherited_packs: Mapping[int, tuple[UUID, Pack]],
     ) -> PurchaseInvoiceCreate:
-        """Raise the order and the receipt a bill of products implies."""
+        """Raise the order and the receipt a bill of products implies.
+
+        The order takes the bill's layout and each line's ``pack_size``, so
+        it, the receipt and the bill are written at one pack (L5, design
+        3.6) and a stale pack is refused on the order, naming the line.
+        """
         if settings.purchase_order_stage or settings.goods_receipt_stage:
             raise ValidationError(
                 "This firm raises a purchase order and a goods receipt before "
@@ -133,6 +154,7 @@ class PurchaseChainService:
                 exchange_rate=data.exchange_rate,
                 reference_number=data.supplier_invoice_number,
                 remarks=data.remarks,
+                box_and_piece_entry=data.box_and_piece_entry,
                 lines=[
                     PurchaseLineWrite(
                         product_id=self._product_of(line),
@@ -152,6 +174,7 @@ class PurchaseChainService:
                         warehouse_id=line.warehouse_id or warehouse_id,
                         storage_node_id=line.storage_node_id,
                         remarks=line.remarks,
+                        pack_size=line.pack_size,
                     )
                     for index, line in enumerate(data.lines)
                 ],
@@ -159,6 +182,12 @@ class PurchaseChainService:
             firm_id=firm_id,
             actor_id=actor_id,
             check_quantities=False,
+            # The order's lines are numbered by position.
+            inherited_packs={
+                index: inherited_packs[line.line_number]
+                for index, line in enumerate(data.lines, start=1)
+                if line.line_number in inherited_packs
+            },
         )
         orders.stage_submit(order.id, firm_scope=firm_id, actor_id=actor_id)
         # Nobody typed this order, so no approval limit governs it (68 row 4).
@@ -281,6 +310,8 @@ class PurchaseChainService:
                 receipt_date=data.invoice_date,
                 invoice_reference=data.supplier_invoice_number,
                 remarks=data.remarks,
+                # Silence takes the order's (L5).
+                box_and_piece_entry=data.box_and_piece_entry,
                 lines=receipt_lines_in,
             ),
             firm_id=firm_id,
@@ -421,6 +452,8 @@ class PurchaseChainService:
                 bill_line.manufacturing_date or order_line.manufacturing_date
             ),
             remarks=bill_line.remarks,
+            # Checked against the order line's pack by the receipt (L5).
+            pack_size=bill_line.pack_size,
         )
 
     def _order_lines(self, order_id: UUID) -> list[PurchaseOrderLine]:
@@ -447,7 +480,8 @@ class PurchaseChainService:
         product's buying unit: a bill of 2 with no price, for a product
         bought by the box of 12 at 60.00 a piece, was charged 60.00 a box --
         120.00 for 24 pieces. It is 720.00 a box, at the factor the order
-        line converts with.
+        line converts with. A line typed as boxes and pieces naming no unit
+        is in pieces, as the order reads it (L5).
         """
         products = {
             product.id: product
@@ -468,7 +502,11 @@ class PurchaseChainService:
                 product,
                 unit=line.invoice_uom_id
                 or line.purchase_uom_id
-                or product.purchase_uom_id,
+                or (
+                    stock_unit_of(product)
+                    if line.pack_size is not None
+                    else product.purchase_uom_id
+                ),
                 stock_unit=None,
             )
             factor = units.unit_factor(

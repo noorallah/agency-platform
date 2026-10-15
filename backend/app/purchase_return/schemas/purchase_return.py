@@ -141,6 +141,14 @@ class PurchaseReturnLineWrite(PurchaseReturnSchema):
     #: returned, each in stock and received from this supplier. Absent (or
     #: null) keeps what the line already names; an empty list clears it.
     serial_numbers: list[SerialText] | None = Field(default=None, max_length=10000)
+    #: The pack size the screen added two cells up at -- boxes and pieces,
+    #: sent only by a line typed that way (L5, design 3.4). The line goes
+    #: back at the pack of the receipt or bill line it returns, and is
+    #: refused where this differs or the line is counted in another unit
+    #: than stock. The quantities are pieces either way.
+    pack_size: Decimal | None = Field(
+        default=None, gt=1, max_digits=18, decimal_places=4
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -179,6 +187,11 @@ class PurchaseReturnCreate(PurchaseReturnSchema):
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
+    #: Typed as boxes and pieces (L5, design 3.8): how the document is shown
+    #: and typed, nothing else. Absent on a new return takes it where a
+    #: receipt or bill it returns has it; absent or null on an edit keeps
+    #: the return's own.
+    box_and_piece_entry: bool | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -318,6 +331,11 @@ class PurchaseReturnLineResponse(PurchaseReturnSchema):
     entered_quantity: Decimal | None = None
     conversion_factor: Decimal
     conversion_version: int | None
+    #: The pack the line goes back at (L5): its receipt or bill line's.
+    #: Boxes and pieces are worked out from each quantity with it and never
+    #: stored. Null where the item has no pack.
+    pack_uom_id: UUID | None = None
+    pack_size: Decimal | None = None
     warehouse_id: UUID | None
     storage_node_id: UUID | None
     batch_number: str | None
@@ -368,6 +386,8 @@ class PurchaseReturnResponse(PurchaseReturnSchema):
     due_date: date | None
     reference_number: str | None
     remarks: str | None
+    #: The layout the return was saved in: boxes and pieces (L5).
+    box_and_piece_entry: bool = False
     #: CREDIT, REPLACEMENT or REFUND (backlog 69 row 7).
     outcome: str = "CREDIT"
     status: PurchaseReturnStatus

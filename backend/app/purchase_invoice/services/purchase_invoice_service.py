@@ -136,9 +136,13 @@ from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.services import (
+    Pack,
+    PackedLine,
     UomService,
     assert_quantity_fits_unit,
     exact_quantity,
+    held_packs,
+    line_packs,
     unit_named,
 )
 from app.vendors.models import Vendor
@@ -158,6 +162,11 @@ SourceLine = GoodsReceiptLine | PurchaseOrderLine
 def _optional_uuid(value: object) -> UUID | None:
     """Read a UUID out of an untyped line spec."""
     return value if isinstance(value, UUID) else None
+
+
+def _optional_decimal(value: object) -> Decimal | None:
+    """Read a Decimal out of an untyped line spec."""
+    return value if isinstance(value, Decimal) else None
 
 
 def _required_uuid(value: object) -> UUID:
@@ -607,6 +616,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             ),
             reference_number=data.reference_number,
             remarks=data.remarks,
+            # Silence takes it where a receipt it bills has it (L5).
+            box_and_piece_entry=(
+                self._receipts_in_boxes(source_rows)
+                if data.box_and_piece_entry is None
+                else data.box_and_piece_entry
+            ),
             status=PurchaseInvoiceStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -748,6 +763,26 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             data = data.model_copy(update=kept)
         # In the bill's words, before an order raised again asks (D-BUY-51).
         check_currency(data.currency_code, data.exchange_rate)
+        # Absent or null keeps the bill's layout, and a bill of products
+        # hands it to the order and receipt it raises again (L5).
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
+        else:
+            data = data.model_copy(
+                update={"box_and_piece_entry": bool(row.box_and_piece_entry)}
+            )
+        # A line keeps, per product, the pack it was first written at (L5,
+        # design 3.3): the order raised again below is dated today.
+        first_packs = dict(
+            held_packs(
+                self._session.scalars(
+                    select(PurchaseInvoiceLine).where(
+                        PurchaseInvoiceLine.purchase_invoice_id == row.id,
+                        PurchaseInvoiceLine.is_deleted.is_(False),
+                    )
+                ).all()
+            ).values()
+        )
         self._delete_children(row.id)
         own_receipts = frozenset(receipt.id for receipt in self._raised_receipts(row))
         if any(line.source_document_line_id is None for line in data.lines):
@@ -768,7 +803,14 @@ class PurchaseInvoiceService(TransactionalDocumentService):
 
             chain = PurchaseChainService(self._session)
             data = chain.ensure_invoice_source(
-                data, firm_id=firm_scope, actor_id=actor_id
+                data,
+                firm_id=firm_scope,
+                actor_id=actor_id,
+                inherited_packs={
+                    line.line_number: (line.product_id, first_packs[line.product_id])
+                    for line in data.lines
+                    if line.product_id is not None and line.product_id in first_packs
+                },
             )
             self._stamp_raised(row, chain.raised_orders, chain.raised_receipts)
             own_receipts = frozenset(receipt.id for receipt in chain.raised_receipts)
@@ -2005,6 +2047,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             due_date=row.due_date,
             reference_number=row.reference_number,
             remarks=row.remarks,
+            box_and_piece_entry=bool(row.box_and_piece_entry),
             status=PurchaseInvoiceStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_invoiced_quantity=row.total_already_invoiced_quantity,
@@ -2596,6 +2639,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             PurchaseInvoiceLine.purchase_invoice_id == row.id
         ).delete(synchronize_session=False)
         totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
+        # What decides each line's pack (L5): the line it bills holds one.
+        typed_in: list[PackedLine] = []
+        billed_at: dict[int, tuple[UUID, Pack]] = {}
+        written: dict[int, PurchaseInvoiceLine] = {}
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line: SourceLine | None
@@ -2828,6 +2875,20 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 updated_by=actor_id,
             )
             self._session.add(line)
+            written[index] = line
+            typed_in.append(
+                PackedLine(
+                    line_number=index,
+                    product_id=self._product_id(source_line),
+                    pack_size=_optional_decimal(spec.get("pack_size")),
+                    sales_uom_id=line.invoice_uom_id,
+                )
+            )
+            if source_line.pack_uom_id is not None and source_line.pack_size:
+                billed_at[index] = (
+                    self._product_id(source_line),
+                    Pack(source_line.pack_uom_id, None, source_line.pack_size),
+                )
             # Flushed here so the components have a line id to hang from. The
             # lines are rebuilt on every edit; `_delete_line_taxes` takes the
             # components off first, because the bulk delete below bypasses the
@@ -2870,6 +2931,22 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             totals["subtotal"] += self._q(gross_amount - discount_amount - bill_share)
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
+        # Billed at the pack of the receipt line it bills, so 10 boxes taken
+        # in at 12 to a box are billed so after the item moved to 10 (L5,
+        # design 3.6); a receipt from before L5 holds none, and the item's
+        # buying pack on the bill's date is taken. A line typed at another
+        # size, or in another unit than stock, is refused.
+        packs = line_packs(
+            self._session,
+            typed_in,
+            side="BUY",
+            on_date=invoice_date,
+            kept=billed_at,
+        )
+        for index, pack in packs.items():
+            written[index].pack_uom_id = pack.uom_id
+            written[index].pack_size = pack.size
+        self._session.flush()
         totals["reverse_charge_tax_total"] += ZERO
         return {key: self._q(value) for key, value in totals.items()}
 
@@ -3084,6 +3161,30 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             },
         )
         return header, source_rows, lines
+
+    def _receipts_in_boxes(self, source_rows: list[dict[str, object]]) -> bool:
+        """Say whether any receipt a new bill bills was saved in boxes and pieces.
+
+        A document raised from another starts in its source's layout (L5,
+        design 3.8); a bill of products bills the receipt raised from its
+        own order, which took the bill's.
+        """
+        receipt_ids = {
+            receipt_id
+            for source in source_rows
+            if (receipt_id := _optional_uuid(source.get("source_document_id")))
+            is not None
+        }
+        return bool(receipt_ids) and bool(
+            self._session.scalar(
+                select(func.count())
+                .select_from(GoodsReceipt)
+                .where(
+                    GoodsReceipt.id.in_(receipt_ids),
+                    GoodsReceipt.box_and_piece_entry.is_(True),
+                )
+            )
+        )
 
     def _stamp_raised(
         self,
@@ -4380,6 +4481,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             entered_quantity=row.entered_quantity,
             conversion_factor=row.conversion_factor,
             conversion_version=row.conversion_version,
+            pack_uom_id=row.pack_uom_id,
+            pack_size=row.pack_size,
             warehouse_id=row.warehouse_id,
             storage_node_id=row.storage_node_id,
             batch_number=row.batch_number,

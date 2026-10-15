@@ -125,9 +125,13 @@ from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import Uom
 from app.uom.services import (
+    Pack,
+    PackedLine,
     UomService,
     assert_quantity_fits_unit,
     exact_quantity,
+    held_packs,
+    line_packs,
 )
 from app.vendors.models import Vendor
 
@@ -146,6 +150,11 @@ SourceLine = GoodsReceiptLine | PurchaseInvoiceLine | PurchaseOrderLine
 def _optional_uuid(value: object) -> UUID | None:
     """Read a UUID out of an untyped line spec."""
     return value if isinstance(value, UUID) else None
+
+
+def _optional_decimal(value: object) -> Decimal | None:
+    """Read a Decimal out of an untyped line spec."""
+    return value if isinstance(value, Decimal) else None
 
 
 def _required_uuid(value: object) -> UUID:
@@ -437,6 +446,12 @@ class PurchaseReturnService(TransactionalDocumentService):
             due_date=data.due_date,
             reference_number=data.reference_number,
             remarks=data.remarks,
+            # Silence takes it where a receipt or bill it returns has it (L5).
+            box_and_piece_entry=(
+                self._sources_in_boxes(source_rows)
+                if data.box_and_piece_entry is None
+                else data.box_and_piece_entry
+            ),
             status=PurchaseReturnStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -520,6 +535,15 @@ class PurchaseReturnService(TransactionalDocumentService):
         # across by line number for a line that says nothing of them (PG-10).
         kept_serials = self._serials.kept(row)
         self._serials.clear(row)
+        # A saved line keeps its pack where its source holds none (L5).
+        saved_packs = held_packs(
+            self._session.scalars(
+                select(PurchaseReturnLine).where(
+                    PurchaseReturnLine.purchase_return_id == row.id,
+                    PurchaseReturnLine.is_deleted.is_(False),
+                )
+            ).all()
+        )
         self._delete_children(row.id)
         header, source_rows, line_specs = self._prepare_return_sources(data, firm_scope)
         row.vendor_id = data.vendor_id or header["vendor_id"]
@@ -544,6 +568,9 @@ class PurchaseReturnService(TransactionalDocumentService):
         row.due_date = data.due_date
         row.reference_number = data.reference_number
         row.remarks = data.remarks
+        # Absent or null keeps the layout the return was saved in (L5).
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -562,6 +589,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             return_date=data.return_date,
             business_profile_id=data.business_profile_id,
             actor_id=actor_id,
+            saved_packs=saved_packs,
         )
         self._serials.pick(row, line_specs, kept_serials, actor_id=actor_id)
         row.total_source_quantity = line_totals["total_source_quantity"]
@@ -2341,6 +2369,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             due_date=row.due_date,
             reference_number=row.reference_number,
             remarks=row.remarks,
+            box_and_piece_entry=bool(row.box_and_piece_entry),
             status=PurchaseReturnStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_returned_quantity=row.total_already_returned_quantity,
@@ -2763,6 +2792,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         return_date: date,
         business_profile_id: UUID | None,
         actor_id: UUID,
+        saved_packs: dict[int, tuple[UUID, Pack]] | None = None,
     ) -> dict[str, Decimal]:
         self._session.query(PurchaseReturnLine).filter(
             PurchaseReturnLine.purchase_return_id == row.id
@@ -2778,6 +2808,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             raised=(return_date, row.return_number),
         )
         unbilled_here: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        # What decides each line's pack (L5): the line it returns holds one.
+        typed_in: list[PackedLine] = []
+        returned_at: dict[int, tuple[UUID, Pack]] = {}
+        written: dict[int, PurchaseReturnLine] = {}
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line: SourceLine | None
@@ -3051,6 +3085,20 @@ class PurchaseReturnService(TransactionalDocumentService):
                 updated_by=actor_id,
             )
             self._session.add(line)
+            written[index] = line
+            typed_in.append(
+                PackedLine(
+                    line_number=index,
+                    product_id=self._product_id(source_line),
+                    pack_size=_optional_decimal(spec.get("pack_size")),
+                    sales_uom_id=_optional_uuid(return_uom_id) or source_uom_id,
+                )
+            )
+            if source_line.pack_uom_id is not None and source_line.pack_size:
+                returned_at[index] = (
+                    self._product_id(source_line),
+                    Pack(source_line.pack_uom_id, None, source_line.pack_size),
+                )
             totals["total_source_quantity"] += source_quantity + source_free
             totals["total_already_returned_quantity"] += already_bought + already_free
             totals["total_current_return_quantity"] += return_quantity + free_quantity
@@ -3062,7 +3110,55 @@ class PurchaseReturnService(TransactionalDocumentService):
             totals["subtotal"] += self._q(gross_amount - discount_amount - bill_share)
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
+        # Sent back at the pack of the line it returns, so a box taken in at
+        # 12 goes back at 12 after the item moved to 10 (L5, design 3.6). A
+        # source from before L5 holds none: a saved line keeps its own, else
+        # the item's buying pack on the return's date. A line typed at
+        # another size, or counted in another unit than stock, is refused.
+        packs = line_packs(
+            self._session,
+            typed_in,
+            side="BUY",
+            on_date=return_date,
+            kept={**(saved_packs or {}), **returned_at},
+        )
+        for index, pack in packs.items():
+            written[index].pack_uom_id = pack.uom_id
+            written[index].pack_size = pack.size
         return {key: self._q(value) for key, value in totals.items()}
+
+    def _sources_in_boxes(self, source_rows: list[dict[str, object]]) -> bool:
+        """Say whether any receipt or bill a new return sends back is in boxes.
+
+        A document raised from another starts in its source's layout (L5,
+        design 3.8).
+        """
+        found = False
+        for model, kind in (
+            (GoodsReceipt, PurchaseReturnSourceType.GOODS_RECEIPT.value),
+            (PurchaseInvoice, PurchaseReturnSourceType.PURCHASE_INVOICE.value),
+        ):
+            ids = {
+                source_id
+                for source in source_rows
+                if self._source_type(source.get("source_document_type")) == kind
+                and (source_id := _optional_uuid(source.get("source_document_id")))
+                is not None
+            }
+            found = found or (
+                bool(ids)
+                and bool(
+                    self._session.scalar(
+                        select(func.count())
+                        .select_from(model)
+                        .where(
+                            model.id.in_(ids),
+                            model.box_and_piece_entry.is_(True),
+                        )
+                    )
+                )
+            )
+        return found
 
     def _replace_attachments(
         self,
@@ -4126,6 +4222,8 @@ class PurchaseReturnService(TransactionalDocumentService):
             entered_quantity=row.entered_quantity,
             conversion_factor=row.conversion_factor,
             conversion_version=row.conversion_version,
+            pack_uom_id=row.pack_uom_id,
+            pack_size=row.pack_size,
             warehouse_id=row.warehouse_id,
             storage_node_id=row.storage_node_id,
             batch_number=row.batch_number,

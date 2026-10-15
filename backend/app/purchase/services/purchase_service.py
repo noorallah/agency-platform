@@ -524,8 +524,13 @@ class PurchaseService(TransactionalDocumentService):
         firm_id: UUID,
         actor_id: UUID,
         check_quantities: bool = True,
+        inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
     ) -> PurchaseOrder:
         """Build one order as a draft without committing it.
+
+        ``inherited_packs`` is the pack a line keeps, by its position, for the
+        product it names: an order a supplier's bill raises again on an edit
+        keeps the pack its lines were first written at (L5, design 3.3).
 
         A create used to write whatever status it was given, so an order could
         be born APPROVED -- 64 in the shared store were, from the seeder -- and
@@ -620,7 +625,9 @@ class PurchaseService(TransactionalDocumentService):
         # supplier's terms are not for it to break (BUY-5).
         if check_quantities:
             self._assert_order_quantities(row, data.lines)
-        totals = self._replace_lines(row, data=data, actor_id=actor_id)
+        totals = self._replace_lines(
+            row, data=data, actor_id=actor_id, inherited_packs=inherited_packs
+        )
         row.subtotal = totals["subtotal"]
         row.line_discount_total = totals["line_discount_total"]
         row.tax_total = totals["tax_total"]
@@ -2158,6 +2165,7 @@ class PurchaseService(TransactionalDocumentService):
         *,
         data: PurchaseOrderCreate | PurchaseOrderUpdate | PurchaseOrderAmend,
         actor_id: UUID,
+        inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
     ) -> dict[str, Decimal]:
         """Replace lines."""
         # Lines are matched on their line number and updated in place;
@@ -2189,7 +2197,7 @@ class PurchaseService(TransactionalDocumentService):
             ],
             side="BUY",
             on_date=order.purchase_date,
-            kept=held_packs(existing.values()),
+            kept={**held_packs(existing.values()), **(inherited_packs or {})},
         )
         priced, sources, schemes = self._priced_from_supplier(
             order, typed_lines, packs=packs

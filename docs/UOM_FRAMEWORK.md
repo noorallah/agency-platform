@@ -836,6 +836,38 @@ example's purchase -- 10 boxes at 8.00 a piece, 1 box free -- is 960.00 and
 132 pieces in at 7.27. `tests/unit/test_box_and_piece_purchase.py` is the
 guard.
 
+### The pack on a supplier's bill and a purchase return line (L5 step 7)
+
+A bill line is billed **at its receipt line's pack**, so 10 boxes taken in at
+12 are billed at 12 after the box moved to 10; a receipt line from before L5
+holds none, and the item's buying pack on the bill's date is taken. Bill lines
+are re-inserted on every save (they are terminal), so the pack is worked out
+once all of them are written and set on each, and a line counted in another
+unit than stock (`invoice_uom_id`, else its receipt line's) is refused for a
+`pack_size`.
+
+A **bill typed straight in** (purchase order and receipt stages off) hands its
+`box_and_piece_entry` and each line's `pack_size` to the order and the receipt
+`PurchaseChainService` raises behind it, so the three are written at one pack
+and a stale pack is refused on the order, naming the line. A pair line naming
+no unit is in pieces there too: its blank price is the product's price of a
+piece, not of a box. A draft bill of products edited later raises its order
+again dated today; each line keeps, per product, the pack it was first
+written at (`stage_order(inherited_packs=)`). A bill naming an order for a
+firm that types no receipts hands `pack_size` to the receipt it raises, which
+checks it against the order line's pack.
+
+A return line goes back **at the pack of the receipt or bill line it
+returns**; a source from before L5 holds none, and a saved draft return line
+keeps its own, else the item's buying pack on the return's date. Free goods
+sent back on their own (0 bought, 12 free) are a line at its pack like any
+other. Caps stay sums of pieces.
+
+Headers: a new bill takes `box_and_piece_entry` where a receipt it bills has
+it, a new return where a receipt or bill it returns has it; absent or null on
+an edit keeps the document's own. `tests/unit/test_box_and_piece_supplier_bill.py`
+is the guard.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and
