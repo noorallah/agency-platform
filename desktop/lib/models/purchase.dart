@@ -145,11 +145,22 @@ class PurchaseOrderLine {
     this.schemeId = '',
     this.schemeName = '',
     this.isCapitalGoods = false,
+    this.packSize = '',
+    this.typedPackSize = '',
   });
 
   /// A fixed asset rather than stock: received without entering stock, and
   /// the bill raises the asset (D-BUY-40).
   final bool isCapitalGoods;
+
+  /// L5: the pack the server holds this line at ('' where the item has
+  /// none). Read-only; dropped when the line's product changes.
+  final String packSize;
+
+  /// L5: the pack size the two cells were added up at, set by the editor
+  /// only on a line typed as boxes and pieces. Sent as `pack_size`; such a
+  /// line is counted in pieces, so it names no buying unit.
+  final String typedPackSize;
 
   final String id;
   final int lineNumber;
@@ -261,6 +272,7 @@ class PurchaseOrderLine {
         schemeId: stringValue(json['scheme_id']),
         schemeName: stringValue(json['scheme_name']),
         isCapitalGoods: boolValue(json['is_capital_goods']),
+        packSize: stringValue(json['pack_size']),
       );
 
   PurchaseOrderLine copyWith({
@@ -288,6 +300,7 @@ class PurchaseOrderLine {
     String? schemeId,
     String? schemeName,
     bool? isCapitalGoods,
+    String? typedPackSize,
   }) =>
       PurchaseOrderLine(
         id: id ?? this.id,
@@ -335,6 +348,11 @@ class PurchaseOrderLine {
         schemeId: schemeId ?? this.schemeId,
         schemeName: schemeName ?? this.schemeName,
         isCapitalGoods: isCapitalGoods ?? this.isCapitalGoods,
+        // The pack held is the saved product's; another product has its own.
+        packSize: productId == null || productId == this.productId
+            ? packSize
+            : '',
+        typedPackSize: typedPackSize ?? this.typedPackSize,
       );
 
   /// A line that only gives goods: nothing is paid for, a scheme says why.
@@ -389,9 +407,13 @@ class PurchaseOrderLine {
         if (description.isNotEmpty) 'description': description,
         if (vendorProductCode.isNotEmpty)
           'vendor_product_code': vendorProductCode,
-        if (purchaseUomId.isNotEmpty) 'purchase_uom_id': purchaseUomId,
+        // L5: a line typed as boxes and pieces is in pieces; the server puts
+        // it in the stock unit and refuses one naming another.
+        if (purchaseUomId.isNotEmpty && typedPackSize.isEmpty)
+          'purchase_uom_id': purchaseUomId,
         if (inventoryUomId.isNotEmpty) 'inventory_uom_id': inventoryUomId,
         'ordered_quantity': orderedQuantity.isEmpty ? '0' : orderedQuantity,
+        if (typedPackSize.isNotEmpty) 'pack_size': typedPackSize,
         // Blank is null, not zero: silence takes a same-product supplier
         // scheme and a typed 0 refuses it (PG-11).
         'free_quantity': freeQuantity.trim().isEmpty ? null : freeQuantity,
@@ -704,7 +726,16 @@ class PurchaseOrder {
     this.savedExchangeRate,
     this.approvalStep = true,
     this.createdBy = '',
+    this.boxAndPieceEntry = false,
+    this.statesBoxAndPieces = false,
   });
+
+  /// L5: whether the lines were typed as boxes and pieces, as saved.
+  final bool boxAndPieceEntry;
+
+  /// Set by the editor only where the toggle is offered: then a save names
+  /// [boxAndPieceEntry]; absent takes the server's.
+  final bool statesBoxAndPieces;
 
   /// Backlog 120 (M2): false when approval was not a step of its own for
   /// this order when it was raised, and who raised it.
@@ -908,6 +939,7 @@ class PurchaseOrder {
         savedExchangeRate: stringValue(json['exchange_rate']),
         approvalStep: json['approval_step'] != false,
         createdBy: stringValue(json['created_by']),
+        boxAndPieceEntry: boolValue(json['box_and_piece_entry']),
       );
 
   PurchaseOrder copyWith({
@@ -942,9 +974,13 @@ class PurchaseOrder {
     List<PurchaseAttachment>? attachments,
     List<PurchaseNote>? notes,
     List<Json>? attributeInputs,
+    bool? boxAndPieceEntry,
+    bool? statesBoxAndPieces,
   }) =>
       PurchaseOrder(
         id: id ?? this.id,
+        boxAndPieceEntry: boxAndPieceEntry ?? this.boxAndPieceEntry,
+        statesBoxAndPieces: statesBoxAndPieces ?? this.statesBoxAndPieces,
         attributes: attributes,
         attributeInputs: attributeInputs ?? this.attributeInputs,
         rateContractWarning: rateContractWarning,
@@ -1033,6 +1069,7 @@ class PurchaseOrder {
         'additional_charges':
             additionalCharges.isEmpty ? '0' : additionalCharges,
         'round_off': roundOff.isEmpty ? '0' : roundOff,
+        if (statesBoxAndPieces) 'box_and_piece_entry': boxAndPieceEntry,
         'lines': lines.map((item) => item.toWriteJson()).toList(),
         'delivery_schedules':
             deliverySchedules.map((item) => item.toWriteJson()).toList(),

@@ -8,21 +8,110 @@ part of 'purchase_management_page.dart';
 /// attachment and note sections are reused unchanged; only the layout is
 /// phase 2's.
 extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
-  static const List<DocumentColumn> _columns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product (code, name or barcode)', 0),
-    DocumentColumn('HSN', 66),
-    DocumentColumn('Qty', 66, numeric: true),
-    DocumentColumn('Free', 56, numeric: true),
-    DocumentColumn('Unit', 76),
-    DocumentColumn('Rate', 84, numeric: true),
-    DocumentColumn('Disc %', 60, numeric: true),
-    DocumentColumn('Disc amt', 76, numeric: true),
-    DocumentColumn('Taxable', 92, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 100, numeric: true),
-    DocumentColumn('', 28),
+  List<DocumentColumn> get _columns => [
+    const DocumentColumn('#', 28),
+    DocumentColumn(
+      'Product (code, name or barcode)',
+      0,
+      // L5: the toggle above the lines, where the firm's switch is on,
+      // with room kept for it before the table scrolls sideways.
+      minWidth: _offersBoxes ? 300 : DocumentLineTable.minFlexWidth,
+      heading: _offersBoxes
+          ? BoxPieceToggle(
+              key: const ValueKey('purchase-order-box-and-pieces'),
+              label: 'Product (code, name or barcode)',
+              value: _boxAndPieces,
+              onChanged: _locked || _saving ? null : _setBoxAndPieces,
+            )
+          : null,
+    ),
+    const DocumentColumn('HSN', 66),
+    // L5: typed as boxes and pieces, Qty and Free become four cells.
+    if (_boxAndPieces)
+      ...boxPieceColumns
+    else ...const [
+      DocumentColumn('Qty', 66, numeric: true),
+      DocumentColumn('Free', 56, numeric: true),
+    ],
+    const DocumentColumn('Unit', 76),
+    const DocumentColumn('Rate', 84, numeric: true),
+    const DocumentColumn('Disc %', 60, numeric: true),
+    const DocumentColumn('Disc amt', 76, numeric: true),
+    const DocumentColumn('Taxable', 92, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 100, numeric: true),
+    const DocumentColumn('', 28),
   ];
+
+  /// L5: the firm's buying switch is on, read when a new order opens: offer
+  /// the toggle, and follow the supplier's mark unless it was moved.
+  void _offerBoxesOnOpen() {
+    _setState(() {
+      _offersBoxes = true;
+      if (!_boxesTouched) _boxAndPieces = _vendor?.boxAndPieceEntry ?? false;
+      _clearBoxEntries();
+    });
+  }
+
+  /// L5: the toggle above the lines. Changes no quantity: the same figures
+  /// are shown as one cell or as two.
+  void _setBoxAndPieces(bool value, {bool touched = true}) {
+    _setState(() {
+      _boxAndPieces = value;
+      if (touched) _boxesTouched = true;
+      _clearBoxEntries();
+    });
+    _schedulePreview();
+  }
+
+  void _clearBoxEntries() {
+    for (final BoxPieceEntry entry in _boxEntries.values) {
+      entry.dispose();
+    }
+    _boxEntries.clear();
+  }
+
+  /// L5: the pack a line is held at as the server sent it, else its item's
+  /// buying pack; '' where it has none.
+  String _packSizeOf(PurchaseOrderLine line) => line.packSize.isNotEmpty
+      ? line.packSize
+      : _product(line.productId)?.buyingPackSize ?? '';
+
+  /// L5: the pack a line's cells split by, or null for an item with none.
+  double? _packFor(PurchaseOrderLine line) => packOf(_packSizeOf(line));
+
+  /// L5: the four cells of line [index], filled from its figures in pieces
+  /// the first time they are drawn for this place, product and epoch.
+  BoxPieceEntry _boxEntry(int index) {
+    final PurchaseOrderLine line = _draft.lines[index];
+    return _boxEntries.putIfAbsent(
+      '$_lineEpoch-$index-${line.productId}',
+      () => BoxPieceEntry()
+        ..load(
+          quantity: line.orderedQuantity,
+          free: line.freeQuantity,
+          pack: _packFor(line),
+        ),
+    );
+  }
+
+  /// L5: the order as sent: where the toggle is offered it names the
+  /// layout, and each line typed as boxes and pieces its pack.
+  PurchaseOrder _withBoxes(PurchaseOrder order) {
+    if (!_phase2 || !_offersBoxes) return order;
+    return order.copyWith(
+      boxAndPieceEntry: _boxAndPieces,
+      statesBoxAndPieces: true,
+      lines: [
+        for (final PurchaseOrderLine line in order.lines)
+          line.copyWith(
+            typedPackSize: _boxAndPieces && _packFor(line) != null
+                ? _packSizeOf(line)
+                : '',
+          ),
+      ],
+    );
+  }
 
   static const List<String> _baseSections = [
     'Lines',
@@ -658,6 +747,12 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
             if (value == null) return;
             _change((o) => o.copyWith(vendorId: value));
             unawaited(_readVendorBrands(value));
+            // L5: a new order follows the supplier's mark until the toggle
+            // is moved by hand.
+            if (widget.isCreating && _offersBoxes && !_boxesTouched) {
+              _setBoxAndPieces(_vendor?.boxAndPieceEntry ?? false,
+                  touched: false);
+            }
           },
         ),
       ),
@@ -1268,26 +1363,55 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           ),
         ),
         Text(product?.hsnSac ?? '', style: text),
-        _cellBox(
-          context,
-          index: index,
-          name: 'qty',
-          readOnly: schemeFree,
-          errorText: _quantityProblem(line),
-          value: line.orderedQuantity,
-          onChanged: (value) =>
-              _changeLine(index, line.copyWith(orderedQuantity: value)),
-        ),
-        _cellBox(
-          context,
-          index: index,
-          name: 'free',
-          readOnly: schemeFree,
-          value: line.freeQuantity,
-          onChanged: (value) =>
-              _changeLine(index, line.copyWith(freeQuantity: value)),
-        ),
-        _unitCell(context, index, line, text, readOnly: schemeFree),
+        if (_boxAndPieces)
+          ...boxPieceCells(
+            context,
+            entry: _boxEntry(index),
+            pack: _packFor(line),
+            readOnly: _locked || schemeFree,
+            keyPrefix: 'purchase-order-line-$index',
+            // A free-only line (paid 0, free n) is a line (PG-11).
+            chargedRequired: false,
+            onChanged: () {
+              final BoxPieceEntry entry = _boxEntry(index);
+              final double? pack = _packFor(line);
+              _setState(() => _current = index);
+              _changeLine(
+                index,
+                _draft.lines[index].copyWith(
+                  orderedQuantity: entry.quantityText(pack),
+                  freeQuantity: entry.freeText(pack),
+                ),
+              );
+            },
+          )
+        else ...[
+          _cellBox(
+            context,
+            index: index,
+            name: 'qty',
+            readOnly: schemeFree,
+            errorText: _quantityProblem(line),
+            value: line.orderedQuantity,
+            onChanged: (value) =>
+                _changeLine(index, line.copyWith(orderedQuantity: value)),
+          ),
+          _cellBox(
+            context,
+            index: index,
+            name: 'free',
+            readOnly: schemeFree,
+            value: line.freeQuantity,
+            onChanged: (value) =>
+                _changeLine(index, line.copyWith(freeQuantity: value)),
+          ),
+        ],
+        // L5: a line typed as boxes and pieces is counted in pieces, the
+        // item's stock unit.
+        if (_boxAndPieces && _packFor(line) != null)
+          Text(product?.displayUnit ?? '', style: text)
+        else
+          _unitCell(context, index, line, text, readOnly: schemeFree),
         _rateWithSource(
           (priced ?? line).isRateContract,
           index,
@@ -1618,6 +1742,16 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
       ..._schemeNotes(),
       ..._quantityHints(context),
       DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
+      if (_boxAndPieces && _packFor(line) != null)
+        DocumentSideNote(
+          boxPieceSummary(
+            packSize: _packSizeOf(line),
+            quantity: line.orderedQuantity,
+            free: line.freeQuantity,
+            rate: shownRate,
+          ),
+          key: const ValueKey('purchase-order-side-boxes'),
+        ),
       DocumentSidePair('Rate', shownRate.isEmpty ? '–' : documentMoney(shownRate)),
       DocumentSideNote(
         (priced ?? line).isRateContract
