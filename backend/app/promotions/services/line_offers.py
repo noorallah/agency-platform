@@ -21,18 +21,22 @@ from uuid import UUID
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from app.core.utils.money import quantize_money
 from app.core.utils.pricing import LineDiscount
-from app.core.utils.quantities import at_quantity_scale
+from app.core.utils.quantities import at_quantity_scale, plain_quantity
 from app.customers.models import CustomerGroup
 from app.pricing.services.price_list_service import PriceListRef
 from app.promotions.models.line_offer import LineOfferMixin
 from app.promotions.schemas import (
     LineOfferResponse,
+    OfferCandidate,
+    OfferGives,
     PromotionApplication,
     PromotionLineShare,
 )
 
 ZERO = Decimal("0")
+HUNDRED = Decimal("100")
 
 #: The words a line's ``discount_source`` uses for a standing arrangement.
 STANDING_SOURCES = frozenset({"price_list", "customer", "customer_group"})
@@ -261,6 +265,147 @@ def offers_by_line[RowT: LineOfferMixin](
             LineOfferResponse.model_validate(row)
         )
     return grouped
+
+
+#: Why a standing arrangement is not the one in the price shown, by the
+#: source of the discount that is.
+_PASSED_OVER = {
+    "promotion": "An offer gives this line its discount.",
+    "price_list": "The price list gives this line its discount.",
+    "customer": "The customer's standing rate gives this line its discount.",
+    "customer_group": "The customer's group rate gives this line its discount.",
+    "inherited": "The line keeps the discount of the document it continues.",
+}
+#: The sources a person typed: every arrangement is passed over by them.
+_TYPED = frozenset({"amount", "percent"})
+_TYPED_REASON = "A discount is typed on this line."
+
+
+def line_candidates(
+    *,
+    offered: Sequence[OfferCandidate],
+    rows: Sequence[OfferRow],
+    priced: LineDiscount,
+    gross: Decimal,
+    price_list: PriceListRef | None = None,
+    price_list_percent: Decimal | None = None,
+    customer_percent: Decimal | None = None,
+    group_percent: Decimal | None = None,
+    standing: StandingArrangement | None = None,
+) -> list[OfferCandidate]:
+    """Return what one line could take: its offers, then its standing terms (L7).
+
+    ``docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md`` sections 3.1 and 3.2.
+
+    Args:
+        offered: The engine's candidates for the line, in the order applied.
+        rows: The line's APPLIED rows (`line_offer_rows`): an offer is in the
+            price shown only where it has one, so the list and the rows the
+            document keeps cannot disagree.
+        priced: The shared rule's answer for the line.
+        gross: The line's value before discount, to value each standing rate.
+        price_list: The list whose break the line's quantity takes.
+        price_list_percent: That list's rate there; None where it names none.
+        customer_percent: The customer's standing rate; None where unset.
+        group_percent: The customer's group's rate; None where unset.
+        standing: The group's code and name.
+
+    Nothing is chosen in this step: ``chosen`` stays False throughout. Each
+    standing rate is valued alone on the line's gross, as the shared rule
+    would take it.
+
+    """
+    in_rows = {str(row.promotion_group_id) for row in rows if row.promotion_group_id}
+    candidates: list[OfferCandidate] = []
+    for item in offered:
+        if item.applied and item.key not in in_rows:
+            item = item.model_copy(
+                update={
+                    "applied": False,
+                    "reason": (
+                        _TYPED_REASON
+                        if priced.source in _TYPED
+                        else _PASSED_OVER.get(priced.source, "Not applied.")
+                    ),
+                }
+            )
+        candidates.append(item)
+    if price_list is not None and price_list_percent is not None:
+        candidates.append(
+            _standing_candidate(
+                key=str(price_list.id),
+                source="price_list",
+                code=price_list.code,
+                name=price_list.name,
+                percent=price_list_percent,
+                gross=gross,
+                priced=priced,
+            )
+        )
+    if customer_percent is not None and customer_percent > ZERO:
+        candidates.append(
+            _standing_candidate(
+                key="CUSTOMER",
+                source="customer",
+                code="CUSTOMER",
+                name="Standing rate",
+                percent=customer_percent,
+                gross=gross,
+                priced=priced,
+            )
+        )
+    if group_percent is not None and group_percent > ZERO:
+        group = standing or StandingArrangement()
+        candidates.append(
+            _standing_candidate(
+                key="CUSTOMER_GROUP",
+                source="customer_group",
+                code=group.group_code or "CUSTOMER_GROUP",
+                name=group.group_name or "Customer group",
+                percent=group_percent,
+                gross=gross,
+                priced=priced,
+            )
+        )
+    return candidates
+
+
+def _standing_candidate(
+    *,
+    key: str,
+    source: str,
+    code: str,
+    name: str,
+    percent: Decimal,
+    gross: Decimal,
+    priced: LineDiscount,
+) -> OfferCandidate:
+    """Return one standing arrangement as a candidate, valued on the gross."""
+    applied = priced.source == source
+    typed = priced.source in _TYPED
+    rate = quantize_money(percent)
+    return OfferCandidate(
+        key=key,
+        source=source,
+        code=code,
+        name=name[:_NAME_LENGTH],
+        gives=OfferGives(
+            kind="PERCENT", percent=rate, sentence=f"{plain_quantity(rate)}% off"
+        ),
+        worth=quantize_money(quantize_money(gross) * rate / HUNDRED),
+        applied=applied,
+        combines=False,
+        available=not typed,
+        reason=(
+            None
+            if applied
+            else (
+                _TYPED_REASON
+                if typed
+                else _PASSED_OVER.get(priced.source, "Not applied.")
+            )
+        ),
+    )
 
 
 def _settle_residual(rows: list[OfferRow], target: Decimal) -> None:

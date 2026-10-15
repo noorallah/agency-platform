@@ -9,7 +9,7 @@ the same thing about the same line.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.inventory.models import InventoryRecord
+from app.promotions.schemas import OfferCandidate
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 #: One line to describe: its number, its product and where it ships from.
@@ -229,3 +230,17 @@ def _with_stock(
             )
         )
     return result
+
+
+def with_candidates[LineT: DocumentPreviewLine](
+    lines: Sequence[LineT], by_line: Mapping[int, list[OfferCandidate]]
+) -> list[LineT]:
+    """Put beside each previewed line what it could take (L7 step 3).
+
+    A line the order's offers added -- a gift -- has none, and nor does one
+    the document did not price itself.
+    """
+    return [
+        line.model_copy(update={"candidates": list(by_line.get(line.line_number, []))})
+        for line in lines
+    ]

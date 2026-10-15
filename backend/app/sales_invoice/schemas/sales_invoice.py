@@ -12,6 +12,7 @@ from app.batch_serial.schemas import PickedSerial
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import NumberedOnce
 from app.delivery_note.schemas.delivery_note import DeliveryNoteBatchPick
+from app.promotions.schemas import OfferCandidate
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -859,3 +860,5 @@ class SalesInvoicePreview(SalesInvoiceSchema):
     invoice: SalesInvoiceResponse
     interstate: bool
     lines: list[DocumentPreviewLine]
+    #: The offers on the whole bill, applied or not, with their worth (L7).
+    bill_candidates: list[OfferCandidate] = Field(default_factory=list)

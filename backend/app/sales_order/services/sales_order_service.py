@@ -81,6 +81,7 @@ from app.products.services.free_issue import assert_not_sold_at_a_price
 from app.products.services.stockless import is_stockless, stockless_products
 from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
+    OfferCandidate,
     PromotionApplication,
     PromotionEvaluationRequest,
     PromotionEvaluationResponse,
@@ -93,6 +94,7 @@ from app.promotions.services.line_offers import (
     OfferRow,
     bill_offer_rows,
     gift_offer_rows,
+    line_candidates,
     line_offer_rows,
     offers_by_line,
     rewrite_offer_rows,
@@ -100,7 +102,7 @@ from app.promotions.services.line_offers import (
 )
 from app.promotions.services.offer_use import offer_took_off
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
-from app.sales.services.document_preview import line_companions
+from app.sales.services.document_preview import line_companions, with_candidates
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import (
@@ -199,6 +201,7 @@ class PromotionBenefits:
         self._freight_waived = outcome.freight_waived
         self._gifts = list(outcome.gifts)
         self._bill_offers = list(outcome.bill_offers)
+        self._bill_candidates = list(outcome.bill_candidates)
         self._applied = {item.promotion_id: item for item in outcome.applied}
 
     def line_discount(self, index: int) -> Decimal | None:
@@ -231,6 +234,15 @@ class PromotionBenefits:
     def bill_offers(self) -> list[PromotionLineShare]:
         """Return each offer's part of the bill discount, in the order applied."""
         return self._bill_offers
+
+    def line_candidates(self, index: int) -> list[OfferCandidate]:
+        """Return every offer line `index` meets, applied or not (L7 step 3)."""
+        item = self._lines.get(index + 1)
+        return list(item.candidates) if item is not None else []
+
+    def bill_candidates(self) -> list[OfferCandidate]:
+        """Return every offer on the whole bill, applied or not (L7 step 3)."""
+        return self._bill_candidates
 
     def application(self, promotion_id: UUID | None) -> PromotionApplication | None:
         """Return the offer applied under this id, to name a gift line's row."""
@@ -286,6 +298,20 @@ class SalesOrderService(TransactionalDocumentService):
         self._tax = TaxRuleService(session)
         self._uom = UomService(session)
         self._inventory = InventoryService(session)
+        #: What the last order priced could take, by line number and on the
+        #: whole bill, for its preview (L7 step 3). Nothing here is stored.
+        self._line_candidates: dict[int, list[OfferCandidate]] = {}
+        self._bill_candidates: list[OfferCandidate] = []
+
+    def offer_candidates(
+        self,
+    ) -> tuple[dict[int, list[OfferCandidate]], list[OfferCandidate]]:
+        """Return what the last order staged could take, by line and on the bill.
+
+        A bill typed straight in is priced by the order raised behind it, so
+        its preview reads the order's list from here (L7 step 3).
+        """
+        return dict(self._line_candidates), list(self._bill_candidates)
 
     def list_orders(
         self,
@@ -459,7 +485,13 @@ class SalesOrderService(TransactionalDocumentService):
             )
         finally:
             self._session.rollback()
-        return SalesOrderPreview(order=response, interstate=interstate, lines=lines)
+        by_line, on_bill = self.offer_candidates()
+        return SalesOrderPreview(
+            order=response,
+            interstate=interstate,
+            lines=with_candidates(lines, by_line),
+            bill_candidates=on_bill,
+        )
 
     def stage_order(
         self,
@@ -2674,6 +2706,8 @@ class SalesOrderService(TransactionalDocumentService):
             ).all()
         }
         lines = self._without_what_the_engine_gave(lines, existing)
+        self._line_candidates = {}
+        self._bill_candidates = []
         seen: set[int] = set()
         subtotal = ZERO
         tax_total = ZERO
@@ -2976,33 +3010,41 @@ class SalesOrderService(TransactionalDocumentService):
             )
             line.remarks = item.remarks
             line.updated_by = actor_id
-            offer_rows.append(
-                (
-                    line,
-                    (
-                        gift_offer_rows(
-                            benefits.application(free_promotion_id),
-                            free_quantity=free_quantity,
-                            stock_factor=line.conversion_factor,
-                        )
-                        if index >= asked
-                        else line_offer_rows(
-                            shares=benefits.line_offers(index),
-                            priced=line_discount,
-                            engine_free=item.free_quantity is None,
-                            stock_factor=line.conversion_factor,
-                            price_list=(
-                                prices.list_for(
-                                    item.product_id, item.quantity * factors[index]
-                                )
-                                if line_discount.source == "price_list"
-                                else None
-                            ),
-                            standing=standing,
-                        )
+            at_stock = item.quantity * factors[index]
+            found = (
+                gift_offer_rows(
+                    benefits.application(free_promotion_id),
+                    free_quantity=free_quantity,
+                    stock_factor=line.conversion_factor,
+                )
+                if index >= asked
+                else line_offer_rows(
+                    shares=benefits.line_offers(index),
+                    priced=line_discount,
+                    engine_free=item.free_quantity is None,
+                    stock_factor=line.conversion_factor,
+                    price_list=(
+                        prices.list_for(item.product_id, at_stock)
+                        if line_discount.source == "price_list"
+                        else None
                     ),
+                    standing=standing,
                 )
             )
+            offer_rows.append((line, found))
+            if index < asked:
+                # What else the line could take, for the preview (L7 step 3).
+                self._line_candidates[item.line_number] = line_candidates(
+                    offered=benefits.line_candidates(index),
+                    rows=found,
+                    priced=line_discount,
+                    gross=gross,
+                    price_list=prices.list_for(item.product_id, at_stock),
+                    price_list_percent=prices.rate_for(item.product_id, at_stock),
+                    customer_percent=customer_discount,
+                    group_percent=group_discount,
+                    standing=standing,
+                )
             seen.add(item.line_number)
             subtotal += taxable
             tax_total += tax
@@ -3010,6 +3052,7 @@ class SalesOrderService(TransactionalDocumentService):
         for line_number, line in existing.items():
             if line_number not in seen:
                 self._session.delete(line)
+        self._bill_candidates = benefits.bill_candidates()
         self._session.flush()
         rewrite_offer_rows(
             self._session,

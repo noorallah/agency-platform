@@ -29,8 +29,9 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, case, false, func, select
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.utils.dates import as_utc, utc_now
 from app.core.utils.money import quantize_ledger, quantize_money
@@ -44,6 +45,8 @@ from app.promotions.models import (
     PromotionRedemption,
 )
 from app.promotions.schemas import (
+    OfferCandidate,
+    OfferGives,
     PromotionActionType,
     PromotionApplication,
     PromotionConditionOperator,
@@ -61,6 +64,34 @@ from app.promotions.services.references import live_row_ids
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
+
+#: The actions that change a line, so an offer carrying one is listed beside
+#: each line its conditions hold on (L7 step 3).
+_LINE_ACTIONS = frozenset(
+    {
+        PromotionActionType.LINE_DISCOUNT_PERCENT.value,
+        PromotionActionType.LINE_DISCOUNT_AMOUNT.value,
+        PromotionActionType.FREE_QUANTITY.value,
+        PromotionActionType.BUY_X_GET_Y_DISCOUNT.value,
+        PromotionActionType.COMBO_PRICE.value,
+    }
+)
+#: The actions on the whole bill, so an offer carrying one is listed under
+#: the totals.
+_BILL_ACTIONS = frozenset(
+    {
+        PromotionActionType.BILL_DISCOUNT_PERCENT.value,
+        PromotionActionType.BILL_DISCOUNT_AMOUNT.value,
+        PromotionActionType.FREE_SHIPPING.value,
+        PromotionActionType.FREE_PRODUCT.value,
+    }
+)
+_BILL_DISCOUNTS = frozenset(
+    {
+        PromotionActionType.BILL_DISCOUNT_PERCENT.value,
+        PromotionActionType.BILL_DISCOUNT_AMOUNT.value,
+    }
+)
 
 
 #: India Standard Time. The product sells in India and keeps one zone; an
@@ -117,6 +148,41 @@ class _LineState:
     def remaining(self) -> Decimal:
         """What is still discountable on this line."""
         return self.gross - self.discount
+
+    def fresh(self) -> "_LineState":
+        """Return a copy with nothing given yet, to value one offer alone."""
+        return replace(
+            self,
+            discount=ZERO,
+            free_quantity=ZERO,
+            free_stock=ZERO,
+            free_promotion_id=None,
+            codes=[],
+        )
+
+
+@dataclass(slots=True)
+class _Considered:
+    """One offer the engine looked at, kept to list it beside the lines (L7)."""
+
+    promotion: Promotion
+    #: The indexes of the lines its conditions hold on, typed lines included.
+    lines: list[int]
+    #: False where nothing the bill maker does on this document reaches it.
+    available: bool = True
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _OfferUse:
+    """What one offer's claims add up to, read with every other offer's."""
+
+    claims: int = 0
+    by_customer: int = 0
+    by_coupon: int = 0
+    by_coupon_customer: int = 0
+    amount: Decimal = ZERO
+    free: Decimal = ZERO
 
 
 class PromotionService:
@@ -177,8 +243,44 @@ class PromotionService:
         # What each offer took off the whole bill, in the order applied.
         bill_slices: list[tuple[int, Decimal]] = []
         applied_promotions: list[Promotion] = []
-        # What each budgeted offer still has to give, read once per offer.
+        # What each budgeted offer still has to give.
         room: dict[UUID, BudgetRoom] = {}
+        active = self._active_promotions(
+            firm_scope=firm_scope, on=data.transaction_date
+        )
+        # Every offer's claims and budget, read in one statement for the
+        # document rather than once per offer (L7 step 3).
+        uses = self._offer_uses(
+            [row for row in active if not is_points_offer(row)],
+            firm_scope=firm_scope,
+            customer_id=data.customer_id,
+            coupon_id=None if coupon is None else coupon.id,
+        )
+        # Every offer looked at, in the order looked at, to list beside the
+        # lines its conditions hold on (L7 step 3).
+        considered: dict[UUID, _Considered] = {}
+        # The offer that does not combine and ended evaluation, if one did.
+        stopped_by: Promotion | None = None
+
+        def holding(promotion: Promotion) -> list[int]:
+            """Return the lines this offer's conditions hold on, typed or not."""
+            return [
+                index
+                for index, (state, line) in enumerate(
+                    zip(states, data.lines, strict=True)
+                )
+                if self._matches(
+                    promotion,
+                    context=self._context(
+                        data,
+                        line=line,
+                        state=state,
+                        document_gross=document_gross,
+                        products=products,
+                        history=history,
+                    ),
+                )
+            ]
 
         def apply_one(
             promotion: Promotion, matched_lines: list[_LineState]
@@ -251,6 +353,8 @@ class PromotionService:
                 decisions.append(
                     self._decision(promotion, False, f"This offer {overrun}")
                 )
+                if promotion.id in considered:
+                    considered[promotion.id].available = False
                 return None
             bill_discount += added_bill
             if waives_freight:
@@ -311,9 +415,18 @@ class PromotionService:
                 return True
             return False
 
-        for promotion in self._active_promotions(
-            firm_scope=firm_scope, on=data.transaction_date
-        ):
+        for promotion in active:
+            if stopped_by is not None:
+                # Evaluation has stopped: the rest are listed, never applied,
+                # and leave the trace as it always was.
+                if not is_points_offer(promotion):
+                    considered[promotion.id] = _Considered(
+                        promotion,
+                        holding(promotion),
+                        available=False,
+                        reason=f"Does not combine with {stopped_by.code}.",
+                    )
+                continue
             if is_points_offer(promotion):
                 # Earned when the bill is approved, not given while it is
                 # priced: passing it here keeps it off the claim count and
@@ -328,41 +441,44 @@ class PromotionService:
                 )
                 continue
             refusal = self._unavailable(
-                promotion, coupon=coupon, data=data, firm_scope=firm_scope
+                promotion,
+                coupon=coupon,
+                data=data,
+                firm_scope=firm_scope,
+                use=uses.get(promotion.version_group_id, _OfferUse()),
             )
             if refusal is not None:
                 decisions.append(self._decision(promotion, False, refusal))
+                considered[promotion.id] = _Considered(
+                    promotion, holding(promotion), available=False, reason=refusal
+                )
                 continue
             # A budget is counted like the number of claims, from the ledger:
             # one that is spent is not quoted, and one that cannot cover this
             # document is found out when the offer is applied below.
-            room[promotion.id] = budget_room(
-                self._session, promotion, firm_id=firm_scope
+            use = uses.get(promotion.version_group_id, _OfferUse())
+            room[promotion.id] = BudgetRoom(
+                max_amount=promotion.max_benefit_amount,
+                amount_claimed=use.amount,
+                max_free=promotion.max_free_quantity,
+                free_claimed=use.free,
             )
             spent = room[promotion.id].spent()
             if spent is not None:
                 decisions.append(self._decision(promotion, False, spent))
-                continue
-            matched_lines = [
-                state
-                for state, line in zip(states, data.lines, strict=True)
-                # A line somebody priced by hand is left alone entirely. The
-                # shared rule would discard the promotion downstream anyway;
-                # skipping here is what stops the trace claiming a benefit the
-                # line never received, which is the question this log exists to
-                # answer.
-                if not line.caller_priced
-                and self._matches(
-                    promotion,
-                    context=self._context(
-                        data,
-                        line=line,
-                        state=state,
-                        document_gross=document_gross,
-                        products=products,
-                        history=history,
-                    ),
+                considered[promotion.id] = _Considered(
+                    promotion, holding(promotion), available=False, reason=spent
                 )
+                continue
+            holds = holding(promotion)
+            considered[promotion.id] = _Considered(promotion, holds)
+            # A line somebody priced by hand is left alone entirely. The
+            # shared rule would discard the promotion downstream anyway;
+            # skipping here is what stops the trace claiming a benefit the
+            # line never received, which is the question this log exists to
+            # answer.
+            matched_lines = [
+                states[index] for index in holds if not data.lines[index].caller_priced
             ]
             if not matched_lines:
                 decisions.append(
@@ -382,7 +498,7 @@ class PromotionService:
                 candidates.append((promotion, matched_lines))
                 continue
             if apply_one(promotion, matched_lines):
-                break
+                stopped_by = promotion
 
         if best_only and candidates:
             self._apply_best(candidates, states, data, decisions, apply_one)
@@ -405,6 +521,18 @@ class PromotionService:
                 )
             )
         self._gifts_passed_over = {}
+        line_candidates, bill_candidates = self._candidates(
+            list(considered.values()),
+            states=states,
+            data=data,
+            decisions=decisions,
+            applied_promotions=applied_promotions,
+            slices=slices,
+            free_slices=free_slices,
+            bill_slices=bill_slices,
+            gifts=gifts,
+            freight_waived=freight_waived,
+        )
 
         response = PromotionEvaluationResponse(
             lines=[
@@ -420,6 +548,7 @@ class PromotionService:
                         free_slices=free_slices[index],
                         applied_promotions=applied_promotions,
                     ),
+                    candidates=line_candidates[index],
                 )
                 for index, state in enumerate(states)
             ],
@@ -433,9 +562,268 @@ class PromotionService:
             gifts=gifts,
             applied=applications,
             decisions=decisions,
+            bill_candidates=bill_candidates,
         )
         self._log(data, response, firm_scope=firm_scope)
         return response
+
+    def _candidates(
+        self,
+        considered: list[_Considered],
+        *,
+        states: list[_LineState],
+        data: PromotionEvaluationRequest,
+        decisions: list[PromotionDecision],
+        applied_promotions: list[Promotion],
+        slices: list[list[tuple[int, Decimal]]],
+        free_slices: list[list[tuple[int, Decimal]]],
+        bill_slices: list[tuple[int, Decimal]],
+        gifts: list[PromotionGift],
+        freight_waived: Decimal,
+    ) -> tuple[list[list[OfferCandidate]], list[OfferCandidate]]:
+        """List every offer looked at beside the lines, and under the bill (L7).
+
+        Section 3.2 of the design. Worked out in memory from what evaluation
+        already read: each offer is valued **alone** on fresh copies of the
+        lines, free pieces at the line's own rate, so the list compares offers
+        on one footing whatever was applied before them. The only statement
+        is one read of the selling prices of the products offers give away,
+        and only where an offer on the bill gives one.
+        """
+        applied_at = {row.id: at for at, row in enumerate(applied_promotions)}
+        # The last reason the trace gave for not applying each offer.
+        refused: dict[UUID, str] = {}
+        for decision in decisions:
+            if not decision.matched:
+                refused[decision.promotion_id] = decision.reason
+        per_line: list[list[OfferCandidate]] = [[] for _ in states]
+        on_bill: list[tuple[Promotion, _Considered, Decimal, list[PromotionGift]]] = []
+        for item in considered:
+            promotion = item.promotion
+            kinds = _action_kinds(promotion)
+            gives = offer_gives(promotion)
+            at = applied_at.get(promotion.id)
+            reason = item.reason or (
+                None if at is not None else refused.get(promotion.id)
+            )
+            if kinds & _LINE_ACTIONS:
+                worths = self._worth_on_lines(promotion, item.lines, states)
+                for index in item.lines:
+                    state = states[index]
+                    gave = at is not None and (
+                        any(i == at and v > ZERO for i, v in slices[index])
+                        or any(i == at and v > ZERO for i, v in free_slices[index])
+                        or any(
+                            gift.promotion_id == promotion.id
+                            and gift.for_line_number == state.line_number
+                            for gift in gifts
+                        )
+                    )
+                    available, why = _line_reason(
+                        item,
+                        gave=gave,
+                        applied=at is not None,
+                        typed=data.lines[index].caller_priced,
+                        free_typed=state.free_typed
+                        and PromotionActionType.FREE_QUANTITY.value in kinds,
+                        worth=worths[index],
+                        reason=reason,
+                    )
+                    per_line[index].append(
+                        _offer_candidate(
+                            promotion,
+                            gives=gives,
+                            worth=worths[index],
+                            applied=gave,
+                            available=available,
+                            reason=why,
+                        )
+                    )
+            if kinds & _BILL_ACTIONS and item.lines:
+                value, given = self._worth_on_bill(promotion, item.lines, states, data)
+                on_bill.append((promotion, item, value, given))
+        # Valuing a gift asks whether the firm still holds it, which notes an
+        # offer whose gift it does not; the trace has been written already.
+        self._gifts_passed_over = {}
+        prices = self._selling_prices(
+            {gift.product_id for *_, given in on_bill for gift in given}
+        )
+        bill: list[OfferCandidate] = []
+        for promotion, item, value, given in on_bill:
+            kinds = _action_kinds(promotion)
+            worth = quantize_money(
+                value
+                + sum(
+                    (
+                        gift.quantity * prices.get(gift.product_id, ZERO)
+                        for gift in given
+                        if gift.for_line_number is None
+                    ),
+                    ZERO,
+                )
+            )
+            at = applied_at.get(promotion.id)
+            gave = at is not None and (
+                any(i == at and v > ZERO for i, v in bill_slices)
+                or any(
+                    gift.promotion_id == promotion.id and gift.for_line_number is None
+                    for gift in gifts
+                )
+                or (
+                    PromotionActionType.FREE_SHIPPING.value in kinds
+                    and freight_waived > ZERO
+                )
+            )
+            if gave:
+                available, why = True, None
+            elif not item.available:
+                available, why = False, item.reason
+            elif data.caller_priced_bill and kinds <= _BILL_DISCOUNTS:
+                available, why = False, "A discount is typed on the whole bill."
+            elif worth <= ZERO:
+                available, why = True, "Nothing earned on this bill yet."
+            else:
+                available = True
+                why = item.reason or refused.get(promotion.id) or "Not applied."
+            bill.append(
+                _offer_candidate(
+                    promotion,
+                    gives=offer_gives(promotion),
+                    worth=worth,
+                    applied=gave,
+                    available=available,
+                    reason=why,
+                )
+            )
+        return per_line, bill
+
+    def _worth_on_lines(
+        self, promotion: Promotion, lines: list[int], states: list[_LineState]
+    ) -> dict[int, Decimal]:
+        """Return what this offer alone takes off each line it holds on.
+
+        Applied to fresh copies, with nothing given yet and nothing on the
+        bill: free units at the line's own rate, a free product never (that
+        is the bill's). No statement is made.
+        """
+        fresh = [state.fresh() for state in states]
+        self._apply(
+            promotion,
+            matched=[fresh[index] for index in lines],
+            states=fresh,
+            bill_discount=ZERO,
+            allow_bill=False,
+            gifts=None,
+        )
+        worth: dict[int, Decimal] = {}
+        for index in lines:
+            state = fresh[index]
+            value = state.discount
+            if state.free_quantity > ZERO and state.entered_quantity > ZERO:
+                value += state.free_quantity * state.gross / state.entered_quantity
+            worth[index] = quantize_money(value)
+        return worth
+
+    def _worth_on_bill(
+        self,
+        promotion: Promotion,
+        lines: list[int],
+        states: list[_LineState],
+        data: PromotionEvaluationRequest,
+    ) -> tuple[Decimal, list[PromotionGift]]:
+        """Return what this offer alone takes off the bill, and what it gives.
+
+        The bill discount and the waived delivery in money; the products it
+        gives away are returned for the caller to price in one read.
+        """
+        fresh = [state.fresh() for state in states]
+        given: list[PromotionGift] = []
+        added_bill, waives = self._apply(
+            promotion,
+            matched=[fresh[index] for index in lines],
+            states=fresh,
+            bill_discount=ZERO,
+            allow_bill=not data.caller_priced_bill,
+            gifts=given,
+        )
+        value = added_bill + (quantize_money(data.freight_amount) if waives else ZERO)
+        return value, given
+
+    def _selling_prices(self, product_ids: set[UUID]) -> dict[UUID, Decimal]:
+        """Read the selling price of each product given away, in one statement."""
+        if not product_ids:
+            return {}
+        return {
+            product_id: Decimal(str(price or 0))
+            for product_id, price in self._session.execute(
+                select(Product.id, Product.selling_price).where(
+                    Product.id.in_(product_ids)
+                )
+            ).all()
+        }
+
+    def _offer_uses(
+        self,
+        promotions: Sequence[Promotion],
+        *,
+        firm_scope: UUID,
+        customer_id: UUID | None,
+        coupon_id: UUID | None,
+    ) -> dict[UUID, _OfferUse]:
+        """Read every offer's claims and budget use in one statement (L7 step 3).
+
+        Keyed by version group: an offer's claims are counted across every
+        revision of it, so an edit cannot make a spent campaign new again.
+        Counted from CLAIMED rows only, through `claims_given`, the statement
+        every reader of an offer's use shares -- so the figures here are the
+        ones its budget and its reports state. A document with no offer in
+        force asks nothing.
+        """
+        groups = {row.version_group_id for row in promotions}
+        if not groups:
+            return {}
+        given = claims_given(
+            firm_scope, PromotionRedemption.status == "CLAIMED", groups=groups
+        ).subquery()
+        mine = (
+            given.c.customer_id == customer_id if customer_id is not None else false()
+        )
+        coupon = given.c.coupon_id == coupon_id if coupon_id is not None else false()
+
+        def counted(condition: ColumnElement[bool]) -> ColumnElement[int]:
+            """Count the claims a condition holds for, as a column."""
+            return func.coalesce(func.sum(case((condition, 1), else_=0)), 0)
+
+        uses: dict[UUID, _OfferUse] = {}
+        for (
+            group,
+            claims,
+            by_customer,
+            by_coupon,
+            both,
+            amount,
+            free,
+        ) in self._session.execute(
+            select(
+                given.c.version_group_id,
+                func.count(),
+                counted(mine),
+                counted(coupon),
+                counted(and_(mine, coupon)),
+                func.coalesce(func.sum(given.c.benefit_given), 0),
+                func.coalesce(func.sum(given.c.free_given), 0),
+            ).group_by(given.c.version_group_id)
+        ).all():
+            uses[group] = _OfferUse(
+                claims=int(claims or 0),
+                by_customer=int(by_customer or 0),
+                by_coupon=int(by_coupon or 0),
+                by_coupon_customer=int(both or 0),
+                amount=Decimal(str(amount)),
+                # At the four places a quantity holds (D-PRC-57).
+                free=at_quantity_scale(free),
+            )
+        return uses
 
     def _active_promotions(self, *, firm_scope: UUID, on: date) -> list[Promotion]:
         """Return the promotions in force on that date, in application order.
@@ -446,6 +834,11 @@ class PromotionService:
         """
         rows = self._session.scalars(
             select(Promotion)
+            # Every offer's conditions and actions in two statements, not two
+            # per offer: each is matched against every line (L7 step 3).
+            .options(
+                selectinload(Promotion.conditions), selectinload(Promotion.actions)
+            )
             .where(
                 Promotion.firm_id == firm_scope,
                 Promotion.is_deleted.is_(False),
@@ -518,6 +911,7 @@ class PromotionService:
         coupon: PromotionCoupon | None,
         data: PromotionEvaluationRequest,
         firm_scope: UUID,
+        use: _OfferUse,
     ) -> str | None:
         """Say why this promotion is out of reach, or nothing if it is not.
 
@@ -529,45 +923,39 @@ class PromotionService:
         counter on the promotion. A counter would have to be written while the
         document is priced, and pricing must never commit -- so it would either
         publish a half-written order or count a draft that is edited five more
-        times and never approved.
+        times and never approved. The counts were read for every offer at
+        once (`_offer_uses`), across each offer's whole version group: counting
+        by row id gave a successor a count of zero, and an exhausted campaign
+        became available again on a one-character edit.
         """
-        if promotion.requires_coupon and (
-            coupon is None
-            or not self._coupon_reaches(coupon, promotion, firm_scope=firm_scope)
-        ):
+        reaches = coupon is not None and self._coupon_reaches(
+            coupon, promotion, firm_scope=firm_scope
+        )
+        if promotion.requires_coupon and not reaches:
             return "This offer is claimed with a coupon, and none was presented."
-        claimed = self._claimed(promotion, firm_scope=firm_scope)
         if (
             promotion.max_redemptions is not None
-            and claimed >= promotion.max_redemptions
+            and use.claims >= promotion.max_redemptions
         ):
             return "This offer has been claimed as often as it allows."
-        if promotion.max_redemptions_per_customer is not None and data.customer_id:
-            by_customer = self._claimed(
-                promotion, firm_scope=firm_scope, customer_id=data.customer_id
-            )
-            if by_customer >= promotion.max_redemptions_per_customer:
-                return "This customer has claimed this offer as often as they may."
-        if coupon is not None and self._coupon_reaches(
-            coupon, promotion, firm_scope=firm_scope
+        if (
+            promotion.max_redemptions_per_customer is not None
+            and data.customer_id
+            and use.by_customer >= promotion.max_redemptions_per_customer
         ):
-            coupon_claimed = self._claimed(
-                promotion, firm_scope=firm_scope, coupon_id=coupon.id
-            )
+            return "This customer has claimed this offer as often as they may."
+        if coupon is not None and reaches:
             if (
                 coupon.max_redemptions is not None
-                and coupon_claimed >= coupon.max_redemptions
+                and use.by_coupon >= coupon.max_redemptions
             ):
                 return "This coupon has been used as often as it allows."
-            if coupon.max_redemptions_per_customer is not None and data.customer_id:
-                mine = self._claimed(
-                    promotion,
-                    firm_scope=firm_scope,
-                    coupon_id=coupon.id,
-                    customer_id=data.customer_id,
-                )
-                if mine >= coupon.max_redemptions_per_customer:
-                    return "This customer has used this coupon as often as they may."
+            if (
+                coupon.max_redemptions_per_customer is not None
+                and data.customer_id
+                and use.by_coupon_customer >= coupon.max_redemptions_per_customer
+            ):
+                return "This customer has used this coupon as often as they may."
         return None
 
     def _coupon_reaches(
@@ -595,43 +983,6 @@ class PromotionService:
             )
         )
         return group is not None and group == promotion.version_group_id
-
-    def _claimed(
-        self,
-        promotion: Promotion,
-        *,
-        firm_scope: UUID,
-        customer_id: UUID | None = None,
-        coupon_id: UUID | None = None,
-    ) -> int:
-        """Count live claims on one offer. A reversal does not count.
-
-        Counted across the offer's whole **version group**, not against the
-        row that happens to be live. A published promotion is superseded
-        rather than edited, so counting by row id gave the successor a claim
-        count of zero -- an exhausted campaign became fully available again
-        on a one-character edit, which is money given away.
-        """
-        statement = (
-            select(func.count())
-            .select_from(PromotionRedemption)
-            .where(
-                PromotionRedemption.firm_id == firm_scope,
-                PromotionRedemption.promotion_id.in_(
-                    select(Promotion.id).where(
-                        Promotion.firm_id == firm_scope,
-                        Promotion.version_group_id == promotion.version_group_id,
-                    )
-                ),
-                PromotionRedemption.is_deleted.is_(False),
-                PromotionRedemption.status == "CLAIMED",
-            )
-        )
-        if customer_id is not None:
-            statement = statement.where(PromotionRedemption.customer_id == customer_id)
-        if coupon_id is not None:
-            statement = statement.where(PromotionRedemption.coupon_id == coupon_id)
-        return int(self._session.scalar(statement) or 0)
 
     def _customer_history(
         self, data: PromotionEvaluationRequest
@@ -1201,7 +1552,15 @@ class PromotionService:
                         item.model_dump(mode="json") for item in response.decisions
                     ]
                 },
-                result_payload=response.model_dump(mode="json"),
+                # The candidates are the screen's, not the trace's: what
+                # was decided is in the decisions above.
+                result_payload=response.model_dump(
+                    mode="json",
+                    exclude={
+                        "bill_candidates": True,
+                        "lines": {"__all__": {"candidates"}},
+                    },
+                ),
             )
         )
         self._session.flush()
@@ -1477,3 +1836,132 @@ def _cap(params: dict[str, object]) -> Decimal | None:
     if raw in (None, "", "None"):
         return None
     return quantize_money(Decimal(str(raw)))
+
+
+def _action_kinds(promotion: Promotion) -> set[str]:
+    """Return the kinds of benefit an offer gives."""
+    return {action.action_type for action in promotion.actions if not action.is_deleted}
+
+
+def _figure(params: dict[str, object], key: str) -> Decimal | None:
+    """Read one stored figure, or None where the offer states none."""
+    raw = params.get(key)
+    if raw in (None, "", "None"):
+        return None
+    try:
+        return Decimal(str(raw))
+    except ArithmeticError:
+        return None
+
+
+def _money(value: Decimal | None) -> str:
+    """Spell a sum of money as the documents print it: 10.00."""
+    return f"{quantize_ledger(value or ZERO)}"
+
+
+def _action_sentence(kind: str, params: dict[str, object]) -> str:
+    """Say what one action gives, in the words the bill maker reads."""
+    percent = _units(_figure(params, "percent"))
+    buy = _units(_figure(params, "buy_quantity"))
+    free = _units(_figure(params, "free_quantity"))
+    cap = _figure(params, "max_amount")
+    capped = "" if cap is None else f", up to {_money(cap)}"
+    if kind == PromotionActionType.LINE_DISCOUNT_PERCENT.value:
+        return f"{percent}% off{capped}"
+    if kind == PromotionActionType.LINE_DISCOUNT_AMOUNT.value:
+        return f"{_money(_figure(params, 'amount'))} off the line"
+    if kind == PromotionActionType.FREE_QUANTITY.value:
+        return f"{buy} + {free} free"
+    if kind == PromotionActionType.BUY_X_GET_Y_DISCOUNT.value:
+        return f"buy {buy}, get {free} at {percent}% off{capped}"
+    if kind == PromotionActionType.COMBO_PRICE.value:
+        return f"a set for {_money(_figure(params, 'price'))}"
+    if kind == PromotionActionType.FREE_PRODUCT.value:
+        if _figure(params, "buy_quantity"):
+            return f"buy {buy}, get {free} of another product free"
+        return f"{free} of another product free"
+    if kind == PromotionActionType.BILL_DISCOUNT_PERCENT.value:
+        return f"{percent}% off the bill{capped}"
+    if kind == PromotionActionType.BILL_DISCOUNT_AMOUNT.value:
+        return f"{_money(_figure(params, 'amount'))} off the bill"
+    if kind == PromotionActionType.FREE_SHIPPING.value:
+        return "free delivery"
+    return kind.replace("_", " ").lower()
+
+
+def offer_gives(promotion: Promotion) -> OfferGives:
+    """Return what an offer gives, in figures and in one sentence (L7 step 3).
+
+    One action gives its own kind and figures; several are ``MIXED``, and the
+    sentence names each in the order the offer applies them.
+    """
+    actions = [action for action in promotion.actions if not action.is_deleted]
+    sentence = ", ".join(
+        _action_sentence(action.action_type, action.parameters or {})
+        for action in actions
+    )
+    if len(actions) != 1:
+        return OfferGives(kind="MIXED", sentence=sentence)
+    params = actions[0].parameters or {}
+    return OfferGives(
+        kind=actions[0].action_type,
+        percent=_figure(params, "percent"),
+        amount=_figure(params, "amount") or _figure(params, "price"),
+        buy_quantity=_figure(params, "buy_quantity"),
+        free_quantity=_figure(params, "free_quantity"),
+        sentence=sentence,
+    )
+
+
+def _line_reason(
+    item: _Considered,
+    *,
+    gave: bool,
+    applied: bool,
+    typed: bool,
+    free_typed: bool,
+    worth: Decimal,
+    reason: str | None,
+) -> tuple[bool, str | None]:
+    """Return whether an offer is available on one line, and why it is not in.
+
+    The line's own reason first -- a discount typed on it -- then the offer's
+    on the whole document, then what the line itself has not yet earned.
+    """
+    if gave:
+        return True, None
+    if typed:
+        return False, "A discount is typed on this line."
+    if not item.available:
+        return False, item.reason
+    if free_typed and worth <= ZERO:
+        return False, "A free quantity is typed on this line."
+    if worth <= ZERO:
+        return True, "Nothing earned on this line yet."
+    if applied:
+        return True, "The firm's cap on a line's discount took this offer's part back."
+    return True, reason or "Not applied."
+
+
+def _offer_candidate(
+    promotion: Promotion,
+    *,
+    gives: OfferGives,
+    worth: Decimal,
+    applied: bool,
+    available: bool,
+    reason: str | None,
+) -> OfferCandidate:
+    """Return one offer as a candidate, keyed by its lasting identity."""
+    return OfferCandidate(
+        key=str(promotion.version_group_id),
+        source="promotion",
+        code=promotion.code,
+        name=promotion.name,
+        gives=gives,
+        worth=worth,
+        applied=applied,
+        combines=bool(promotion.allow_stacking),
+        available=available,
+        reason=reason,
+    )

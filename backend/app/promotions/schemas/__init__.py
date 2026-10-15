@@ -4,6 +4,9 @@ from app.promotions.schemas.promotion import (
     CouponBatchRequest,
     CouponBatchResponse,
     LineOfferResponse,
+    OfferCandidate,
+    OfferGives,
+    OfferPartShare,
     PromotionActionResponse,
     PromotionActionType,
     PromotionActionWrite,
@@ -32,6 +35,9 @@ from app.promotions.schemas.promotion import (
 
 __all__ = [
     "LineOfferResponse",
+    "OfferCandidate",
+    "OfferGives",
+    "OfferPartShare",
     "PromotionActionResponse",
     "PromotionActionType",
     "PromotionActionWrite",
