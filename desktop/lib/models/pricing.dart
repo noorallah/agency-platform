@@ -251,6 +251,7 @@ class PromotionRecord {
     this.status = 'DRAFT',
     this.allowStacking = true,
     this.requiresCoupon = false,
+    this.allowPartShare = false,
     this.maxRedemptions,
     this.maxRedemptionsPerCustomer,
     this.maxBenefitAmount = '',
@@ -286,6 +287,10 @@ class PromotionRecord {
 
   /// True when the offer applies only to a customer who presents a coupon.
   final bool requiresCoupon;
+
+  /// True when a buy N get M free of the same item gives free goods in
+  /// proportion at every quantity rather than in whole rounds.
+  final bool allowPartShare;
 
   /// Null is no limit, which is a different answer from zero.
   final int? maxRedemptions;
@@ -323,6 +328,7 @@ class PromotionRecord {
         status: stringValue(json['status']),
         allowStacking: boolValue(json['allow_stacking'], fallback: true),
         requiresCoupon: boolValue(json['requires_coupon']),
+        allowPartShare: boolValue(json['allow_part_share']),
         maxRedemptions: (json['max_redemptions'] as num?)?.toInt(),
         maxRedemptionsPerCustomer:
             (json['max_redemptions_per_customer'] as num?)?.toInt(),
