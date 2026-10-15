@@ -147,6 +147,15 @@ class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
     expiry_date: date | None = None
     manufacturing_date: date | None = None
     remarks: str | None = None
+    #: The pack size the screen added two cells up at -- boxes and pieces,
+    #: sent only by a line typed that way (L5, design 3.4). The line is
+    #: billed at its receipt line's pack (a bill of products: the item's
+    #: buying pack, handed to the order and receipt raised behind it), and
+    #: refused where this differs or the line is counted in another unit
+    #: than stock. The quantity is pieces either way.
+    pack_size: Decimal | None = Field(
+        default=None, gt=1, max_digits=18, decimal_places=4
+    )
 
 
 class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
@@ -178,6 +187,11 @@ class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
+    #: Typed as boxes and pieces (L5, design 3.8): how the document is shown
+    #: and typed, nothing else. Absent on a new bill takes it where a receipt
+    #: it bills has it (a bill of products hands its own to the order and
+    #: receipt it raises); absent or null on an edit keeps the bill's own.
+    box_and_piece_entry: bool | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -403,6 +417,11 @@ class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
     entered_quantity: Decimal | None = None
     conversion_factor: Decimal
     conversion_version: int | None
+    #: The pack the line is billed at (L5): its receipt line's. Boxes and
+    #: pieces are worked out from each quantity with it and never stored.
+    #: Null where the item has no pack.
+    pack_uom_id: UUID | None = None
+    pack_size: Decimal | None = None
     warehouse_id: UUID | None
     storage_node_id: UUID | None
     batch_number: str | None
@@ -457,6 +476,8 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     due_date: date | None
     reference_number: str | None
     remarks: str | None
+    #: The layout the bill was saved in: boxes and pieces (L5).
+    box_and_piece_entry: bool = False
     status: PurchaseInvoiceStatus
     total_source_quantity: Decimal
     total_already_invoiced_quantity: Decimal
