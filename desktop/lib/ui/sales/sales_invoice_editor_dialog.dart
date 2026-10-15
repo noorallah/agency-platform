@@ -235,6 +235,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     if (_isTypedInOtherUnit(line.sourceDocumentLineId)) return '';
     final String saved = _savedPacks[line.sourceDocumentLineId] ?? '';
     if (packOf(saved) != null) return saved;
+    if (packOf(line.packSize) != null) return line.packSize;
     return _packSizeOf(line.productId);
   }
 

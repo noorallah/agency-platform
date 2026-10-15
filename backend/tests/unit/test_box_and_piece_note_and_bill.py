@@ -198,6 +198,20 @@ def test_a_bill_of_a_note_is_billed_at_the_notes_pack() -> None:
     )
 
 
+def test_the_billable_list_answers_the_note_lines_pack() -> None:
+    """A new bill of the note is offered the note line's box (L5 step 10)."""
+    shop = _sold_by_the_box()
+    note, note_line = _shipped(shop)
+
+    documents = SalesInvoiceService(shop.session).billable_documents(
+        firm_scope=shop.firm_id
+    )
+
+    offered = next(d for d in documents if d.source_document_id == note.id)
+    assert offered.lines[0].source_document_line_id == note_line.id
+    assert offered.lines[0].pack_size == D("12.0000")
+
+
 def test_a_bill_typed_at_a_stale_pack_size_is_refused() -> None:
     """The bill asks the same precondition of the note line it bills."""
     shop = _sold_by_the_box()

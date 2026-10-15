@@ -207,7 +207,7 @@ Future<void> _openNote(
 // Sales bill of delivery notes
 // ---------------------------------------------------------------------------
 
-Json _billableNote() => <String, dynamic>{
+Json _billableNote({String? packSize}) => <String, dynamic>{
       'sales_order_number': 'SO-1',
       'source_document_type': 'DELIVERY_NOTE',
       'source_document_id': 'dn-1',
@@ -228,6 +228,7 @@ Json _billableNote() => <String, dynamic>{
           'unit_price': '10',
           'discount_percent': '0',
           'free_quantity': '0',
+          if (packSize != null) 'pack_size': packSize,
         },
       ],
     };
@@ -690,8 +691,28 @@ void main() {
     });
 
     testWidgets(
-        'a new bill follows its customer\'s mark; with no pack in hand the '
-        'box cells are closed and the pieces are sent alone', (tester) async {
+        'a new bill takes the note line\'s pack: the cells split it and the '
+        'pack is sent', (tester) async {
+      final _BillApi api = _BillApi(
+        boxSwitch: true,
+        marked: true,
+        billable: <Json>[_billableNote(packSize: '12.0000')],
+      );
+      await _openBill(tester, api);
+      await _chooseBillCustomer(tester);
+      expect(_text(tester, 'sales-invoice-line-left-0'), '3 x 12 + 5');
+      expect(_cell(tester, 'sales-invoice-line-0-box').controller.text, '3');
+      expect(_cell(tester, 'sales-invoice-line-0-pcs').controller.text, '5');
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      expect(api.created!['box_and_piece_entry'], isTrue);
+      expect(_line(api.created!, 0)['current_invoice_quantity'], '41');
+      expect(_line(api.created!, 0)['pack_size'], '12.0000');
+    });
+
+    testWidgets(
+        'a new bill follows its customer\'s mark; a note line with no pack '
+        'has closed box cells and the pieces are sent alone', (tester) async {
       final _BillApi api = _BillApi(
         boxSwitch: true,
         marked: true,

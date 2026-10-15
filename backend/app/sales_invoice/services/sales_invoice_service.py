@@ -5573,6 +5573,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                         discount_amount=self._q(item.discount_amount),
                         free_quantity=self._q(item.free_quantity),
                         warehouse_id=item.warehouse_id,
+                        pack_size=item.pack_size,
                     )
                     for item in lines
                 )
@@ -5737,6 +5738,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                         discount_amount=self._q(item.discount_amount),
                         free_quantity=self._q(item.free_quantity),
                         warehouse_id=item.warehouse_id or order.warehouse_id,
+                        pack_size=item.pack_size,
                     )
                     for item in lines
                 )
@@ -5776,6 +5778,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         discount_amount: Decimal,
         free_quantity: Decimal,
         warehouse_id: UUID | None = None,
+        pack_size: Decimal | None = None,
     ) -> BillableLine | None:
         """Return one line's remaining quantity, or None if it is fully billed.
 
@@ -5823,6 +5826,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             free_quantity=free_quantity,
             track_serial=self._tracks_serial(product_id),
             warehouse_id=warehouse_id,
+            pack_size=pack_size,
         )
 
     def _tracks_serial(self, product_id: UUID | None) -> bool:
