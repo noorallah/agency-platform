@@ -11428,3 +11428,7 @@ year in the Period was April to March whatever the firm's own year.
 - No screen was clicked. The fixture firm has bills in one year only, so the
   second year was shown by widget tests and not over HTTP; a return against a
   bill of an earlier year was not driven.
+
+## 156. Warn at the customer form when a GSTIN fails its check character (D-CMP-30) -- open, low
+
+**Found 2026-10-16** (compliance round 1, decided in masters round 1). A customer or supplier saves a GSTIN of the right shape whose fifteenth character is wrong; only the GST checks before filing catch it. Tally and Zoho Books refuse such a number at entry. Refusing here would lock every existing record that holds one (the demo and fixture firms all do), so the build is a **warning**: the save answers with `gstin_problem` from `app/core/validation/common.py` beside the record, and the customer and supplier forms show it under the GSTIN box without blocking. The import's check names the row the same way, as a warning. Nothing to migrate.

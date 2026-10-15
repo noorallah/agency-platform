@@ -66,7 +66,7 @@ that an edit changes what it names and nothing else.
   3. Credit Control: **Warn, then block** → Save. New orders of 7 and 10 → **Approve** each.
   4. Ship the order of 7 from step 2 in full, bill the note → **Approve**. Then ship and bill the order of 5 → **Approve**.
   5. Credit Control: **Warn** → Save → **Approve** the second bill again.
-- **Expect:** (2) the order of 5 is approved with no question; 7 asks ("… would be at 82.6% of a 1000.00 credit limit, leaving 174.00 available.") and 10 asks ("… 118.0% …, 180.00 over it."); **Approve anyway** approves both. (3) 7 asks and is approved; 10 asks nothing and is **refused** ("… would be at 118.0% of a 1000.00 credit limit. Collect payment or raise the limit before continuing.") and stays a draft. (4) the first bill asks at 82.6% and is approved, 826 is owed; the second is refused at 141.6% and stays a draft. (5) the same bill now asks, and **Approve anyway** approves it; 1,416 is owed.
+- **Expect:** (2) the order of 5 is approved with no question; 7 asks ("… would be at 82.6% of a 1000.00 credit limit, leaving 174.00 available.") and 10 asks ("… 118.0% …, 180.00 over it."); **Approve anyway** approves both. (3) 7 asks and is approved; 10 asks nothing and is **refused** ("… would be at 118.0% of a 1000.00 credit limit. Collect payment or raise the limit before continuing.") and stays a draft. (4) the first bill asks at 82.6% and is approved, 826 is owed; the second is refused at 141.6%. Where the firm types no order of its own (the order stage switched off), the bill raises and approves its order as it is saved, so the refusal comes at **Save** and nothing is kept; a bill typed under **Warn** and approved under **Warn, then block** stays a draft. (5) under **Warn** the same bill asks, and **Approve anyway** approves it; 1,416 is owed. *(Corrected 2026-10-16, masters round 1.)*
 ### TC-CUST-012 — Two parties of one name are told apart by area and city
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
@@ -340,7 +340,7 @@ warehouse rename its capability flags.
 
 - **Preconditions:** a customer `QA-HO` with GSTIN `29AAACP1234C1Z5`.
 - **Steps:** Masters > Customers → **New**: code `QA-KA2`, GSTIN `29AAACP1234C1Z5` → Save; on the question, **Cancel**; then Save again → **Save anyway**. New again: code `QA-TN`, GSTIN `33AAACP1234C1Z9` → Save → Save anyway. Then New with code `QA-HO` again.
-- **Expect:** the first save asks "Same GSTIN or PAN on another customer", naming **QA-HO** for both the GSTIN and the PAN; Cancel keeps everything typed and saves nothing; Save anyway saves. `QA-TN` is asked about the PAN only, and its PAN box holds `AAACP1234C` (filled from the GSTIN, no longer left blank). A second `QA-HO` is refused: "Customer code QA-HO already exists in this firm."
+- **Expect:** *(corrected 2026-10-16, masters round 1: backlog 125 made a repeated GSTIN a shop, not a second account)* the first save is **refused**, naming **QA-HO** as the holder of that GSTIN and saying to add the new account as one of its shops; Save anyway is not offered for a GSTIN, and nothing is saved. `QA-TN` (same PAN, another GSTIN) is asked about the PAN only, Save anyway saves it, and its PAN box holds `AAACP1234C` (filled from the GSTIN, no longer left blank). A second `QA-HO` is refused: "Customer code QA-HO already exists in this firm."
 
 ### TC-MAST-010 — Mapping another software's export on import
 
@@ -356,8 +356,8 @@ warehouse rename its capability flags.
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A firm administrator of QA01, and a product `QA-PM` *Slot Check*: category *Shelf*, tax profile group GST_18_LOCAL, base, inventory and sales unit PIECE, purchase unit BOX, and a *Case* barcode.
-- **Steps:** as the prepared **Firm admin**: Settings > Set up > Item lists > **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters > Products → `QA-PM` → pick the brand → Save. Sell > Insight > **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price changes** → add a revision with a price **dated next week** and another dated yesterday; import revisions from a file (one bad row). Quote the product today and with next week's date.
-- **Expect:** principals and brands are masters with their own screens; the product carries a brand (text brands that existed are carried over); sales analysis offers Brand and Principal as dimensions and filters. A price revision is the price **in force on the document's date**: today's quote takes yesterday's revision, a quote dated next week takes the later one; the unit-price resolver and a blank price on a purchase order read it. The import checks every row and writes nothing if one is bad.
+- **Steps:** as the prepared **Firm admin**: Settings > Set up > Item lists > **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters > Products → `QA-PM` → pick the brand → Save. Sell > Insight > **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price changes** → add a revision with a price **dated next week** and another dated **today** (a revision dated back is refused: new rates start today or later); import revisions from a file (one bad row). Quote the product today and with next week's date.
+- **Expect:** principals and brands are masters with their own screens; the product carries a brand (text brands that existed are carried over); sales analysis offers Brand and Principal as dimensions and filters. A price revision is the price **in force on the document's date**: today's quote takes today's revision, a quote dated next week takes the later one; the unit-price resolver and a blank price on a purchase order read it. The import checks every row and writes nothing if one is bad; the bad row is named by its line in the file, the heading being row 1.
 ### TC-MAST-012 — A duplicate warning, and merging two customers
 
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
@@ -373,7 +373,7 @@ warehouse rename its capability flags.
 - **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
 - **Also needs:** a sales manager and an accountant; a PDF.
 - **Steps:** as the prepared **Firm admin**: Masters > Customers → `QA-CM` → **Bank accounts** → add an account (name, number `1234567890123456`, IFSC) → Save. Open **Files** → add the PDF; delete it. Sign in as the **Sales manager** and open the same tabs. Look at the customer's audit trail.
-- **Expect:** the list of accounts is replaced as a whole on save. The administrator sees the number whole; the sales manager and accountant, who do not hold CUSTOMER_MANAGE_BANK_DETAILS, see only the last four digits; the audit trail shows it masked. Files are references (name, type, path, caption); a delete is soft and audited.
+- **Expect:** the list of accounts is replaced as a whole on save. The administrator sees the number whole; the sales manager and accountant, who do not hold CUSTOMER_MANAGE_BANK_DETAILS, see only the last four digits (`XXXXXXXXXXXX3456`); the audit trail shows it masked. Files are references (name, type, path, caption); a delete is soft and audited.
 ### TC-MAST-014 — A customer who is also a supplier
 
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
@@ -394,7 +394,7 @@ warehouse rename its capability flags.
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
-- **Also needs:** one customer with no PAN and one with a malformed PAN (import it through the customer import); a vendor with the same two faults.
+- **Also needs:** one customer with no PAN and one with a good PAN; a vendor of each. *(Corrected 2026-10-16: a malformed PAN can no longer be saved or imported -- both refuse it as "not a PAN" -- so only a missing PAN can be listed today.)*
 - **Steps:** as the prepared **Firm admin**: Reports > Financial → **Customer PAN check**; then **Supplier PAN check**. As a role without CUSTOMER_VIEW open the first.
 - **Expect:** each report lists the live parties whose PAN is missing or fails the format, with six columns; a party with a good PAN is not listed. The customer report needs CUSTOMER_VIEW and the supplier report VENDOR_VIEW.
 ### TC-MAST-017 — A goods type, a category that carries it, and a product that takes it
