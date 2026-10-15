@@ -15,6 +15,7 @@ import '../../models/vendor.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/desktop_framework.dart';
 import '../../models/document_file.dart';
 import '../purchases/document_attachments_dialog.dart';
@@ -63,7 +64,18 @@ class GoodsReceiptDraftLine {
     this.serialTracked = false,
     this.orderedAsCapital = false,
     this.capitalGoods = false,
+    this.packSize = '',
   });
+
+  /// L5: the pack the order line is held at, where that line is counted in
+  /// the stock unit; '' otherwise, and then the line is typed in its own
+  /// unit only.
+  final String packSize;
+
+  /// L5: the Box, Pcs, Free box and Free pcs cells, used while the receipt
+  /// is typed in boxes and pieces. [receiptQuantity] and [freeQuantity]
+  /// stay the figures sent, in pieces.
+  final BoxPieceEntry boxes = BoxPieceEntry();
 
   /// D-BUY-40: whether the order line was ordered as capital goods, and
   /// whether this line is received as such. The key travels only when they
@@ -152,7 +164,10 @@ class GoodsReceiptDraftLine {
   /// [byLot] is a firm costing by lot (L3): every stocked line makes a lot,
   /// so its prices and margins travel without a batch number or the
   /// BATCH_PTR_PTS feature. A firm on Average must not send margins.
-  Json toJson({bool ptrPts = false, bool byLot = false}) => {
+  /// [boxes] is a receipt typed as boxes and pieces (L5): a line with a
+  /// pack then names the pack its cells were added up at.
+  Json toJson({bool ptrPts = false, bool byLot = false, bool boxes = false}) =>
+      {
         'purchase_order_line_id': purchaseOrderLineId,
         'line_number': lineNumber,
         if (description.isNotEmpty) 'description': description,
@@ -160,6 +175,7 @@ class GoodsReceiptDraftLine {
         'rejected_quantity': rejectedQuantity.trim().ifEmpty('0'),
         'damaged_quantity': damagedQuantity.trim().ifEmpty('0'),
         'free_quantity': freeQuantity.trim().ifEmpty('0'),
+        if (boxes && packOf(packSize) != null) 'pack_size': packSize,
         'unit_price': unitPrice.ifEmpty('0'),
         if (taxProfileId.isNotEmpty) 'tax_profile_id': taxProfileId,
         if (purchaseUomId.isNotEmpty) 'purchase_uom_id': purchaseUomId,
@@ -369,16 +385,69 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
   /// for goods receipts, so saving a new one completes it.
   bool _approvalOff = false;
 
+  /// L5: whether the lines are typed as boxes and pieces. A new receipt
+  /// follows its order, as the server does; a saved one keeps its own.
+  late bool _boxAndPieces = widget.existing?.boxAndPieceEntry ?? false;
+
+  /// Whether the toggle is offered: the firm's buying switch is on, or the
+  /// receipt or its order was typed in boxes and pieces.
+  late bool _offersBoxes = _boxAndPieces;
+
+  /// Set once somebody moves the toggle, so choosing an order after that
+  /// leaves their choice alone.
+  bool _boxesTouched = false;
+
+  /// L5: the firm's buying switch, from the settings read on open.
+  bool _firmBoxes = false;
+
   /// One read when a new receipt's window opens. Unreadable settings leave
   /// completing a step of its own, which is what a receipt always was.
   Future<void> _readApprovalSetting() async {
     try {
       final PurchaseWorkflowSettings stages =
           await widget.api.purchaseWorkflowSettings();
-      if (!mounted || stages.goodsReceiptApproval) return;
+      if (!mounted) return;
+      // L5: the switch rides on the same read.
+      if (stages.boxAndPieceEntry) {
+        setState(() {
+          _firmBoxes = true;
+          _offersBoxes = true;
+        });
+      }
+      if (stages.goodsReceiptApproval) return;
       setState(() => _approvalOff = true);
     } on Object {
       // Left as it was.
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final GoodsReceiptDraftLine line in _lines) {
+      line.boxes.dispose();
+    }
+    super.dispose();
+  }
+
+  /// L5: the toggle above the lines. Changes no quantity: the same figures
+  /// are shown as one cell or as two.
+  void _setBoxAndPieces(bool value, {bool touched = true}) {
+    setState(() {
+      _boxAndPieces = value;
+      if (touched) _boxesTouched = true;
+      _loadBoxes();
+    });
+  }
+
+  /// L5: fill each line's box cells from its figures in pieces.
+  void _loadBoxes() {
+    if (!_boxAndPieces) return;
+    for (final GoodsReceiptDraftLine line in _lines) {
+      line.boxes.load(
+        quantity: line.receiptQuantity,
+        free: line.freeQuantity,
+        pack: packOf(line.packSize),
+      );
     }
   }
 
@@ -521,6 +590,16 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
     final String defaultWarehouse =
         order.warehouseId.isNotEmpty ? order.warehouseId : '';
     setState(() {
+      for (final GoodsReceiptDraftLine line in _lines) {
+        line.boxes.dispose();
+      }
+      // L5: a new receipt follows its order until the toggle is moved; the
+      // toggle is offered where the firm's switch is on or the order was
+      // typed in boxes and pieces.
+      if (_record == null) {
+        _offersBoxes = _firmBoxes || order.boxAndPieceEntry;
+        if (!_boxesTouched) _boxAndPieces = order.boxAndPieceEntry;
+      }
       _lines = _withSavedQuantities([
         for (int index = 0; index < order.lines.length; index++)
           _draftLine(
@@ -533,6 +612,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
             otherDraftNumbers: draftNumbers[order.lines[index].id] ?? const [],
           ),
       ]);
+      _loadBoxes();
       _loadingLines = false;
     });
   }
@@ -610,6 +690,12 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       warehouseId: defaultWarehouse,
       orderedAsCapital: line.isCapitalGoods,
       capitalGoods: line.isCapitalGoods,
+      // L5: a line typed as boxes and pieces is counted in pieces, so only
+      // an order line counted in the stock unit can be.
+      packSize: line.purchaseUomId.isEmpty ||
+              line.purchaseUomId == line.inventoryUomId
+          ? line.packSize
+          : '',
       serialTracked: widget.products
           .any((item) => item.id == line.productId && item.trackSerial),
     );
@@ -755,6 +841,9 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
             _ewayBillNumber.trim().isEmpty || _ewayBillDate.trim().isEmpty
                 ? null
                 : _ewayBillDate.trim(),
+        // L5: only where the toggle is offered; absent takes the order's on
+        // a new receipt and keeps the receipt's own on an edit.
+        if (_offersBoxes) 'box_and_piece_entry': _boxAndPieces,
         // Line numbers are renumbered from one over what is actually being
         // sent, so skipping a line that did not arrive cannot leave a gap the
         // document has to explain.
@@ -764,6 +853,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
               ...sending[index].toJson(
                 ptrPts: widget.features.isEnabled('BATCH_PTR_PTS'),
                 byLot: widget.costsByLot,
+                boxes: _offersBoxes && _boxAndPieces,
               ),
               'line_number': index + 1,
             },

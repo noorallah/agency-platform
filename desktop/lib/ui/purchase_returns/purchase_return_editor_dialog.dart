@@ -10,10 +10,12 @@ import '../../models/entities.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../../models/document_preview.dart';
+import '../../models/purchase.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
 import '../goods_receipts/serial_entry_dialog.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/desktop_framework.dart';
 
 part 'purchase_return_editor_phase2.dart';
@@ -57,7 +59,19 @@ class PurchaseReturnDraftLine {
     this.remarks = '',
     this.serialTracked = false,
     this.receivedFree = '0',
+    this.packSize = '',
   });
+
+  /// L5: the pack the receipt line is held at, where that line is counted in
+  /// the stock unit; '' otherwise, and then it goes back in its own unit.
+  final String packSize;
+
+  /// L5: Returning and Of which free as Box, Pcs, Free box and Free pcs,
+  /// used while the return is typed in boxes and pieces. [returnQuantity]
+  /// and [free] stay the figures sent, in pieces. [boxStamp] is what the
+  /// cells were last filled for.
+  final BoxPieceEntry boxes = BoxPieceEntry();
+  String boxStamp = '';
 
   /// Whether the product carries a serial per unit, read from the receipt
   /// line (PG-10).
@@ -118,7 +132,9 @@ class PurchaseReturnDraftLine {
     return left < 0 ? 0 : left;
   }
 
-  Json toJson() => {
+  /// [boxes] is a return typed as boxes and pieces (L5): a line with a
+  /// pack then names the pack its cells were added up at.
+  Json toJson({bool boxes = false}) => {
         'source_document_type': 'GOODS_RECEIPT',
         'source_document_id': sourceDocumentId,
         'source_document_line_id': sourceDocumentLineId,
@@ -130,6 +146,7 @@ class PurchaseReturnDraftLine {
             returnQuantity.trim().isEmpty ? '0' : returnQuantity.trim(),
         'rejected_quantity':
             rejectedQuantity.trim().isEmpty ? '0' : rejectedQuantity.trim(),
+        if (boxes && packOf(packSize) != null) 'pack_size': packSize,
         // Blank is left out, so the server takes the receipt line's price.
         // Sending '0' for blank valued the goods at nothing (D-BUY-3).
         if (unitPrice.trim().isNotEmpty) 'unit_price': unitPrice.trim(),
@@ -211,17 +228,54 @@ class _PurchaseReturnEditorDialogState
   int _previewSerial = 0;
   bool _phase2 = false;
 
+  /// L5: the firm's buying switch, read once when the window opens in
+  /// phase 2 (this editor read no settings before).
+  bool _firmBoxes = false;
+  bool _settingsRead = false;
+
+  /// L5: the boxes-and-pieces toggle as moved by hand; null until it is,
+  /// and then the return follows its receipt, as the server does.
+  bool? _boxesChoice;
+
+  /// Whether the toggle is offered: the firm's buying switch is on, or the
+  /// receipt going back was typed in boxes and pieces.
+  bool get _offersBoxes =>
+      _phase2 && (_firmBoxes || (_receipt?.boxAndPieceEntry ?? false));
+
+  /// Whether the lines are typed as boxes and pieces.
+  bool get _boxAndPieces =>
+      _offersBoxes &&
+      (_boxesChoice ?? (_receipt?.boxAndPieceEntry ?? false));
+
   void _setState(VoidCallback change) => setState(change);
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _phase2 = Phase2Scope.of(context);
+    if (_phase2 && !_settingsRead) {
+      _settingsRead = true;
+      unawaited(_readBoxSwitch());
+    }
+  }
+
+  Future<void> _readBoxSwitch() async {
+    try {
+      final PurchaseWorkflowSettings stages =
+          await widget.api.purchaseWorkflowSettings();
+      if (!mounted || !stages.boxAndPieceEntry) return;
+      setState(() => _firmBoxes = true);
+    } on Object {
+      // Unreadable: the toggle is offered only for a receipt in boxes.
+    }
   }
 
   @override
   void dispose() {
     _previewTimer?.cancel();
+    for (final PurchaseReturnDraftLine line in _lines) {
+      line.boxes.dispose();
+    }
     super.dispose();
   }
 
@@ -265,6 +319,9 @@ class _PurchaseReturnEditorDialogState
         await _batchesFor(receipt.lines.map((line) => line.productId).toSet());
     if (!mounted) return;
     setState(() {
+      for (final PurchaseReturnDraftLine line in _lines) {
+        line.boxes.dispose();
+      }
       _lines = [
         for (int index = 0; index < receipt.lines.length; index++)
           _draftLine(
@@ -387,6 +444,12 @@ class _PurchaseReturnEditorDialogState
       returnQuantity: '0',
       serialTracked: line.serialTracked,
       receivedFree: line.freeQuantity,
+      // L5: a line typed as boxes and pieces is in pieces, so only a
+      // receipt line counted in the stock unit can be.
+      packSize: line.purchaseUomId.isEmpty ||
+              line.purchaseUomId == line.inventoryUomId
+          ? line.packSize
+          : '',
     );
     draft.returnQuantity = _trim(draft.outstanding);
     // The batch these goods arrived in is the one going back, so it is the
@@ -446,6 +509,8 @@ class _PurchaseReturnEditorDialogState
       if (_returnReason.trim().isNotEmpty) 'return_reason': _returnReason.trim(),
       if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
       'outcome': _outcome,
+      // L5: only where the toggle is offered; absent takes the receipt's.
+      if (_offersBoxes) 'box_and_piece_entry': _boxAndPieces,
       'reference_grn_number': _receipt!.grnNumber,
       'source_documents': [
         {
@@ -455,7 +520,10 @@ class _PurchaseReturnEditorDialogState
       ],
       'lines': [
         for (int index = 0; index < sending.length; index++)
-          {...sending[index].toJson(), 'line_number': index + 1},
+          {
+            ...sending[index].toJson(boxes: _boxAndPieces),
+            'line_number': index + 1,
+          },
       ],
     };
   }

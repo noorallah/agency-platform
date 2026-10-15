@@ -30,6 +30,7 @@ import '../trade_licences/licence_check_dialog.dart';
 import '../../models/bulk_action.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/custom_fields_section.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/brand_filter.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/print_settings_dialog.dart';
@@ -2730,6 +2731,25 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   int _lineEpoch = 0;
   int _rateEpoch = 0;
 
+  /// L5: whether the lines are typed as boxes and pieces. A new order
+  /// follows its supplier's mark where the firm's switch is on; a saved one
+  /// keeps its own.
+  late bool _boxAndPieces = widget.order != null &&
+      widget.mode != PurchaseDialogMode.duplicate &&
+      widget.order!.boxAndPieceEntry;
+
+  /// Whether the toggle is offered: the firm's buying switch is on, or the
+  /// order was saved in boxes and pieces.
+  late bool _offersBoxes = _boxAndPieces;
+
+  /// Set once somebody moves the toggle, so choosing a supplier after that
+  /// leaves their choice alone.
+  bool _boxesTouched = false;
+
+  /// L5: each line's four cells, by line place, product and [_lineEpoch], so
+  /// they are filled again from the line's figures whenever the boxes are.
+  final Map<String, BoxPieceEntry> _boxEntries = <String, BoxPieceEntry>{};
+
   void _setState(VoidCallback change) => setState(change);
 
   /// Backlog 129: the brands the chosen supplier may sell, read once per
@@ -2842,12 +2862,13 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   /// no rate. A foreign order whose rate is not yet typed is priced as it
   /// stands, because the server refuses one without a rate.
   PurchaseOrder _draftToSend({bool pricing = false}) {
+    final PurchaseOrder draft = _withBoxes(_draft);
     if (!_foreignOrder || (pricing && !_rateIsValid)) {
-      return _draft.copyWith(currencyCode: '', exchangeRate: '');
+      return draft.copyWith(currencyCode: '', exchangeRate: '');
     }
-    return _draft.copyWith(
+    return draft.copyWith(
       currencyCode: _orderCurrency,
-      exchangeRate: _draft.exchangeRate.trim(),
+      exchangeRate: draft.exchangeRate.trim(),
     );
   }
 
@@ -2874,7 +2895,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     try {
       final PurchaseWorkflowSettings stages =
           await widget.api.purchaseWorkflowSettings();
-      if (!mounted || stages.purchaseOrderApproval) return;
+      if (!mounted) return;
+      // L5: the switch rides on the same read.
+      if (stages.boxAndPieceEntry) _offerBoxesOnOpen();
+      if (stages.purchaseOrderApproval) return;
       setState(() => _approvalOff = true);
     } on Object {
       // Left as it was.
@@ -2932,6 +2956,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   void dispose() {
     _previewTimer?.cancel();
     _customFields.dispose();
+    for (final BoxPieceEntry entry in _boxEntries.values) {
+      entry.dispose();
+    }
     super.dispose();
   }
 

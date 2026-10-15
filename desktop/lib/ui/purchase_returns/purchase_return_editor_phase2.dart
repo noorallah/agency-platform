@@ -8,21 +8,67 @@ part of 'purchase_return_editor_dialog.dart';
 /// typed by `POST /purchase-returns/preview`. The dialog's state,
 /// validation and save are reused unchanged.
 extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
-  static const List<DocumentColumn> _columns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product', 0),
-    DocumentColumn('Received', 72, numeric: true),
-    DocumentColumn('Returned', 72, numeric: true),
-    DocumentColumn('Can go', 62, numeric: true),
-    DocumentColumn('Returning', 80, numeric: true),
-    DocumentColumn('Of which free', 96, numeric: true),
-    DocumentColumn('Rejected', 72, numeric: true),
-    DocumentColumn('Batch', 120),
-    DocumentColumn('Serials', 88),
-    DocumentColumn('Taxable', 96, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 104, numeric: true),
+  List<DocumentColumn> get _columns => [
+    const DocumentColumn('#', 28),
+    DocumentColumn(
+      'Product',
+      0,
+      // L5: the toggle above the lines, where it is offered, with room
+      // kept for it before the table scrolls sideways.
+      minWidth: _offersBoxes ? 260 : DocumentLineTable.minFlexWidth,
+      heading: _offersBoxes
+          ? BoxPieceToggle(
+              key: const ValueKey('purchase-return-box-and-pieces'),
+              label: 'Product',
+              value: _boxAndPieces,
+              onChanged: _saving
+                  ? null
+                  : (value) {
+                      _setState(() => _boxesChoice = value);
+                      _schedulePreview();
+                    },
+            )
+          : null,
+    ),
+    // L5: typed as boxes and pieces, the figures read "3 x 12 + 5" and
+    // Returning and Of which free become four cells.
+    DocumentColumn('Received', _boxAndPieces ? 84 : 72, numeric: true),
+    DocumentColumn('Returned', _boxAndPieces ? 84 : 72, numeric: true),
+    DocumentColumn('Can go', _boxAndPieces ? 84 : 62, numeric: true),
+    if (_boxAndPieces)
+      ...boxPieceColumns
+    else ...const [
+      DocumentColumn('Returning', 80, numeric: true),
+      DocumentColumn('Of which free', 96, numeric: true),
+    ],
+    const DocumentColumn('Rejected', 72, numeric: true),
+    const DocumentColumn('Batch', 120),
+    const DocumentColumn('Serials', 88),
+    const DocumentColumn('Taxable', 96, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 104, numeric: true),
   ];
+
+  /// L5: a line's cells, filled from its figures in pieces whenever they
+  /// are drawn after the pieces-only layout.
+  BoxPieceEntry _returnEntry(PurchaseReturnDraftLine line) {
+    final String stamp = 'on|${line.packSize}';
+    if (line.boxStamp != stamp) {
+      line.boxes.load(
+        quantity: line.returnQuantity,
+        free: line.free,
+        pack: packOf(line.packSize),
+      );
+      line.boxStamp = stamp;
+    }
+    return line.boxes;
+  }
+
+  /// L5: a figure in pieces as the layout shows it.
+  String _returnFigure(PurchaseReturnDraftLine line, String value) =>
+      _boxAndPieces
+          ? boxesAndPieces(value, line.packSize)
+          : documentQuantity(value);
 
   Widget _phase2Page(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -470,6 +516,29 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     final double tax =
         priced == null ? 0 : _number(stringValue(priced['tax_amount']));
     final double rate = taxable > 0 ? tax / taxable * 100 : 0;
+    // L5: in the pieces-only layout the box cells go stale; they are filled
+    // again when the layout comes back.
+    if (!_boxAndPieces) line.boxStamp = '';
+    final List<Widget> boxCells = !_boxAndPieces
+        ? const []
+        : boxPieceCells(
+            context,
+            entry: _returnEntry(line),
+            pack: packOf(line.packSize),
+            readOnly: _saving,
+            keyPrefix: 'purchase-return-line-$index',
+            // A line that stays stays at nothing.
+            chargedRequired: false,
+            onChanged: () {
+              final double? pack = packOf(line.packSize);
+              _setState(() {
+                line.returnQuantity = line.boxes.quantityText(pack);
+                line.free = line.boxes.freeText(pack);
+                _current = index;
+              });
+              _schedulePreview();
+            },
+          );
     return DocumentLineRow(
       key: ValueKey<String>('purchase-return-line-$index'),
       columns: _columns,
@@ -487,41 +556,62 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
             style: text,
           ),
         ),
-        Text(documentQuantity(line.receivedQuantity), style: quiet),
-        Text(documentQuantity(line.alreadyReturned), style: quiet),
         Text(
-          documentQuantity(
+          _returnFigure(line, line.receivedQuantity),
+          key: ValueKey<String>('purchase-return-received-$index'),
+          style: quiet,
+        ),
+        Text(
+          _returnFigure(line, line.alreadyReturned),
+          key: ValueKey<String>('purchase-return-returned-$index'),
+          style: quiet,
+        ),
+        Text(
+          _returnFigure(
+            line,
             _PurchaseReturnEditorDialogState._trim(line.outstanding),
           ),
+          key: ValueKey<String>('purchase-return-can-go-$index'),
           style: text?.copyWith(fontWeight: FontWeight.w600),
         ),
-        _cellBox(
-          context,
-          index: index,
-          name: 'returning',
-          value: line.returnQuantity,
-          over: returning > line.outstanding,
-          onChanged: (value) => line.returnQuantity = value,
-        ),
-        if (line.receivedFreeQuantity > 0)
-          Tooltip(
-            message: 'Came in '
-                '${_PurchaseReturnEditorDialogState._trim(line.receivedFreeQuantity)}'
-                ' free. Blank takes the bought units first; free units are '
-                'credited nothing. Returning 0 with a number here sends back '
-                'only that many free units.',
-            child: _cellBox(
-              context,
-              index: index,
-              name: 'free',
-              value: line.free,
-              over: line.freeQuantity > line.receivedFreeQuantity ||
-                  line.freeQuantity > returning,
-              onChanged: (value) => line.free = value,
-            ),
-          )
-        else
-          Text('', style: quiet),
+        if (_boxAndPieces) ...[
+          ...boxCells.take(2),
+          // Free cells only where the receipt brought free goods.
+          if (line.receivedFreeQuantity > 0)
+            ...boxCells.skip(2)
+          else ...[
+            Text('', style: quiet),
+            Text('', style: quiet),
+          ],
+        ] else ...[
+          _cellBox(
+            context,
+            index: index,
+            name: 'returning',
+            value: line.returnQuantity,
+            over: returning > line.outstanding,
+            onChanged: (value) => line.returnQuantity = value,
+          ),
+          if (line.receivedFreeQuantity > 0)
+            Tooltip(
+              message: 'Came in '
+                  '${_PurchaseReturnEditorDialogState._trim(line.receivedFreeQuantity)}'
+                  ' free. Blank takes the bought units first; free units are '
+                  'credited nothing. Returning 0 with a number here sends back '
+                  'only that many free units.',
+              child: _cellBox(
+                context,
+                index: index,
+                name: 'free',
+                value: line.free,
+                over: line.freeQuantity > line.receivedFreeQuantity ||
+                    line.freeQuantity > returning,
+                onChanged: (value) => line.free = value,
+              ),
+            )
+          else
+            Text('', style: quiet),
+        ],
         _cellBox(
           context,
           index: index,
@@ -612,9 +702,20 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
       DocumentSideHeading(
         'Line ${line.lineNumber} · ${product?.name ?? line.description}',
       ),
-      DocumentSidePair('Received', documentQuantity(line.receivedQuantity)),
+      if (_boxAndPieces && packOf(line.packSize) != null)
+        DocumentSideNote(
+          boxPieceSummary(
+            packSize: line.packSize,
+            quantity: line.returnQuantity,
+            free: line.free,
+            rate: line.unitPrice,
+          ),
+          key: const ValueKey('purchase-return-side-boxes'),
+        ),
       DocumentSidePair(
-          'Returned before', documentQuantity(line.alreadyReturned)),
+          'Received', _returnFigure(line, line.receivedQuantity)),
+      DocumentSidePair(
+          'Returned before', _returnFigure(line, line.alreadyReturned)),
       DocumentSidePair('Returning now', quantity(returning)),
       DocumentSidePair(
         left < 0 ? 'More than received by' : 'Could still go back',

@@ -19,6 +19,7 @@ import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
 import '../document_framework/document_steps.dart';
 import '../workspace/custom_fields_section.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/desktop_framework.dart';
 import '../../models/document_file.dart';
 import '../purchases/document_attachments_dialog.dart';
@@ -54,7 +55,18 @@ class PurchaseInvoiceDraftLine {
     this.unitPrice = '',
     this.remarks = '',
     this.returnedBeforeBilling = '',
+    this.packSize = '',
   });
+
+  /// L5: the pack the line it bills is held at, where that line is counted
+  /// in the stock unit; '' otherwise, and then it is billed in its own unit.
+  final String packSize;
+
+  /// L5: the Box and Pcs cells of Billing, used while the bill is typed in
+  /// boxes and pieces; [invoiceQuantity] stays the figure sent, in pieces.
+  /// [boxStamp] is what they were last filled for.
+  final BoxPieceEntry boxes = BoxPieceEntry();
+  String boxStamp = '';
 
   /// `GOODS_RECEIPT`, or `PURCHASE_ORDER` for a firm whose bill receives the
   /// goods itself.
@@ -131,7 +143,9 @@ class PurchaseInvoiceDraftLine {
     return left < 0 ? 0 : left;
   }
 
-  Json toJson() => {
+  /// [boxes] is a bill typed as boxes and pieces (L5): a line with a pack
+  /// then names the pack its cells were added up at.
+  Json toJson({bool boxes = false}) => {
         // First, so anything typed below replaces what the bill held.
         ...echo,
         'source_document_type': sourceDocumentType,
@@ -143,6 +157,7 @@ class PurchaseInvoiceDraftLine {
         // purchase return met before its editor stopped sending one.
         'current_invoice_quantity':
             invoiceQuantity.trim().isEmpty ? '0' : invoiceQuantity.trim(),
+        if (boxes && packOf(packSize) != null) 'pack_size': packSize,
         // A blank price is left out rather than sent as '0'. Absent means the
         // server takes the receipt line's price; zero means the supplier
         // charged nothing, which is a different statement.
@@ -185,6 +200,15 @@ class PurchaseDirectLine {
   /// Bumped when a value is filled in for the user, so its box re-reads it.
   int epoch = 0;
 
+  /// L5: the pack the saved line was written at; dropped when the product
+  /// changes, and then the item's buying pack is the line's.
+  String heldPack = '';
+
+  /// L5: the four cells, used while the bill is typed in boxes and pieces;
+  /// [quantity] and [freeQuantity] stay the figures sent, in pieces.
+  final BoxPieceEntry boxes = BoxPieceEntry();
+  String boxStamp = '';
+
   double get quantityValue => double.tryParse(quantity.trim()) ?? 0;
 
   bool get sendable => (productId ?? '').isNotEmpty && quantityValue > 0;
@@ -202,7 +226,9 @@ class PurchaseDirectLine {
   bool get changedSinceSaved =>
       saved == null ? sendable : typedAs != savedAs;
 
-  Json toJson(int lineNumber) => {
+  /// [packSize] is the pack the cells were added up at, on a line typed as
+  /// boxes and pieces (L5); '' otherwise.
+  Json toJson(int lineNumber, {String packSize = ''}) => {
         for (final MapEntry<String, dynamic> held in echo.entries)
           // A discount typed in the box replaces an amount the bill held:
           // sent beside it, the amount would win.
@@ -211,6 +237,7 @@ class PurchaseDirectLine {
         'product_id': productId,
         'line_number': lineNumber,
         'current_invoice_quantity': quantity.trim(),
+        if (packSize.isNotEmpty) 'pack_size': packSize,
         // Blank is left out, never sent as zero: silence takes the product's
         // purchase price, zero says the supplier charged nothing.
         if (unitPrice.trim().isNotEmpty) 'unit_price': unitPrice.trim(),
@@ -742,6 +769,7 @@ class _PurchaseInvoiceEditorDialogState
   /// which is where its free goods are kept.
   PurchaseDirectLine _heldDirectLine(Json was, GoodsReceiptLine? raised) {
     final PurchaseDirectLine line = PurchaseDirectLine()
+      ..heldPack = stringValue(was['pack_size'])
       ..productId = stringValue(was['product_id'])
       ..quantity = _plain(was['current_invoice_quantity'])
       ..freeQuantity = raised != null && _amountOf(raised.freeQuantity) > 0
@@ -837,6 +865,10 @@ class _PurchaseInvoiceEditorDialogState
   Timer? _previewTimer;
   int _previewSerial = 0;
   bool _phase2 = false;
+
+  /// L5: the boxes-and-pieces toggle as moved by hand; null until it is,
+  /// and then the layout follows the bill (see `_boxAndPieces`).
+  bool? _boxesChoice;
 
   /// Bumped when the supplier's number is filled in for the user, so its
   /// box re-reads it.
@@ -1112,6 +1144,12 @@ class _PurchaseInvoiceEditorDialogState
   void dispose() {
     _previewTimer?.cancel();
     _customFields.dispose();
+    for (final PurchaseInvoiceDraftLine line in _lines) {
+      line.boxes.dispose();
+    }
+    for (final PurchaseDirectLine line in _directLines) {
+      line.boxes.dispose();
+    }
     super.dispose();
   }
 
@@ -1341,6 +1379,11 @@ class _PurchaseInvoiceEditorDialogState
       batchNumber: '',
       expiryDate: line.expiryDate,
       invoiceQuantity: '0',
+      packSize: _stockPack(
+        line.packSize,
+        line.purchaseUomId,
+        line.inventoryUomId,
+      ),
     );
     draft.invoiceQuantity = _trim(draft.outstanding);
     return draft;
@@ -1417,6 +1460,11 @@ class _PurchaseInvoiceEditorDialogState
       warehouseId: line.warehouseId,
       batchNumber: line.batchNumber,
       invoiceQuantity: '0',
+      packSize: _stockPack(
+        line.packSize,
+        line.purchaseUomId,
+        line.inventoryUomId,
+      ),
     );
     draft.invoiceQuantity = _trim(draft.outstanding);
     draft.capitalFromReceipt = line.isCapitalGoods;
@@ -1426,6 +1474,11 @@ class _PurchaseInvoiceEditorDialogState
 
   static String _trim(double value) =>
       value == value.roundToDouble() ? value.toStringAsFixed(0) : '$value';
+
+  /// L5: a source line's pack, only where the line is counted in the stock
+  /// unit -- a line typed as boxes and pieces is in pieces.
+  static String _stockPack(String pack, String unit, String stock) =>
+      unit.isEmpty || unit == stock ? pack : '';
 
   List<PurchaseInvoiceDraftLine> _sendableLines() => [
         for (final PurchaseInvoiceDraftLine line in _lines)
@@ -1621,6 +1674,9 @@ class _PurchaseInvoiceEditorDialogState
       // absent leaves the stored values alone.
       if (!pricing && _customFields.hasFields)
         'attributes': _customFields.payload(),
+      // L5: only where the toggle is offered; absent takes a receipt's on a
+      // new bill and keeps the bill's own on an edit.
+      if (_offersBoxes) 'box_and_piece_entry': _boxAndPieces,
       // An order or a list of products raises its own receipt, which the
       // server records as the source; only a typed receipt is named here.
       if (_mode == PurchaseBillMode.receipt)
@@ -1637,10 +1693,18 @@ class _PurchaseInvoiceEditorDialogState
       'lines': [
         if (_direct)
           for (int index = 0; index < direct.length; index++)
-            direct[index].toJson(index + 1)
+            direct[index].toJson(
+              index + 1,
+              packSize: _boxAndPieces && _directPack(direct[index]) != null
+                  ? _directPackSize(direct[index])
+                  : '',
+            )
         else
           for (int index = 0; index < sending.length; index++)
-            {...sending[index].toJson(), 'line_number': index + 1},
+            {
+              ...sending[index].toJson(boxes: _boxAndPieces),
+              'line_number': index + 1,
+            },
       ],
     };
   }

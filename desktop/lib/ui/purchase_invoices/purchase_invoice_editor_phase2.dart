@@ -12,49 +12,158 @@ part of 'purchase_invoice_editor_dialog.dart';
 /// types receipts, and a list of products where nobody types either -- the
 /// server then raises the order and the receipt behind the bill.
 extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
-  static const List<DocumentColumn> _columns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product', 0),
-    DocumentColumn('HSN', 66),
-    DocumentColumn('Received', 72, numeric: true),
-    DocumentColumn('Billed', 64, numeric: true),
-    DocumentColumn('Due', 60, numeric: true),
-    DocumentColumn('Billing', 76, numeric: true),
-    DocumentColumn('Rate', 90, numeric: true),
-    DocumentColumn('Taxable', 96, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 104, numeric: true),
+  List<DocumentColumn> get _columns => [
+    const DocumentColumn('#', 28),
+    _productColumn('Product'),
+    const DocumentColumn('HSN', 66),
+    // L5: typed as boxes and pieces, the figures read "3 x 12 + 5" and
+    // Billing becomes the two boxes.
+    DocumentColumn('Received', _boxAndPieces ? 84 : 72, numeric: true),
+    DocumentColumn('Billed', _boxAndPieces ? 84 : 64, numeric: true),
+    DocumentColumn('Due', _boxAndPieces ? 84 : 60, numeric: true),
+    if (_boxAndPieces)
+      ...boxPieceColumns.take(2)
+    else
+      const DocumentColumn('Billing', 76, numeric: true),
+    const DocumentColumn('Rate', 90, numeric: true),
+    const DocumentColumn('Taxable', 96, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 104, numeric: true),
   ];
 
   /// An order's lines: what was ordered, what has arrived, what is still due.
-  static const List<DocumentColumn> _orderColumns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product', 0),
-    DocumentColumn('HSN', 66),
-    DocumentColumn('Ordered', 72, numeric: true),
-    DocumentColumn('Arrived', 64, numeric: true),
-    DocumentColumn('Due', 60, numeric: true),
-    DocumentColumn('Billing', 76, numeric: true),
-    DocumentColumn('Rate', 90, numeric: true),
-    DocumentColumn('Taxable', 96, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 104, numeric: true),
+  List<DocumentColumn> get _orderColumns => [
+    const DocumentColumn('#', 28),
+    _productColumn('Product'),
+    const DocumentColumn('HSN', 66),
+    DocumentColumn('Ordered', _boxAndPieces ? 84 : 72, numeric: true),
+    DocumentColumn('Arrived', _boxAndPieces ? 84 : 64, numeric: true),
+    DocumentColumn('Due', _boxAndPieces ? 84 : 60, numeric: true),
+    if (_boxAndPieces)
+      ...boxPieceColumns.take(2)
+    else
+      const DocumentColumn('Billing', 76, numeric: true),
+    const DocumentColumn('Rate', 90, numeric: true),
+    const DocumentColumn('Taxable', 96, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 104, numeric: true),
   ];
 
-  static const List<DocumentColumn> _directColumns = [
-    DocumentColumn('#', 28),
-    DocumentColumn('Product (code, name or barcode)', 0),
-    DocumentColumn('HSN', 66),
-    DocumentColumn('Qty', 66, numeric: true),
-    DocumentColumn('Free', 56, numeric: true),
-    DocumentColumn('Unit', 50),
-    DocumentColumn('Rate', 84, numeric: true),
-    DocumentColumn('Disc %', 60, numeric: true),
-    DocumentColumn('Taxable', 96, numeric: true),
-    DocumentColumn('GST', 48, numeric: true),
-    DocumentColumn('Amount', 104, numeric: true),
-    DocumentColumn('', 28),
+  List<DocumentColumn> get _directColumns => [
+    const DocumentColumn('#', 28),
+    _productColumn('Product (code, name or barcode)'),
+    const DocumentColumn('HSN', 66),
+    if (_boxAndPieces)
+      ...boxPieceColumns
+    else ...const [
+      DocumentColumn('Qty', 66, numeric: true),
+      DocumentColumn('Free', 56, numeric: true),
+    ],
+    const DocumentColumn('Unit', 50),
+    const DocumentColumn('Rate', 84, numeric: true),
+    const DocumentColumn('Disc %', 60, numeric: true),
+    const DocumentColumn('Taxable', 96, numeric: true),
+    const DocumentColumn('GST', 48, numeric: true),
+    const DocumentColumn('Amount', 104, numeric: true),
+    const DocumentColumn('', 28),
   ];
+
+  /// L5: the product column, with the boxes-and-pieces toggle drawn in its
+  /// heading where it is offered and room kept for it.
+  DocumentColumn _productColumn(String label) => DocumentColumn(
+        label,
+        0,
+        minWidth: _offersBoxes ? 260 : DocumentLineTable.minFlexWidth,
+        heading: _offersBoxes
+            ? BoxPieceToggle(
+                key: const ValueKey('purchase-invoice-box-and-pieces'),
+                label: label,
+                value: _boxAndPieces,
+                onChanged: _saving || _editHeld
+                    ? null
+                    : (value) {
+                        _setState(() => _boxesChoice = value);
+                        _schedulePreview();
+                      },
+              )
+            : null,
+      );
+
+  /// L5: the bill as saved said boxes and pieces.
+  bool get _savedBoxes => widget.existing?['box_and_piece_entry'] == true;
+
+  /// L5: the receipt or order being billed was typed in boxes and pieces.
+  bool get _sourceBoxes => switch (_mode) {
+        PurchaseBillMode.receipt => _receipt?.boxAndPieceEntry ?? false,
+        PurchaseBillMode.order => _order?.boxAndPieceEntry ?? false,
+        PurchaseBillMode.products => false,
+      };
+
+  /// Whether the toggle is offered: the firm's buying switch is on, or the
+  /// bill or what it bills was typed in boxes and pieces.
+  bool get _offersBoxes =>
+      widget.stages.boxAndPieceEntry ||
+      _sourceBoxes ||
+      (_editing && _savedBoxes);
+
+  /// Whether the lines are typed as boxes and pieces: as moved by hand, else
+  /// as saved, else as the receipt or order being billed was typed, else --
+  /// a bill of products -- the supplier's mark where the switch is on.
+  bool get _boxAndPieces {
+    if (!_phase2 || !_offersBoxes) return false;
+    final bool? chosen = _boxesChoice;
+    if (chosen != null) return chosen;
+    if (_editing) return _savedBoxes;
+    if (_direct) {
+      return widget.stages.boxAndPieceEntry &&
+          (_vendor(_vendorId)?.boxAndPieceEntry ?? false);
+    }
+    return _sourceBoxes;
+  }
+
+  /// L5: a bill of products' line: the pack it was saved at, else its
+  /// item's buying pack; '' where it has none.
+  String _directPackSize(PurchaseDirectLine line) => line.heldPack.isNotEmpty
+      ? line.heldPack
+      : _productById(line.productId)?.buyingPackSize ?? '';
+
+  double? _directPack(PurchaseDirectLine line) =>
+      packOf(_directPackSize(line));
+
+  /// L5: a source line's cells, filled from its figure in pieces whenever
+  /// they are drawn for another pack or after the pieces-only layout.
+  BoxPieceEntry _billEntry(PurchaseInvoiceDraftLine line) {
+    final String stamp = 'on|${line.packSize}';
+    if (line.boxStamp != stamp) {
+      line.boxes.load(
+        quantity: line.invoiceQuantity,
+        free: '',
+        pack: packOf(line.packSize),
+      );
+      line.boxStamp = stamp;
+    }
+    return line.boxes;
+  }
+
+  /// L5: the same for a bill of products' line.
+  BoxPieceEntry _directEntry(PurchaseDirectLine line) {
+    final String stamp = 'on|${line.productId}|${_directPackSize(line)}';
+    if (line.boxStamp != stamp) {
+      line.boxes.load(
+        quantity: line.quantity,
+        free: line.freeQuantity,
+        pack: _directPack(line),
+      );
+      line.boxStamp = stamp;
+    }
+    return line.boxes;
+  }
+
+  /// L5: a figure in pieces as the layout shows it.
+  String _billFigure(PurchaseInvoiceDraftLine line, String value) =>
+      _boxAndPieces
+          ? boxesAndPieces(value, line.packSize)
+          : documentQuantity(value);
 
   void _addDirectLine() {
     _setState(() {
@@ -1102,6 +1211,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final TextStyle? quiet =
         text?.copyWith(color: theme.colorScheme.onSurfaceVariant);
     final double billing = _number(line.invoiceQuantity);
+    // L5: in the pieces-only layout the box cells go stale; they are filled
+    // again when the layout comes back.
+    if (!_boxAndPieces) line.boxStamp = '';
     return DocumentLineRow(
       key: ValueKey<String>('purchase-invoice-line-$index'),
       columns: line.billsAnOrder ? _orderColumns : _columns,
@@ -1132,24 +1244,55 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           ),
         ),
         Text(product?.hsnSac ?? '', style: text),
-        Text(documentQuantity(line.receivedQuantity), style: quiet),
-        Text(documentQuantity(line.alreadyInvoiced), style: quiet),
         Text(
-          documentQuantity(
+          _billFigure(line, line.receivedQuantity),
+          key: ValueKey<String>('purchase-invoice-received-$index'),
+          style: quiet,
+        ),
+        Text(
+          _billFigure(line, line.alreadyInvoiced),
+          key: ValueKey<String>('purchase-invoice-billed-$index'),
+          style: quiet,
+        ),
+        Text(
+          _billFigure(
+            line,
             _PurchaseInvoiceEditorDialogState._trim(line.outstanding),
           ),
+          key: ValueKey<String>('purchase-invoice-due-$index'),
           style: text?.copyWith(fontWeight: FontWeight.w600),
         ),
-        _cellBox(
-          context,
-          index: index,
-          name: 'billing',
-          value: line.invoiceQuantity,
-          over: billing > line.outstanding,
-          // The receipt this bill raised keeps its quantity on an edit.
-          locked: _ownReceipt,
-          onChanged: (value) => line.invoiceQuantity = value,
-        ),
+        if (_boxAndPieces)
+          // Billing as two boxes; a bill line has no free cells.
+          ...boxPieceCells(
+            context,
+            entry: _billEntry(line),
+            pack: packOf(line.packSize),
+            // The receipt this bill raised keeps its quantity on an edit.
+            readOnly: _saving || _ownReceipt,
+            keyPrefix: 'purchase-invoice-line-$index',
+            // A line not billed now stays at nothing.
+            chargedRequired: false,
+            onChanged: () {
+              _setState(() {
+                line.invoiceQuantity =
+                    line.boxes.quantityText(packOf(line.packSize));
+                _current = index;
+              });
+              _schedulePreview();
+            },
+          ).take(2)
+        else
+          _cellBox(
+            context,
+            index: index,
+            name: 'billing',
+            value: line.invoiceQuantity,
+            over: billing > line.outstanding,
+            // The receipt this bill raised keeps its quantity on an edit.
+            locked: _ownReceipt,
+            onChanged: (value) => line.invoiceQuantity = value,
+          ),
         _cellBox(
           context,
           index: index,
@@ -1199,6 +1342,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final Map<String, dynamic>? priced = _pricedDirect(index);
     final DocumentPreviewLine? companion = _companionOf(priced);
+    if (!_boxAndPieces) line.boxStamp = '';
     return DocumentLineRow(
       key: ValueKey<String>('purchase-invoice-direct-$index'),
       columns: _directColumns,
@@ -1238,6 +1382,8 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
               ],
               onSelected: (value) {
                 _setState(() {
+                  // L5: another product has its own pack.
+                  if (value != line.productId) line.heldPack = '';
                   line.productId = value;
                   _current = index;
                 });
@@ -1254,20 +1400,39 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           ],
         ),
         Text(product?.hsnSac ?? '', style: text),
-        _cellBox(
-          context,
-          index: index,
-          name: 'direct-quantity',
-          value: line.quantity,
-          onChanged: (value) => line.quantity = value,
-        ),
-        _cellBox(
-          context,
-          index: index,
-          name: 'direct-free',
-          value: line.freeQuantity,
-          onChanged: (value) => line.freeQuantity = value,
-        ),
+        if (_boxAndPieces)
+          ...boxPieceCells(
+            context,
+            entry: _directEntry(line),
+            pack: _directPack(line),
+            readOnly: _saving,
+            keyPrefix: 'purchase-invoice-direct-$index',
+            onChanged: () {
+              final double? pack = _directPack(line);
+              _setState(() {
+                line.quantity = line.boxes.quantityText(pack);
+                line.freeQuantity = line.boxes.freeText(pack);
+                _current = index;
+              });
+              _schedulePreview();
+            },
+          )
+        else ...[
+          _cellBox(
+            context,
+            index: index,
+            name: 'direct-quantity',
+            value: line.quantity,
+            onChanged: (value) => line.quantity = value,
+          ),
+          _cellBox(
+            context,
+            index: index,
+            name: 'direct-free',
+            value: line.freeQuantity,
+            onChanged: (value) => line.freeQuantity = value,
+          ),
+        ],
         Text(product?.unit ?? '', style: text),
         _cellBox(
           context,
@@ -1580,13 +1745,23 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
       DocumentSideHeading(
         'Line ${line.lineNumber} · ${product?.name ?? line.description}',
       ),
+      if (_boxAndPieces && packOf(line.packSize) != null)
+        DocumentSideNote(
+          boxPieceSummary(
+            packSize: line.packSize,
+            quantity: line.invoiceQuantity,
+            free: '',
+            rate: typedRate ? line.unitPrice : line.receiptUnitPrice,
+          ),
+          key: const ValueKey('purchase-invoice-side-boxes'),
+        ),
       DocumentSidePair(
         order ? 'Ordered' : 'Received',
-        documentQuantity(line.receivedQuantity),
+        _billFigure(line, line.receivedQuantity),
       ),
       DocumentSidePair(
         order ? 'Arrived before' : 'Billed before',
-        documentQuantity(line.alreadyInvoiced),
+        _billFigure(line, line.alreadyInvoiced),
       ),
       DocumentSidePair('Billing now', quantity(billing)),
       DocumentSidePair(
@@ -1703,6 +1878,18 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         ),
       ] else ...[
         DocumentSideHeading('Line ${index + 1} · ${product.name}'),
+        if (_boxAndPieces && _directPack(line) != null)
+          DocumentSideNote(
+            boxPieceSummary(
+              packSize: _directPackSize(line),
+              quantity: line.quantity,
+              free: line.freeQuantity,
+              rate: line.unitPrice.trim().isEmpty
+                  ? product.purchasePrice
+                  : line.unitPrice,
+            ),
+            key: const ValueKey('purchase-invoice-side-boxes'),
+          ),
         DocumentSidePair(
           'Rate',
           documentMoney(line.unitPrice.trim().isEmpty

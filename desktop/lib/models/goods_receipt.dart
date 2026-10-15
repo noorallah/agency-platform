@@ -49,6 +49,7 @@ class GoodsReceiptLine {
     this.taxRuleVersion,
     this.schemeName = '',
     this.returnedUnbilledQuantity = '',
+    this.packSize = '',
     this.serialTracked = false,
     this.isCapitalGoods = false,
     this.serialNumbers = const [],
@@ -70,6 +71,10 @@ class GoodsReceiptLine {
   /// What went back to the supplier before any bill reached it, so is not
   /// the supplier's to bill (D-BUY-26); empty from an older server.
   final String returnedUnbilledQuantity;
+
+  /// L5: the pack the server holds this line at ('' where the item has
+  /// none): what a bill or a return of it is typed in boxes by.
+  final String packSize;
 
   /// Per stock unit, tax included; empty when none was recorded.
   final String mrp;
@@ -174,6 +179,7 @@ class GoodsReceiptLine {
         schemeName: stringValue(json['scheme_name']),
         returnedUnbilledQuantity:
             stringValue(json['returned_unbilled_quantity']),
+        packSize: stringValue(json['pack_size']),
         serialTracked: json['serial_tracked'] == true,
         isCapitalGoods: json['is_capital_goods'] == true,
         serialNumbers: [
@@ -320,7 +326,11 @@ class GoodsReceiptRecord {
     this.leftToBillAmount = '',
     this.approvalStep = true,
     this.createdBy = '',
+    this.boxAndPieceEntry = false,
   });
+
+  /// L5: whether the lines were typed as boxes and pieces, as saved.
+  final bool boxAndPieceEntry;
 
   /// Backlog 120 (M2): false when completing was not a step of its own for
   /// this receipt when it was raised, and who raised it.
@@ -475,6 +485,7 @@ class GoodsReceiptRecord {
         leftToBillAmount: stringValue(json['left_to_bill_amount']),
         approvalStep: json['approval_step'] != false,
         createdBy: stringValue(json['created_by']),
+        boxAndPieceEntry: boolValue(json['box_and_piece_entry']),
       );
 
   /// The header a document view shows. [branchName] and [warehouseName]
