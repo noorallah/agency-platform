@@ -26,6 +26,7 @@ from app.core.exceptions import ResourceNotFoundError
 from app.document_framework.services.print_support import (
     load_template,
     seller_party,
+    unsaved_fallback,
 )
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -42,8 +43,6 @@ from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "PURCHASE_ORDER"
-#: A purchase order is not a tax invoice, so its default banner is its own.
-DEFAULT_TITLE = "PURCHASE ORDER"
 
 
 class PurchaseOrderPrintService:
@@ -85,12 +84,7 @@ class PurchaseOrderPrintService:
             self._session,
             firm_scope=firm_scope,
             document_type=DOCUMENT_TYPE,
-            # An order asks for goods; it certifies nothing.
-            fallback=TemplateSettings(
-                title_text=DEFAULT_TITLE,
-                declaration=None,
-                show_bank_details=False,
-            ),
+            fallback=unsaved_fallback(DOCUMENT_TYPE),
         )
 
     def _document(self, order: PurchaseOrder, *, firm_scope: UUID) -> InvoiceDocument:

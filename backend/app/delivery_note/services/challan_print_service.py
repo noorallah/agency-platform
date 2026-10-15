@@ -39,6 +39,7 @@ from app.document_framework.services.print_support import (
     customer_party,
     load_template,
     seller_party,
+    unsaved_fallback,
 )
 from app.products.models import Product
 from app.sales_invoice.services.invoice_pdf import (
@@ -58,15 +59,6 @@ ZERO = Decimal("0")
 QTY = Decimal("0.0001")
 MONEY = Decimal("0.01")
 DOCUMENT_TYPE = "DELIVERY_NOTE"
-#: A challan accompanies goods; it is not a tax invoice and does not say so.
-DEFAULT_TITLE = "DELIVERY CHALLAN"
-#: What the copies of a challan are conventionally called. A firm may rename
-#: them, but nobody should have to type these to get the ordinary set.
-DEFAULT_COPIES: tuple[str, ...] = (
-    "ORIGINAL FOR CONSIGNEE",
-    "DUPLICATE FOR TRANSPORTER",
-    "TRIPLICATE FOR CONSIGNOR",
-)
 
 
 def _printed_number(batch: BatchRecord) -> str | None:
@@ -291,14 +283,7 @@ class DeliveryChallanPrintService:
             self._session,
             firm_scope=firm_scope,
             document_type=DOCUMENT_TYPE,
-            # A challan collects nothing, so it carries no bank block and
-            # certifies nothing about tax.
-            fallback=TemplateSettings(
-                title_text=DEFAULT_TITLE,
-                declaration=None,
-                show_bank_details=False,
-                copy_labels=DEFAULT_COPIES,
-            ),
+            fallback=unsaved_fallback(DOCUMENT_TYPE),
         )
 
     def _document(self, note: DeliveryNote, *, firm_scope: UUID) -> InvoiceDocument:

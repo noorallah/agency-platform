@@ -31,9 +31,25 @@ from app.document_framework.models import DocumentPrintTemplate
 from app.document_framework.services.printable_types import (
     PRINTABLE_DOCUMENT_TYPES as PRINTABLE_DOCUMENT_TYPES,
 )
+from app.document_framework.services.printable_types import unsaved_template
 from app.finance.services.bank_details import BankDetailsService
 from app.firms.models import Firm
 from app.sales_invoice.services.invoice_pdf import PartyBlock, TemplateSettings
+
+
+def unsaved_fallback(document_type: str) -> TemplateSettings:
+    """Return the settings ``document_type`` prints with before any are saved.
+
+    Built from the same table the template read answers from, so what Print
+    settings shows a firm that saved nothing is what its documents print.
+    """
+    unsaved = unsaved_template(document_type)
+    settings = TemplateSettings(
+        title_text=unsaved.title_text,
+        show_bank_details=unsaved.show_bank_details,
+        copy_labels=unsaved.copy_labels,
+    )
+    return settings if unsaved.certifies else replace(settings, declaration=None)
 
 
 def load_template(
