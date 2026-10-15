@@ -955,8 +955,11 @@ The product import takes two optional columns, *PiecesPerPack* (also read from
 headings) and *PackUnit*. Above one, a **new** product is kept in its *Unit*
 (PIECE where the cell is blank), its purchase unit is the *PackUnit* (BOX
 where blank) and its own conversion rule is that many, from the day packs
-begin -- so `pack_of` answers it as both the buying and the selling pack. One
-is a product kept in pieces only. A size that is not a whole number of one or
+begin -- so `pack_of` answers it as both the buying and the selling pack. One,
+or a blank cell, is a product kept in pieces only, and a **new** product
+whose *Unit* is blank is the piece throughout there too (`_piece_where_blank`;
+the owner, 2026-10-15: every imported item's base unit is the piece) rather
+than a product with no unit. A size that is not a whole number of one or
 more, a pack unit the system does not hold, or a pack unit that is the stock
 unit is a problem on its column. On a product that exists, or on a row that
 also names a *UnitSet*, the cell is passed over with a warning: the set fills

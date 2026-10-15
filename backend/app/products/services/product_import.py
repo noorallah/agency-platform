@@ -97,7 +97,8 @@ COLUMNS: tuple[Column, ...] = (
         "Unit",
         ("uom", "baseunit", "baseuom", "units", "unitofmeasure"),
         False,
-        "An existing unit, by code, name or symbol (see the Lists sheet).",
+        "An existing unit, by code, name or symbol (see the Lists sheet); "
+        "PIECE where blank on a new product.",
         "PCS",
     ),
     Column(
@@ -400,6 +401,7 @@ class ProductFileImporter(FileImporter[Product]):
         issues: list[ImportIssue] = []
         values = self._values(RowReader(row, code, issues), code, current)
         warnings = self._unit_set(row, code, current, values, issues)
+        self._piece_where_blank(current, values)
         warnings += self._pack(row, code, current, values, issues)
         if issues:
             report.issues.extend(issues)
@@ -565,6 +567,37 @@ class ProductFileImporter(FileImporter[Product]):
             )
         return warnings
 
+    def _piece_where_blank(
+        self, current: Product | None, values: dict[str, object]
+    ) -> None:
+        """Keep a new product with no unit in pieces (the owner, 2026-10-15).
+
+        The old program names no unit on any item, and every item it sells
+        is counted in pieces, so a blank Unit on a new product is the piece
+        throughout rather than no unit at all; PiecesPerPack then adds the
+        box. A Unit named on the row, a unit set, or a product that exists
+        keeps what it says.
+        """
+        if (
+            current is not None
+            or "unit_set_id" in values
+            or values.get("base_uom_id") is not None
+        ):
+            return
+        assert self._references is not None
+        units = self._references.units
+        piece = units.get("piece") or units.get("pcs")
+        if piece is None:
+            return
+        values["unit"] = piece.code
+        for target in (
+            "base_uom_id",
+            "inventory_uom_id",
+            "purchase_uom_id",
+            "sales_uom_id",
+        ):
+            values[target] = piece.id
+
     def _pack(
         self,
         row: ImportRow,
@@ -635,7 +668,6 @@ class ProductFileImporter(FileImporter[Product]):
         units = self._references.units
         box = units.get((unit_text or "BOX").strip().lower())
         stock_id = values.get("base_uom_id")
-        stock = (units.get("piece") or units.get("pcs")) if stock_id is None else None
         if box is None:
             issues.append(
                 ImportIssue(
@@ -647,17 +679,10 @@ class ProductFileImporter(FileImporter[Product]):
             )
             return []
         if stock_id is None:
-            if stock is None:
-                issues.append(
-                    ImportIssue(
-                        row.number, code, "Unit", "is needed beside PiecesPerPack."
-                    )
-                )
-                return []
-            stock_id = stock.id
-            values["unit"] = stock.code
-            for target in ("base_uom_id", "inventory_uom_id", "sales_uom_id"):
-                values[target] = stock.id
+            issues.append(
+                ImportIssue(row.number, code, "Unit", "is needed beside PiecesPerPack.")
+            )
+            return []
         if box.id == stock_id:
             issues.append(
                 ImportIssue(

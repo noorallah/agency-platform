@@ -647,7 +647,8 @@ def test_pieces_per_pack_makes_a_new_products_box() -> None:
     """The old program's pieces per case becomes the item's pack (L5, G4).
 
     Above one, a new product is kept in its Unit (PCS where blank) and bought
-    and sold in boxes of that many; one is pieces only; a product that exists
+    and sold in boxes of that many; one, or none, is pieces only, and a blank
+    Unit is the piece there too; a product that exists
     and a row with a unit set are said to be passed over, never refused.
     """
     from app.uom.services.packs import pack_of
@@ -667,6 +668,7 @@ def test_pieces_per_pack_makes_a_new_products_box() -> None:
         "pk-2,Pack two,TABLETS,KG,24,box",
         "pk-3,Pack three,TABLETS,PCS,1,",
         "pk-4,Pack four,TABLETS,PCS,,",
+        "pk-7,Pack seven,TABLETS,,,",
     )
 
     report = _run(session, firm.id, content, apply=True)
@@ -691,6 +693,15 @@ def test_pieces_per_pack_makes_a_new_products_box() -> None:
     assert packs["PK-2"] is not None and packs["PK-2"].size == 24
     assert packs["PK-3"] is None and rows["PK-3"].purchase_uom_id == units["PCS"]
     assert packs["PK-4"] is None
+    # No unit and no pack is the piece throughout (the owner, 2026-10-15).
+    seven = rows["PK-7"]
+    assert seven.unit == "PCS"
+    assert {
+        seven.base_uom_id,
+        seven.inventory_uom_id,
+        seven.purchase_uom_id,
+        seven.sales_uom_id,
+    } == {units["PCS"]}
 
     passed = _run(
         session,
