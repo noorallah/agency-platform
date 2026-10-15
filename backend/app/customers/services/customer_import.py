@@ -199,6 +199,14 @@ COLUMNS: tuple[Column, ...] = (
         "ACTIVE",
     ),
     Column(
+        "BoxesAndPieces",
+        ("billsinboxes", "boxandpiece"),
+        False,
+        "Yes if the customer's bills are typed as boxes and pieces, where the "
+        "firm has switched that on. Blank means No.",
+        "No",
+    ),
+    Column(
         "Address1",
         ("address", "addressline1", "street", "address1"),
         False,
@@ -274,6 +282,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "currency_code": "Currency",
     "opening_balance": "OpeningBalance",
     "status": "Status",
+    "box_and_piece_entry": "BoxesAndPieces",
     "salesman_id": "AccountManager",
     "notes": "Notes",
     "addresses": "Address1",
@@ -462,6 +471,9 @@ class CustomerFileImporter(FileImporter[Customer]):
         status = reader.text("Status").upper().replace(" ", "_")
         if status:
             values["status"] = status
+        boxes = reader.flag("BoxesAndPieces")
+        if boxes is not None:
+            values["box_and_piece_entry"] = boxes
         for heading, target in _TEXT_FIELDS.items():
             if reader.text(heading):
                 values[target] = reader.text(heading)

@@ -277,6 +277,10 @@ class VendorRepository:
             conditions.append(Vendor.status == filters.status.value)
         if filters.category_id is not None:
             conditions.append(Vendor.category_id == filters.category_id)
+        if filters.box_and_piece_entry is not None:
+            conditions.append(
+                Vendor.box_and_piece_entry.is_(filters.box_and_piece_entry)
+            )
         if filters.type_id is not None:
             conditions.append(Vendor.type_id == filters.type_id)
         if filters.business_profile_id is not None:

@@ -157,6 +157,14 @@ COLUMNS: tuple[Column, ...] = (
         "No",
     ),
     Column(
+        "BoxesAndPieces",
+        ("buysinboxes", "boxandpiece"),
+        False,
+        "Yes if this supplier's documents are typed as boxes and pieces, "
+        "where the firm has switched that on. Blank means No.",
+        "No",
+    ),
+    Column(
         "LicenseNumber",
         ("licenceno", "licenseno", "druglicense", "druglicence", "dlno"),
         False,
@@ -290,6 +298,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "msme_category": "MsmeCategory",
     "msme_written_agreement": "MsmeAgreement",
     "issues_e_invoices": "EInvoicing",
+    "box_and_piece_entry": "BoxesAndPieces",
     "license_number": "LicenseNumber",
     "registration_number": "RegistrationNumber",
     "email": "Email",
@@ -618,6 +627,9 @@ class VendorFileImporter(FileImporter[Vendor]):
         e_invoicing = reader.flag("EInvoicing")
         if e_invoicing is not None:
             values["issues_e_invoices"] = e_invoicing
+        boxes = reader.flag("BoxesAndPieces")
+        if boxes is not None:
+            values["box_and_piece_entry"] = boxes
         email = reader.email("Email")
         if email:
             values["email"] = email

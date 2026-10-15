@@ -617,6 +617,9 @@ class PurchaseWorkflowSettingsResponse(PurchaseSchema):
     purchase_order_approval: bool = True
     goods_receipt_approval: bool = True
     purchase_invoice_approval: bool = True
+    #: Whether a buying line may be typed as boxes and pieces (L5); a new
+    #: document opens so for a supplier marked to buy that way.
+    box_and_piece_entry: bool = False
     is_configured: bool
 
 
@@ -651,6 +654,9 @@ class PurchaseWorkflowSettingsWrite(PurchaseSchema):
     purchase_order_approval: bool | None = None
     goods_receipt_approval: bool | None = None
     purchase_invoice_approval: bool | None = None
+    #: Type buying quantities as boxes and pieces (L5). Omitted is left as
+    #: it is; a document already saved keeps the layout it was saved in.
+    box_and_piece_entry: bool | None = None
 
 
 class RolePurchaseApprovalLimitItem(PurchaseSchema):

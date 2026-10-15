@@ -1722,6 +1722,8 @@ class VendorService:
             # The number it is taxed under, and whose it is (backlog 136).
             "gstin": vendor.gstin,
             "gstin_from_parent": vendor.gstin_from_parent,
+            # Whether its documents open with the box cells (L5).
+            "box_and_piece_entry": vendor.box_and_piece_entry,
             "contact_count": sum(not item.is_deleted for item in vendor.contacts),
             "address_count": sum(not item.is_deleted for item in vendor.addresses),
             "bank_count": sum(not item.is_deleted for item in vendor.bank_accounts),

@@ -1580,6 +1580,7 @@ class CustomerService:
             "whatsapp_opt_in": customer.whatsapp_opt_in,
             # Decides which batch trade rate the customer is sold at (PG-14).
             "trade_class": customer.trade_class,
+            "box_and_piece_entry": customer.box_and_piece_entry,
             # Whose number the customer is billed under (backlog 125).
             "gst_number": customer.gst_number,
             "gst_number_from_parent": customer.gst_number_from_parent,

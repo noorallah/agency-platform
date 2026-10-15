@@ -45,6 +45,7 @@ DEFAULT_SETTINGS = SalesWorkflowSettings(
     sales_invoice_approval=True,
     round_bills_to_rupee=False,
     salesman_required=False,
+    box_and_piece_entry=False,
 )
 
 #: The approval switch of each document that has one (backlog 119).
@@ -125,6 +126,7 @@ class SalesWorkflowService:
             sales_invoice_approval=bool(policy.sales_invoice_approval),
             round_bills_to_rupee=bool(policy.round_bills_to_rupee),
             salesman_required=bool(policy.salesman_required),
+            box_and_piece_entry=bool(policy.box_and_piece_entry),
             is_configured=stored is not None,
         )
 
@@ -166,6 +168,7 @@ class SalesWorkflowService:
                 created_by=actor_id,
                 round_bills_to_rupee=False,
                 salesman_required=False,
+                box_and_piece_entry=False,
             )
             self._session.add(row)
         else:
@@ -200,6 +203,8 @@ class SalesWorkflowService:
             row.round_bills_to_rupee = data.round_bills_to_rupee
         if data.salesman_required is not None:
             row.salesman_required = data.salesman_required
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -233,6 +238,7 @@ class SalesWorkflowService:
             sales_invoice_approval=row.sales_invoice_approval,
             round_bills_to_rupee=row.round_bills_to_rupee,
             salesman_required=row.salesman_required,
+            box_and_piece_entry=row.box_and_piece_entry,
             is_configured=True,
         )
 
@@ -304,6 +310,7 @@ class SalesWorkflowService:
             **{switch: getattr(row, switch) for switch in APPROVAL_SWITCHES},
             "round_bills_to_rupee": row.round_bills_to_rupee,
             "salesman_required": row.salesman_required,
+            "box_and_piece_entry": row.box_and_piece_entry,
             "quotation_stage": row.quotation_stage,
             "sales_order_stage": row.sales_order_stage,
             "delivery_note_stage": row.delivery_note_stage,

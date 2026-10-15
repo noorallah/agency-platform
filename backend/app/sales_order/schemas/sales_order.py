@@ -624,6 +624,9 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     #: Whether the order, the delivery note and the bill must name a
     #: salesman (P2, salesman list design section 6).
     salesman_required: bool = False
+    #: Whether a selling line may be typed as boxes and pieces (L5); a new
+    #: document opens so for a customer marked to bill that way.
+    box_and_piece_entry: bool = False
     is_configured: bool
 
 
@@ -672,6 +675,9 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     #: Require a salesman on every order, delivery note and bill (P2).
     #: Omitted is left as it is; the rule applies to each document's next save.
     salesman_required: bool | None = None
+    #: Type selling quantities as boxes and pieces (L5). Omitted is left as
+    #: it is; a document already saved keeps the layout it was saved in.
+    box_and_piece_entry: bool | None = None
 
 
 class SalesOrderPreview(SalesOrderSchema):
