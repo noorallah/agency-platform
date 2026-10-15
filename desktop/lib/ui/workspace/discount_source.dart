@@ -25,6 +25,34 @@ String discountSourceWords(String source) => switch (source) {
       _ => 'the last save',
     };
 
+/// The words for where a priced line's rate came from, naming it (L7 step 2).
+///
+/// [offers] is the line's `offers` as the server answers them: one row per
+/// arrangement applied. A promotion is named by the codes of the offers that
+/// took something off ("TEA-5 + TEA-11"), a price list by its code; anything
+/// the rows do not name reads as [discountSourceWords] does.
+String discountSourceNamed(String source, Object? offers) {
+  final List<Map<String, dynamic>> applied = (offers is List
+          ? offers
+          : const <dynamic>[])
+      .whereType<Map<String, dynamic>>()
+      .where((Map<String, dynamic> row) =>
+          '${row['state']}' == 'APPLIED' && '${row['source']}' == source)
+      .toList();
+  if (source == 'promotion') {
+    final List<String> codes = <String>[
+      for (final Map<String, dynamic> row in applied)
+        if ((double.tryParse('${row['discount_amount']}') ?? 0) > 0)
+          '${row['code']}',
+    ];
+    if (codes.isNotEmpty) return codes.join(' + ');
+  }
+  if (source == 'price_list' && applied.isNotEmpty) {
+    return 'price list ${applied.first['code']}';
+  }
+  return discountSourceWords(source);
+}
+
 /// A stored rate without its trailing zeros: `6.7500` reads as `6.75`.
 String trimDiscountRate(String rate) {
   final String text = rate.trim();
