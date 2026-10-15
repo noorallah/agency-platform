@@ -2639,6 +2639,7 @@ class _DesktopShellState extends State<DesktopShell> {
         AppModule.reports => ReportsWorkspace(
             api: api,
             permissions: widget.permissions,
+            preferences: widget.preferences,
             hasActiveFirm: widget.session.currentFirm != null,
             tabId: _router.current.tab ?? 'operational',
           ),

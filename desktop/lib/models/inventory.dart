@@ -52,7 +52,15 @@ class InventoryRecord {
     required this.createdAt,
     required this.updatedAt,
     this.version = 0,
+    this.packSize = '',
+    this.packUnitCode = '',
   });
+
+  /// L5 step 11: how many pieces the item's box holds today, and the box's
+  /// unit, where the firm types boxes and pieces; empty otherwise. What
+  /// *Show boxes* splits the quantities by; never sent back.
+  final String packSize;
+  final String packUnitCode;
 
   final String id;
   final String firmId;
@@ -136,6 +144,8 @@ class InventoryRecord {
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),
         version: (json['version'] as num?)?.toInt() ?? 0,
+        packSize: stringValue(json['pack_size']),
+        packUnitCode: stringValue(json['pack_unit_code']),
       );
 }
 
@@ -320,7 +330,15 @@ class InventoryTransactionRecord {
     required this.remarks,
     required this.createdAt,
     required this.transactionId,
+    this.packSize = '',
+    this.packUnitCode = '',
   });
+
+  /// L5 step 11: how many pieces the item's box holds today, and the box's
+  /// unit, where the firm types boxes and pieces; empty otherwise. What
+  /// *Show boxes* splits the quantities by; never sent back.
+  final String packSize;
+  final String packUnitCode;
 
   final String id;
   final String inventoryId;
@@ -421,6 +439,8 @@ class InventoryTransactionRecord {
         remarks: stringValue(json['remarks']),
         createdAt: stringValue(json['created_at']),
         transactionId: stringValue(json['transaction_id'] ?? json['id']),
+        packSize: stringValue(json['pack_size']),
+        packUnitCode: stringValue(json['pack_unit_code']),
       );
 }
 

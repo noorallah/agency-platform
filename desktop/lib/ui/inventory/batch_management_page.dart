@@ -14,6 +14,7 @@ import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../purchases/purchase_requisition_page.dart' show ProductSearchBox;
+import '../workspace/box_piece_cells.dart';
 import '../workspace/desktop_framework.dart';
 import 'lot_trail_dialog.dart';
 
@@ -167,6 +168,21 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
 
   List<BatchRecord> _batches = const [];
   BatchRecord? _selectedBatch;
+
+  /// L5 step 11: *Show boxes*, remembered per user on this PC, offered on
+  /// the lot list where a row read carries a pack.
+  late final ShowBoxesChoice _boxes = ShowBoxesChoice(
+    preferences: widget.preferences,
+    userId: widget.permissions.userId,
+  );
+
+  bool get _offersBoxes =>
+      (widget.section == BatchSerialSection.batches ||
+          widget.section == BatchSerialSection.expiryMonitor) &&
+      offersShowBoxes(_batches.map((row) => row.packSize));
+
+  String _shown(String quantity, String packSize) =>
+      _boxes.on && _offersBoxes ? stockInBoxes(quantity, packSize) : quantity;
 
   List<LotRecord> _lots = const [];
   LotRecord? _selectedLot;
@@ -424,6 +440,13 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
       BatchSerialSection.expiryMonitor => false,
     };
     return WorkspaceToolbar(
+      trailing: [
+        if (_offersBoxes)
+          ShowBoxesToggle(
+            value: _boxes.on,
+            onChanged: (value) => setState(() => _boxes.choose(value)),
+          ),
+      ],
       actions: [
         if (mayOpen) ToolbarAction.view,
         ToolbarAction.refresh,
@@ -694,6 +717,8 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         widget.section == BatchSerialSection.expiryMonitor &&
             Phase2Scope.of(context);
     return EnterpriseDataGrid<BatchRecord>(
+      // Measured afresh when *Show boxes* turns.
+      key: ValueKey<String>('batch-grid-boxes-${_boxes.on && _offersBoxes}'),
       items: _batches,
       total: _total,
       pageOffset: (_page - 1) * _rowsPerPage,
@@ -723,8 +748,8 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         // an older record -- would otherwise render as a bare " - ".
         _productLabel(b),
         b.status,
-        b.quantity,
-        b.availableQuantity,
+        _shown(b.quantity, b.packSize),
+        _shown(b.availableQuantity, b.packSize),
         // With its label in words, so the column is measured for both and
         // a copied row says what the screen says.
         b.expiryDate.isEmpty

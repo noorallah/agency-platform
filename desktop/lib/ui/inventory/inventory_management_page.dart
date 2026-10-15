@@ -16,6 +16,7 @@ import '../../models/batch_serial.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import '../goods_receipts/serial_entry_dialog.dart' show parseSerialLines;
+import '../workspace/box_piece_cells.dart';
 import '../workspace/party_place.dart';
 import 'inventory_details_dialog.dart';
 import 'inventory_import_wizard.dart';
@@ -65,6 +66,29 @@ class InventoryManagementPage extends StatefulWidget {
 class _InventoryManagementPageState extends State<InventoryManagementPage> {
   static const int _rowsPerPage = 20;
   static const String _preferencesKey = 'inventory_management';
+
+  /// L5 step 11: *Show boxes*, remembered per user on this PC.
+  late final ShowBoxesChoice _boxes = ShowBoxesChoice(
+    preferences: widget.preferences,
+    userId: widget.permissions.userId,
+  );
+
+  /// Offered on stock on hand and the stock ledger where a row read carries
+  /// a pack: the server sends one only where a box switch is on.
+  bool get _offersBoxes => switch (widget.section) {
+        InventorySection.inventory || InventorySection.stockSearch =>
+          offersShowBoxes(_inventory.map((row) => row.packSize)),
+        InventorySection.stockLedger =>
+          offersShowBoxes(_ledger.map((row) => row.packSize)),
+        _ => false,
+      };
+
+  bool get _showBoxes => _boxes.on && _offersBoxes;
+
+  /// A quantity as the grid shows it: as boxes and pieces with *Show boxes*
+  /// on, else as read.
+  String _shown(String quantity, String packSize) =>
+      _showBoxes ? stockInBoxes(quantity, packSize) : quantity;
 
   static const List<String> _statusValues = [
     '',
@@ -843,6 +867,11 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               _load(requestedPage: 1);
             },
           ),
+        if (_offersBoxes)
+          ShowBoxesToggle(
+            value: _boxes.on,
+            onChanged: (value) => setState(() => _boxes.choose(value)),
+          ),
       ],
       actions: [
         ToolbarAction.view,
@@ -1327,6 +1356,9 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       );
     }
     return EnterpriseDataGrid<InventoryRecord>(
+      // Measured afresh when *Show boxes* turns: the columns' widths are
+      // kept per page.
+      key: ValueKey<String>('inventory-grid-boxes-$_showBoxes'),
       items: _inventory,
       total: _total,
       pageOffset: (_page - 1) * _rowsPerPage,
@@ -1349,9 +1381,9 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         item.branchCode,
         item.warehouseCode,
         item.storageNodeCode.isEmpty ? '-' : item.storageNodeCode,
-        item.currentQuantity,
-        item.availableQuantity,
-        item.reservedQuantity,
+        _shown(item.currentQuantity, item.packSize),
+        _shown(item.availableQuantity, item.packSize),
+        _shown(item.reservedQuantity, item.packSize),
         item.status,
       ],
       onSelect: (item) => setState(() => _selectedInventory = item),
@@ -1421,6 +1453,12 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       ),
       maxPages: 1000,
     );
+    // With *Show boxes* on, each quantity is three number columns: boxes,
+    // pieces, total.
+    final bool boxes = _showBoxes;
+    List<Object?> figure(String quantity, String packSize) => boxes
+        ? stockBoxColumns(quantity, packSize)
+        : <Object?>[quantity];
     return WorkbookSheet(
       title: 'Stock ledger',
       notes: [
@@ -1429,7 +1467,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         if (search.isNotEmpty) 'Search: $search',
         if ((_transactionType ?? '').isNotEmpty) 'Type: $_transactionType',
       ],
-      headers: const [
+      headers: [
         'Date',
         'Type',
         'Reference',
@@ -1437,10 +1475,15 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         'Product',
         'Branch',
         'Warehouse',
-        'Quantity',
-        'Balance',
+        if (boxes) ...[
+          ...stockBoxHeadings('Quantity'),
+          ...stockBoxHeadings('Balance'),
+        ] else ...[
+          'Quantity',
+          'Balance',
+        ],
       ],
-      numeric: const {7, 8},
+      numeric: boxes ? const {7, 8, 9, 10, 11, 12} : const {7, 8},
       rows: [
         for (final InventoryTransactionRecord item in rows)
           [
@@ -1451,8 +1494,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             item.productName,
             item.branchName,
             item.warehouseName,
-            item.quantity,
-            item.newCurrentQuantity,
+            ...figure(item.quantity, item.packSize),
+            ...figure(item.newCurrentQuantity, item.packSize),
           ],
       ],
     );
@@ -1467,6 +1510,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       );
     }
     return EnterpriseDataGrid<InventoryTransactionRecord>(
+      key: ValueKey<String>('ledger-grid-boxes-$_showBoxes'),
       items: _ledger,
       total: _total,
       pageOffset: (_page - 1) * _rowsPerPage,
@@ -1487,8 +1531,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         item.transactionType,
         item.referenceNumber,
         '${item.productCode} - ${item.productName}',
-        item.quantity,
-        item.newCurrentQuantity,
+        _shown(item.quantity, item.packSize),
+        _shown(item.newCurrentQuantity, item.packSize),
       ],
       onSelect: (item) => setState(() => _selectedLedger = item),
       onPageChanged: _handlePageChange,

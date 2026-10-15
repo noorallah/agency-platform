@@ -1890,7 +1890,12 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       final double next =
           (double.tryParse(line.quantity.text.trim()) ?? 0) + each;
       _setState(() {
-        line.quantity.text = _scanQuantity(next);
+        final double? pack = _boxAndPieces ? _packFor(product.id) : null;
+        if (pack != null) {
+          _scanIntoBoxes(line, each, pack);
+        } else {
+          line.quantity.text = _scanQuantity(next);
+        }
         _current = index;
         if (_addsProducts) _addedFocus = true;
         _scanMessage = null;
@@ -1906,12 +1911,37 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         }
         final _DirectLine line = _directLines[index];
         line.refresh++;
-        line.quantity.text = _scanQuantity(each);
+        final double? pack = _boxAndPieces ? _packFor(product.id) : null;
+        if (pack != null) {
+          line.boxes.load(quantity: '', free: line.free.text, pack: pack);
+          _scanIntoBoxes(line, each, pack);
+        } else {
+          line.quantity.text = _scanQuantity(each);
+        }
         _scanMessage = null;
         _scanNote = null;
       });
       _pickProduct(index, product.id);
     }
+  }
+
+  /// L5 step 11 (`BOX_AND_PIECE_LINE_DESIGN` 5, "Pack barcode"): on a bill
+  /// typed as boxes and pieces, a scan of the line's own pack adds one to
+  /// Box; any other scan adds its pieces to Pcs, evened out into full boxes
+  /// as the cells are when left. The line's quantity stays the figure the
+  /// cells add up to, in pieces.
+  void _scanIntoBoxes(_DirectLine line, double each, double pack) {
+    final BoxPieceEntry cells = line.boxes;
+    double figure(TextEditingController box) =>
+        double.tryParse(box.text.trim()) ?? 0;
+    if ((each - pack).abs() < 1e-9) {
+      cells.box.text = boxPieceFigure(figure(cells.box) + 1);
+      cells.note = '';
+    } else {
+      cells.pcs.text = boxPieceFigure(figure(cells.pcs) + each);
+      if (!cells.normalise(pack)) cells.note = '';
+    }
+    line.quantity.text = cells.quantityText(pack);
   }
 
   void _refocusScan() {

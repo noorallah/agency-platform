@@ -45,7 +45,15 @@ class BatchRecord {
     this.retailMarginPercent = '',
     this.wholesaleMarginPercent = '',
     this.mrpWarning = '',
+    this.packSize = '',
+    this.packUnitCode = '',
   });
+
+  /// L5 step 11: how many pieces the item's box holds today, and the box's
+  /// unit, where the firm types boxes and pieces; empty otherwise. What
+  /// *Show boxes* splits the quantities by; never sent back.
+  final String packSize;
+  final String packUnitCode;
 
   /// Per stock unit; empty when none is recorded (BATCH_PTR_PTS). For a firm
   /// costing by lot, the lot's retail and wholesale prices.
@@ -141,6 +149,8 @@ class BatchRecord {
       retailMarginPercent: stringValue(d['retail_margin_percent']),
       wholesaleMarginPercent: stringValue(d['wholesale_margin_percent']),
       mrpWarning: stringValue(d['mrp_warning']),
+      packSize: stringValue(d['pack_size']),
+      packUnitCode: stringValue(d['pack_unit_code']),
     );
   }
 }

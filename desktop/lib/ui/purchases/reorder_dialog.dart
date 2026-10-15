@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
+import '../workspace/box_piece_cells.dart';
 import '../workspace/save_in_dialog.dart';
 
 /// Below reorder level, and the draft orders that put it right (42.9).
@@ -21,9 +22,14 @@ class ReorderDialog extends StatefulWidget {
     super.key,
     required this.api,
     this.canRaiseRequisition = false,
+    this.boxes,
   });
 
   final ApiClient api;
+
+  /// The person's *Show boxes* choice (L5 step 11); null keeps it for the
+  /// dialog only.
+  final ShowBoxesChoice? boxes;
 
   /// Offer **Raise requisition** (BUY-7): the same picks as a request to buy
   /// that someone approves, instead of draft orders.
@@ -40,6 +46,20 @@ class _ReorderDialogState extends State<ReorderDialog>
   String? _loadError;
   String? _planningNote;
   final Set<int> _ticked = <int>{};
+
+  late final ShowBoxesChoice _boxes = widget.boxes ?? ShowBoxesChoice();
+
+  /// Offered where a row read carries the item's pack, which the server
+  /// sends only where a box switch is on.
+  bool get _offersBoxes =>
+      offersShowBoxes(_rows.map((row) => stringValue(row['pack_size'])));
+
+  /// A stock figure of [row], as boxes and pieces with *Show boxes* on. The
+  /// quantity to order is still typed in pieces.
+  String _stock(Json row, String key) => _boxes.on && _offersBoxes
+      ? stockInBoxes(stringValue(row[key]), stringValue(row['pack_size']),
+          beside: _plain(row[key]))
+      : _plain(row[key]);
 
   /// One box per row, owned here (CLAUDE.md: a dialog owns its controllers).
   final List<TextEditingController> _quantities = <TextEditingController>[];
@@ -218,6 +238,14 @@ class _ReorderDialogState extends State<ReorderDialog>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (_offersBoxes)
+          Align(
+            alignment: Alignment.centerRight,
+            child: ShowBoxesToggle(
+              value: _boxes.on,
+              onChanged: (value) => setState(() => _boxes.choose(value)),
+            ),
+          ),
         Row(children: [
           const SizedBox(width: 40),
           Expanded(flex: 2, child: Text('Warehouse', style: head)),
@@ -294,12 +322,12 @@ class _ReorderDialogState extends State<ReorderDialog>
         ),
         Expanded(
             flex: 2,
-            child: Text(_plain(row['available_quantity']), style: cell)),
+            child: Text(_stock(row, 'available_quantity'), style: cell)),
         Expanded(
-            flex: 2, child: Text(_plain(row['reorder_level']), style: cell)),
+            flex: 2, child: Text(_stock(row, 'reorder_level'), style: cell)),
         Expanded(
             flex: 2,
-            child: Text(_plain(row['on_order_quantity']), style: cell)),
+            child: Text(_stock(row, 'on_order_quantity'), style: cell)),
         Expanded(
           flex: 2,
           child: Padding(
