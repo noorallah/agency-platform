@@ -52,6 +52,7 @@ from app.sales_invoice.services.invoice_pdf import (
 )
 from app.tax.services.gst_compliance import CHALLAN_REASONS
 from app.uom.models import Uom
+from app.uom.services.packs import printed_pack
 
 ZERO = Decimal("0")
 QTY = Decimal("0.0001")
@@ -339,6 +340,12 @@ class DeliveryChallanPrintService:
                 total=line.net_amount,
                 batch=line.batch_number,
                 expiry=line.expiry_date.isoformat() if line.expiry_date else None,
+                pack_size=printed_pack(
+                    in_boxes=note.box_and_piece_entry,
+                    pack_size=line.pack_size,
+                    unit_id=unit_id,
+                    product=product,
+                ),
             )
             printed.extend(
                 _per_batch(whole, drawn.get(line.id, []), line.delivered_quantity)

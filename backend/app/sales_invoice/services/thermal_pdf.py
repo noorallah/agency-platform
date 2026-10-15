@@ -223,6 +223,11 @@ class ThermalReceiptRenderer:
             quantity = f"{_quantity(line.quantity)} {line.uom or ''}".strip()
             if line.free_quantity:
                 quantity += f" +{_quantity(line.free_quantity)} free"
+            if line.packed_quantity is not None:
+                # The boxes and pieces layout (L5): "3/5 (x12) Free 0/2".
+                quantity = f"{line.packed_quantity} {line.pack_label}"
+                if line.packed_free:
+                    quantity += f" Free {line.packed_free}"
             # Typed with GST in it (backlog 64 row 4): the shelf price the
             # customer saw first, the taxable rate it derived to beneath.
             typed = line.rate if line.entered_rate is None else line.entered_rate

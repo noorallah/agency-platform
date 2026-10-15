@@ -33,6 +33,7 @@ from app.sales_invoice.services.invoice_pdf import (
 )
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.uom.models import Uom
+from app.uom.services.packs import printed_pack
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "SALES_ORDER"
@@ -129,6 +130,12 @@ class SalesOrderPrintService:
                 # An order typed at shelf prices prints them beside the
                 # taxable rate, as the bill does (backlog 64 row 4).
                 entered_rate=line.entered_rate if row.rate_includes_tax else None,
+                pack_size=printed_pack(
+                    in_boxes=row.box_and_piece_entry,
+                    pack_size=line.pack_size,
+                    unit_id=line.sales_uom_id or line.inventory_uom_id,
+                    product=products.get(line.product_id),
+                ),
             )
             for line in lines
         ]

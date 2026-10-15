@@ -40,6 +40,7 @@ from app.sales_invoice.services.invoice_pdf import (
     InvoicePdfRenderer,
     PartyBlock,
     amount_in_words,
+    packed_cell,
 )
 
 #: The columns of the trade's bill, in its order, with the share of the line
@@ -282,6 +283,18 @@ class TradeInvoiceRenderer(InvoicePdfRenderer):
         )
         return table
 
+    @staticmethod
+    def _quantities(line: InvoiceLineBlock, room: float) -> tuple[str, str]:
+        """Return the QTY and Free cells: "3/5 (x12)" and "0/2" in boxes (L5)."""
+        packed = line.packed_quantity
+        if packed is not None and line.pack_label is not None:
+            return (
+                packed_cell(packed, line.pack_label, room, size=_SIZE),
+                line.packed_free or "",
+            )
+        free = _quantity(line.free_quantity) if line.free_quantity else ""
+        return _quantity(line.quantity), free
+
     # ------------------------------------------------------------------
     def _trade_lines(self, document: InvoiceDocument, width: float) -> Table:
         """Draw the lines in the trade's columns, each figure from the record."""
@@ -295,6 +308,7 @@ class TradeInvoiceRenderer(InvoicePdfRenderer):
         rows: list[list[object]] = [
             [Paragraph(f"<b>{column}</b>", self._small) for column in header]
         ]
+        room = widths[header.index("QTY")] - 4
         for line in document.lines:
             rows.append(
                 [
@@ -305,8 +319,7 @@ class TradeInvoiceRenderer(InvoicePdfRenderer):
                     line.hsn or "",
                     "" if line.mrp is None else _money(line.mrp),
                     _price(_dealer_price(line)),
-                    _quantity(line.quantity),
-                    _quantity(line.free_quantity) if line.free_quantity else "",
+                    *self._quantities(line, room),
                     _price(line.rate),
                     _money(line.discount) if line.discount else "",
                     f"{_rate_of(line):.2f}",
@@ -323,8 +336,10 @@ class TradeInvoiceRenderer(InvoicePdfRenderer):
             free = document.total_free_quantity
             total_row: list[object] = ["" for _ in header]
             total_row[1] = Paragraph(f"<b>{TOTAL_QUANTITY}</b>", wrapped)
-            total_row[5] = _quantity(document.total_quantity)
-            total_row[6] = _quantity(free) if free else ""
+            total_row[5] = document.total_in_packs or _quantity(document.total_quantity)
+            total_row[6] = (
+                (document.total_free_in_packs or _quantity(free)) if free else ""
+            )
             rows.append(total_row)
 
         table = Table(rows, colWidths=widths, repeatRows=1)

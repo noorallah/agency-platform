@@ -30,6 +30,7 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4, A5
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (
     BaseDocTemplate,
     Flowable,
@@ -47,6 +48,7 @@ from reportlab.platypus import (
 
 from app.core.exceptions import BusinessRuleError
 from app.sales_invoice.services.upi_qr import UpiPayment
+from app.uom.services.packs import BoxesAndPieces
 
 ZERO = Decimal("0")
 
@@ -186,6 +188,57 @@ class InvoiceLineBlock:
     #: (backlog 64 row 4). ``rate`` is then the taxable rate it derived to,
     #: and both are printed.
     entered_rate: Decimal | None = None
+    #: The pack the quantity prints in, on a document saved in the boxes and
+    #: pieces layout (L5): 41 pieces of a box of 12 print "3/5 (x12)". None
+    #: prints the plain quantity, as every other line does.
+    pack_size: Decimal | None = None
+
+    @property
+    def packed_quantity(self) -> str | None:
+        """Return the quantity as boxes/pieces, "3/5", where it prints so."""
+        if self.pack_size is None:
+            return None
+        return in_packs(self.quantity, self.pack_size)
+
+    @property
+    def packed_free(self) -> str | None:
+        """Return the free goods as boxes/pieces, "0/2", where there are any."""
+        if self.pack_size is None or not self.free_quantity:
+            return None
+        return in_packs(self.free_quantity, self.pack_size)
+
+    @property
+    def pack_label(self) -> str | None:
+        """Return what a box holds, "(x12)", printed beside the quantity."""
+        if self.pack_size is None:
+            return None
+        return f"(x{_quantity(self.pack_size)})"
+
+
+def in_packs(quantity: Decimal, pack_size: Decimal) -> str:
+    """Return ``quantity`` as the customer's bill writes it: boxes/pieces.
+
+    The one formatter of the boxes and pieces layout (L5, design section 4):
+    full boxes before the slash, loose pieces after it, so 3 boxes and none
+    over is "3/0". Nothing is rounded: the pieces keep the stock unit's own
+    decimals.
+    """
+    split = BoxesAndPieces.split(quantity, pack_size)
+    return f"{_quantity(split.packs)}/{_quantity(split.loose)}"
+
+
+def packed_cell(
+    pair: str, label: str, width: float, *, font: str = "Helvetica", size: float
+) -> str:
+    """Return "3/5 (x12)" on one line where it fits ``width``, else on two.
+
+    The Qty column of every paper is narrow; a long pair takes a second row
+    for the pack rather than printing over the column beside it.
+    """
+    text = f"{pair} {label}"
+    if stringWidth(text, font, size) <= width:
+        return text
+    return f"{pair}\n{label}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,6 +343,39 @@ class InvoiceDocument:
     def total_free_quantity(self) -> Decimal:
         """Return the sum of the free goods the lines state."""
         return sum((line.free_quantity for line in self.lines), ZERO)
+
+    @property
+    def total_in_packs(self) -> str | None:
+        """Return the quantities added up as boxes/pieces, where any line packs.
+
+        Full boxes before the slash; after it the loose pieces, and the whole
+        quantity of each line with no pack (design section 4).
+        """
+        return _packed_total([(line.quantity, line.pack_size) for line in self.lines])
+
+    @property
+    def total_free_in_packs(self) -> str | None:
+        """Return the free goods added up as boxes/pieces, as the quantities."""
+        if not self.total_free_quantity:
+            return None
+        return _packed_total(
+            [(line.free_quantity, line.pack_size) for line in self.lines]
+        )
+
+
+def _packed_total(lines: Sequence[tuple[Decimal, Decimal | None]]) -> str | None:
+    """Return the boxes and the loose pieces of ``lines`` added up, as "7/5"."""
+    if all(pack is None for _, pack in lines):
+        return None
+    boxes = loose = ZERO
+    for quantity, pack in lines:
+        if pack is None:
+            loose += quantity
+            continue
+        split = BoxesAndPieces.split(quantity, pack)
+        boxes += split.packs
+        loose += split.loose
+    return f"{_quantity(boxes)}/{_quantity(loose)}"
 
 
 def qr_drawing(payload: str, side: float) -> Flowable:
@@ -715,6 +801,8 @@ class InvoicePdfRenderer:
             "batch", parent=self._body, fontSize=size, leading=size + 1.4
         )
 
+        widths = self._line_widths(width, header)
+        room = widths[header.index("Qty")] - 2 * _LINE_PADDING
         rows: list[list[object]] = [
             [Paragraph(f"<b>{column}</b>", self._small) for column in header]
         ]
@@ -726,14 +814,7 @@ class InvoicePdfRenderer:
                 str(line.number) if line.number else "",
                 Paragraph(line.description, self._body),
                 line.hsn or "",
-                (
-                    # The free goods under the quantity: side by side they
-                    # ran over the HSN beside them on a crowded bill.
-                    f"{_quantity(line.quantity)}\n"
-                    f"+{_quantity(line.free_quantity)} free"
-                    if line.free_quantity
-                    else _quantity(line.quantity)
-                ),
+                self._quantity_cell(line, room, size),
                 line.uom or "",
             ]
             if inclusive:
@@ -769,7 +850,7 @@ class InvoicePdfRenderer:
         if totalled:
             rows.append(self._total_quantity_row(document, header))
 
-        table = Table(rows, colWidths=self._line_widths(width, header), repeatRows=1)
+        table = Table(rows, colWidths=widths, repeatRows=1)
         style = self._boxed()
         # Close-set, as the half page is: sixteen columns do not fit an A4
         # page at the padding a five-column table can afford.
@@ -793,6 +874,23 @@ class InvoicePdfRenderer:
         table.setStyle(style)
         return table
 
+    @staticmethod
+    def _quantity_cell(line: InvoiceLineBlock, room: float, size: float) -> str:
+        """Return the Qty cell: the quantity, and the free goods under it.
+
+        Side by side the free goods ran over the HSN beside them on a crowded
+        bill. A line in the boxes and pieces layout reads "3/5 (x12)" and its
+        free goods "Free 0/2".
+        """
+        packed = line.packed_quantity
+        if packed is not None and line.pack_label is not None:
+            cell = packed_cell(packed, line.pack_label, room, size=size)
+            free = line.packed_free
+            return f"{cell}\nFree {free}" if free else cell
+        if line.free_quantity:
+            return f"{_quantity(line.quantity)}\n+{_quantity(line.free_quantity)} free"
+        return _quantity(line.quantity)
+
     def _total_quantity_row(
         self, document: InvoiceDocument, header: list[str]
     ) -> list[object]:
@@ -804,10 +902,13 @@ class InvoicePdfRenderer:
         free = document.total_free_quantity
         words = TOTAL_QUANTITY
         if free:
-            words = f"{words}, and {_quantity(free)} free"
+            said = document.total_free_in_packs or _quantity(free)
+            words = f"{words}, and {said} free"
         cells: list[object] = ["" for _ in header]
         cells[header.index("Description")] = Paragraph(f"<b>{words}</b>", self._body)
-        cells[header.index("Qty")] = _quantity(document.total_quantity)
+        cells[header.index("Qty")] = document.total_in_packs or _quantity(
+            document.total_quantity
+        )
         return cells
 
     #: What each column needs, as a share of the table. An even split made a

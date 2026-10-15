@@ -868,6 +868,39 @@ it, a new return where a receipt or bill it returns has it; absent or null on
 an edit keeps the document's own. `tests/unit/test_box_and_piece_supplier_bill.py`
 is the guard.
 
+### Boxes and pieces on the printed page (L5 step 8)
+
+A line of a document **saved in the boxes and pieces layout** prints its
+quantity as the customer's own bill does: full boxes before the slash, loose
+pieces after it, and what a box holds in brackets. The worked example's 41
+pieces of a box of 12 read **3/5 (x12)**, its 2 free **0/2**; 3 boxes and
+none over read 3/0. One formatter, `in_packs` in
+`backend/app/sales_invoice/services/invoice_pdf.py`, does it for every paper;
+`InvoiceLineBlock` carries the line's `pack_size` and answers
+`packed_quantity`, `packed_free` and `pack_label`, so the layouts do no
+arithmetic.
+
+| Paper | Qty | Free goods |
+| --- | --- | --- |
+| Full page | "3/5 (x12)" | "Free 0/2" under it |
+| Half page and the trade layout | "3/5 (x12)" in Qty | "0/2" in Free |
+| 80 mm roll | "3/5 (x12) Free 0/2 x 10.00" on the item's second row | |
+
+Where the pair and its pack do not fit the Qty column, the pack takes a
+second row in the cell (`packed_cell`) rather than printing over the next
+column; no column is added or widened, so a short bill still fits half a page.
+The total under the lines reads the same way: the boxes added up before the
+slash, the loose pieces and the whole quantity of each line with no pack after
+it (3/5 of soap and 4 torches total **3/9**).
+
+Which lines print so is `printed_pack` in `backend/app/uom/services/packs.py`:
+only on a document whose `box_and_piece_entry` is on, only a line holding a
+pack, and only a line counted in the item's stock unit -- a line typed in BOX
+keeps its pack too (decision 4) and prints its plain "2". The bill, the
+order confirmation, the quotation, the challan, the purchase order and the
+credit note all ask it. Any other line, and any document not in the layout,
+prints as before. `tests/unit/test_box_and_piece_prints.py` is the guard.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and
