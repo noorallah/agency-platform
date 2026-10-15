@@ -802,6 +802,40 @@ returns has it; absent (or null) on an update keeps its own. The worked
 example's return -- 1 box + 1 piece off the bill -- is 13 pieces credited
 130.00 + 15.60 GST. `tests/unit/test_box_and_piece_return.py` is the guard.
 
+### The pack on a purchase order and a goods receipt line (L5 step 6)
+
+An order line is written at the item's **buying** pack (`side="BUY"`: its
+purchase unit, else its sales unit) on the order's date; a saved draft line
+keeps its own. Lines are numbered by position. A line typed as boxes and
+pieces is in the stock unit: one sending `pack_size` and naming no unit is
+put there (`_pair_lines_in_pieces`), where it would otherwise be read in the
+item's buying unit and 41 pieces taken for 41 boxes; one naming the box is
+refused. A receipt line comes in **at its order line's pack**, so 10 boxes
+ordered at 12 are received at 12 after the box moved to 10; an order line
+from before L5 holds none, and the receipt takes the saved draft line's, else
+the item's on the receipt date. A receipt line is counted in its order line's
+unit, as it always was.
+
+Two supplier terms read a pair line in boxes, since they count the buying
+unit (design section 5):
+
+- **Minimum and multiple** (`quantity_hints`, `pack_sizes=`): 41 pieces at
+  12 to a box are 3.4167 boxes against a minimum of 5, and the quantity that
+  would do is said in pieces, 60. The refusal and the preview's hint are the
+  same sum.
+- **A rate contract kept per box** prices a pair line at the box's rate over
+  its pack size (96.00 a box is 8.00 a piece), and draws boxes: the drawn
+  total and the over-draw warning count the line's pieces over its pack size
+  (`in_contract_units`, and the `case` in `drawn_quantities`). A line in
+  pieces that was not typed as a pair is not priced from a box contract, as
+  before.
+
+Headers: the order writes `box_and_piece_entry` (absent on create is off,
+absent or null on an edit keeps); a new receipt takes its order's. The worked
+example's purchase -- 10 boxes at 8.00 a piece, 1 box free -- is 960.00 and
+132 pieces in at 7.27. `tests/unit/test_box_and_piece_purchase.py` is the
+guard.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and

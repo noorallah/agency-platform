@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -120,9 +120,13 @@ from app.trade_licences.services.licence_check import (
 from app.uom.models import Uom
 from app.uom.schemas import ConversionRequest
 from app.uom.services import (
+    Pack,
+    PackedLine,
     UomService,
     assert_quantity_fits_unit,
     buying_units_of,
+    held_packs,
+    line_packs,
     stock_unit_of,
 )
 from app.vendors.models import Vendor
@@ -405,6 +409,12 @@ class GoodsReceiptService(TransactionalDocumentService):
             eway_bill_date=data.eway_bill_date,
             invoice_reference=data.invoice_reference,
             remarks=data.remarks,
+            # Silence takes the order's layout (L5).
+            box_and_piece_entry=(
+                bool(purchase_order.box_and_piece_entry)
+                if data.box_and_piece_entry is None
+                else data.box_and_piece_entry
+            ),
             status=GoodsReceiptStatus.DRAFT.value,
             created_by=actor_id,
             updated_by=actor_id,
@@ -507,6 +517,9 @@ class GoodsReceiptService(TransactionalDocumentService):
             row.eway_bill_date = data.eway_bill_date
         row.invoice_reference = data.invoice_reference
         row.remarks = data.remarks
+        # Absent or null keeps the layout the receipt was saved in (L5).
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         row.updated_by = actor_id
         self._replace_lines(row, data=data, firm_id=firm_scope, actor_id=actor_id)
         self._replace_attachments(row, data.attachments, actor_id=actor_id)
@@ -1877,6 +1890,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         total_discount = ZERO
         # A firm costing by lot prices each lot from its margins (L3).
         by_lot = costs_by_lot(self._session, firm_id)
+        packs = self._line_packs(receipt, data.lines, purchase_lines, existing)
         for line in data.lines:
             purchase_line = purchase_lines.get(line.purchase_order_line_id)
             if purchase_line is None:
@@ -2036,6 +2050,14 @@ class GoodsReceiptService(TransactionalDocumentService):
                 inventory_uom_id=inventory_uom_id,
                 conversion_factor=conversion["factor"],
                 conversion_version=conversion["version"],
+                pack_uom_id=(
+                    packs[line.line_number].uom_id
+                    if line.line_number in packs
+                    else None
+                ),
+                pack_size=(
+                    packs[line.line_number].size if line.line_number in packs else None
+                ),
                 warehouse_id=line.warehouse_id or receipt.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 batch_number=line.batch_number,
@@ -2124,6 +2146,52 @@ class GoodsReceiptService(TransactionalDocumentService):
         # _recalculate_totals runs immediately after every caller of this method
         # and recomputed all three with a *different* formula, so anything
         # written here was dead and only served to suggest two answers existed.
+
+    def _line_packs(
+        self,
+        receipt: GoodsReceipt,
+        lines: list[GoodsReceiptLineWrite],
+        order_lines: Mapping[UUID, PurchaseOrderLine],
+        existing: Mapping[int, GoodsReceiptLine],
+    ) -> dict[int, Pack]:
+        """Return the pack each receipt line comes in at, by line number (L5).
+
+        A line comes in at its order line's pack, so 10 boxes ordered at 12
+        to a box are received so after the item moved to 10 (design 3.3 and
+        3.6). An order line written before L5 holds none: the saved line
+        keeps what it took, else the item's buying pack on the receipt's
+        date. A line typed as boxes and pieces is counted in its order
+        line's unit, and refused where that is not the stock unit or the
+        pack is not the one sent.
+        """
+        sourced = [
+            (line, source)
+            for line in lines
+            if (source := order_lines.get(line.purchase_order_line_id)) is not None
+        ]
+        inherited = {
+            line.line_number: (
+                source.product_id,
+                Pack(source.pack_uom_id, None, source.pack_size),
+            )
+            for line, source in sourced
+            if source.pack_uom_id is not None and source.pack_size is not None
+        }
+        return line_packs(
+            self._session,
+            [
+                PackedLine(
+                    line_number=line.line_number,
+                    product_id=source.product_id,
+                    pack_size=line.pack_size,
+                    sales_uom_id=line.purchase_uom_id or source.purchase_uom_id,
+                )
+                for line, source in sourced
+            ],
+            side="BUY",
+            on_date=receipt.receipt_date,
+            kept={**held_packs(existing.values()), **inherited},
+        )
 
     def _line_discount(
         self,

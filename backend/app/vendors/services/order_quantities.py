@@ -6,6 +6,7 @@ multiple; a firm chooses whether a breach only warns (the default) or is
 refused. The reorder planner rounds its suggestion the same way.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_CEILING, Decimal
@@ -28,14 +29,22 @@ class QuantityHint:
     minimum_order_quantity: Decimal | None
     order_multiple: Decimal | None
     suggested_quantity: Decimal
+    #: The pack a line typed as boxes and pieces was added up at (L5). Its
+    #: quantity and suggestion are in pieces; the terms count boxes.
+    pack_size: Decimal | None = None
 
     def describe(self) -> str:
         """Say what is wrong with the line and what would do."""
         terms = []
+        boxes = (
+            ""
+            if self.pack_size is None
+            else f" boxes of {self.pack_size.normalize():f}"
+        )
         if self.minimum_order_quantity:
-            terms.append(f"minimum {self.minimum_order_quantity.normalize():f}")
+            terms.append(f"minimum {self.minimum_order_quantity.normalize():f}{boxes}")
         if self.order_multiple:
-            terms.append(f"in multiples of {self.order_multiple.normalize():f}")
+            terms.append(f"in multiples of {self.order_multiple.normalize():f}{boxes}")
         return (
             f"line {self.line_number}: {self.quantity.normalize():f} is off the "
             f"supplier's terms ({', '.join(terms)}); "
@@ -62,8 +71,16 @@ def quantity_hints(
     vendor_id: UUID,
     on: date,
     lines: list[tuple[int, UUID, Decimal]],
+    pack_sizes: Mapping[int, Decimal] | None = None,
 ) -> list[QuantityHint]:
-    """Return each ``(line_number, product_id, quantity)`` off the terms."""
+    """Return each ``(line_number, product_id, quantity)`` off the terms.
+
+    The terms count the buying unit. ``pack_sizes`` names, by line number,
+    the pack a line typed as boxes and pieces was added up at (L5): its
+    quantity is in pieces, so it is judged in boxes -- 41 pieces at 12 to a
+    box are 3.4167 boxes, short of a minimum of 5 -- and the quantity that
+    would do is said in pieces again, 60.
+    """
     if not lines:
         return []
     terms = current_rows(
@@ -86,8 +103,10 @@ def quantity_hints(
         multiple = (
             None if row.order_multiple is None else Decimal(str(row.order_multiple))
         )
-        suggested = rounded_quantity(quantity, minimum=minimum, multiple=multiple)
-        if suggested != quantity:
+        pack = (pack_sizes or {}).get(line_number)
+        bought = quantity if pack is None else quantity / pack
+        suggested = rounded_quantity(bought, minimum=minimum, multiple=multiple)
+        if suggested != bought:
             hints.append(
                 QuantityHint(
                     line_number=line_number,
@@ -95,7 +114,10 @@ def quantity_hints(
                     quantity=quantity,
                     minimum_order_quantity=minimum,
                     order_multiple=multiple,
-                    suggested_quantity=suggested,
+                    suggested_quantity=(
+                        suggested if pack is None else suggested * pack
+                    ),
+                    pack_size=pack,
                 )
             )
     return hints

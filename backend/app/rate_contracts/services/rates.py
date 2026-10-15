@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
 from app.rate_contracts.models import RateContract, RateContractLine
@@ -80,8 +80,10 @@ def drawn_quantities(
     """Return what approved, uncancelled orders have drawn on each line.
 
     Summed on every read from the order lines that name the contract line,
-    never stored. An order line is priced from a contract only in the
-    contract's own unit, so its ordered quantity is already in that unit.
+    never stored. An order line is priced from a contract in the contract's
+    own unit, so its ordered quantity is in that unit -- except a line typed
+    as boxes and pieces against a contract kept per box (L5), which is in
+    pieces and draws its pieces over its pack size.
     Free goods are not drawn: the contract is a price agreement.
     """
     from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -89,12 +91,25 @@ def drawn_quantities(
     ids = list(set(contract_line_ids))
     if not ids:
         return {}
+    in_pieces = and_(
+        RateContractLine.uom_id.is_not(None),
+        PurchaseOrderLine.purchase_uom_id != RateContractLine.uom_id,
+        PurchaseOrderLine.pack_size.is_not(None),
+    )
+    drawn = case(
+        (in_pieces, PurchaseOrderLine.ordered_quantity / PurchaseOrderLine.pack_size),
+        else_=PurchaseOrderLine.ordered_quantity,
+    )
     rows = session.execute(
         select(
             PurchaseOrderLine.rate_contract_line_id,
-            func.coalesce(func.sum(PurchaseOrderLine.ordered_quantity), 0),
+            func.coalesce(func.sum(drawn), 0),
         )
         .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.purchase_order_id)
+        .join(
+            RateContractLine,
+            RateContractLine.id == PurchaseOrderLine.rate_contract_line_id,
+        )
         .where(
             PurchaseOrderLine.rate_contract_line_id.in_(ids),
             PurchaseOrderLine.is_deleted.is_(False),
@@ -113,38 +128,70 @@ def _plain(value: Decimal) -> str:
     return f"{value.normalize():f}"
 
 
+def in_contract_units(
+    quantity: Decimal,
+    *,
+    line_unit: UUID | None,
+    pack_size: Decimal | None,
+    contract_unit: UUID | None,
+) -> Decimal:
+    """Return what an order line of ``quantity`` draws on its contract line.
+
+    The quantity itself, but for a line in pieces typed as boxes and pieces
+    against a contract kept per box (L5): its pieces over its pack size.
+    """
+    if contract_unit is not None and line_unit != contract_unit and pack_size:
+        return quantity / pack_size
+    return quantity
+
+
 def overdraw_warnings(
     session: Session,
-    orders: Iterable[tuple[UUID, str, list[tuple[UUID | None, Decimal]]]],
+    orders: Iterable[
+        tuple[
+            UUID,
+            str,
+            list[tuple[UUID | None, Decimal, UUID | None, Decimal | None]],
+        ]
+    ],
 ) -> dict[UUID, str]:
     """Say which orders take a rate contract past its contracted quantity.
 
     ``orders`` gives each order's id, status and its lines as (contract line,
-    ordered quantity). An order that already draws is in the drawn total; one
-    not yet approved is added to it, so a draft or a preview warns before the
-    approval does. A cancelled order draws nothing and warns about nothing.
-    Two reads for the whole page, however many orders it holds.
+    ordered quantity, the line's unit, its pack size), so a line in pieces
+    drawing on a contract kept per box counts in boxes. An order that already
+    draws is in the drawn total; one not yet approved is added to it, so a
+    draft or a preview warns before the approval does. A cancelled order
+    draws nothing and warns about nothing. Two reads for the whole page,
+    however many orders it holds.
     """
     from app.products.models import Product
 
-    wanted: dict[UUID, tuple[str, list[tuple[UUID, Decimal]]]] = {}
+    wanted: dict[
+        UUID, tuple[str, list[tuple[UUID, Decimal, UUID | None, Decimal | None]]]
+    ] = {}
     for order_id, status, lines in orders:
         if status == "CANCELLED":
             continue
-        drawing = [(line_id, qty) for line_id, qty in lines if line_id is not None]
+        drawing = [
+            (line_id, qty, unit, pack)
+            for line_id, qty, unit, pack in lines
+            if line_id is not None
+        ]
         if drawing:
             wanted[order_id] = (status, drawing)
     if not wanted:
         return {}
-    line_ids = {line_id for _, drawing in wanted.values() for line_id, _ in drawing}
-    terms: dict[UUID, tuple[Decimal, str, str]] = {
-        line_id: (Decimal(str(contracted)), number, product_code)
-        for line_id, contracted, number, product_code in session.execute(
+    line_ids = {line[0] for _, drawing in wanted.values() for line in drawing}
+    terms: dict[UUID, tuple[Decimal, str, str, UUID | None]] = {
+        line_id: (Decimal(str(contracted)), number, product_code, unit)
+        for line_id, contracted, number, product_code, unit in session.execute(
             select(
                 RateContractLine.id,
                 RateContractLine.contracted_quantity,
                 RateContract.contract_number,
                 Product.code,
+                RateContractLine.uom_id,
             )
             .join(RateContract, RateContract.id == RateContractLine.contract_id)
             .join(Product, Product.id == RateContractLine.product_id)
@@ -160,13 +207,17 @@ def overdraw_warnings(
     answer: dict[UUID, str] = {}
     for order_id, (status, drawing) in wanted.items():
         mine: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
-        for line_id, quantity in drawing:
-            mine[line_id] += quantity
+        for line_id, quantity, unit, pack in drawing:
+            if line_id in terms:
+                mine[line_id] += in_contract_units(
+                    quantity,
+                    line_unit=unit,
+                    pack_size=pack,
+                    contract_unit=terms[line_id][3],
+                )
         notes: list[str] = []
         for line_id, quantity in mine.items():
-            if line_id not in terms:
-                continue
-            contracted, number, product_code = terms[line_id]
+            contracted, number, product_code, _ = terms[line_id]
             total = drawn.get(line_id, ZERO)
             if status not in DRAWING_STATUSES:
                 total += quantity
