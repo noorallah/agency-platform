@@ -83,6 +83,10 @@ class LineTerms:
     #: True where the choice was not sent but kept from the line as saved:
     #: the record of an earlier choice, judged again but not as a new one.
     kept: bool = False
+    #: True where a choice that no longer holds is dropped and reported
+    #: rather than refused: one handed over by a quotation, checked again on
+    #: the order's own date (L7 step 6).
+    forgiving: bool = False
     #: A discount figure typed on the line, a zero included.
     typed: bool = False
     #: Nobody typed the line's free quantity, so its offers' free goods stand.
@@ -196,7 +200,7 @@ class SettledChoices:
     outcome: PromotionEvaluationResponse
     #: The real choices, by the line's position among the lines asked.
     choices: dict[int, SettledChoice] = field(default_factory=dict)
-    #: What a preview refused, by line number, to show beside the line.
+    #: What a preview, or a forgiving line, refused, by line number.
     refused: dict[int, str] = field(default_factory=dict)
 
     def discount_from(self, index: int) -> str | None:
@@ -233,7 +237,8 @@ def settle_choices(
         build_request: Builds the engine's request with each line's offers
             limited, by the line's position, to the keys given.
         may_choose: Whether the person holds ``SALES_OFFER_CHOOSE``.
-        lenient: A preview: refusals are reported, not raised.
+        lenient: A preview: refusals are reported, not raised. A line marked
+            ``forgiving`` is treated so on a save too.
 
     Returns:
         The answer to price the document by, logged as the engine logs it,
@@ -261,7 +266,7 @@ def settle_choices(
 
     def refuse(index: int, problem: _RefusalError) -> None:
         """Raise a refusal on a save; note it and drop the choice on a preview."""
-        if not lenient:
+        if not (lenient or terms[index].forgiving):
             if problem.permission:
                 raise AuthorizationError(problem.message)
             raise ValidationError(problem.message, details={"field": "lines"})
@@ -523,3 +528,25 @@ def stored_choices[RowT: LineOfferMixin](
         line_id: OfferChoice(discount_from=discount_from, offers=offers)
         for line_id, (discount_from, offers) in found.items()
     }
+
+
+def same_choice(sent: OfferChoice | None, held: OfferChoice | None) -> bool:
+    """Say whether a choice sent back is the one a line already holds (step 6).
+
+    Offers compare as a set. ``discount_from="offers"`` reads as unnamed,
+    since the rows a held choice is read back from cannot tell the two apart
+    (see `stored_choices`); calling the two different would only raise a
+    document again for nothing.
+    """
+
+    def shape(
+        choice: OfferChoice | None,
+    ) -> tuple[str | None, frozenset[str] | None]:
+        """Return the choice in the form two choices compare by."""
+        if choice is None:
+            return None, None
+        source = None if choice.discount_from == CHOSEN_OFFERS else choice.discount_from
+        offers = None if choice.offers is None else frozenset(choice.offers)
+        return source, offers
+
+    return shape(sent) == shape(held)

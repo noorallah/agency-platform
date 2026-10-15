@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from functools import partial
+from typing import Self
 from uuid import UUID
 
 from sqlalchemy import func, not_, or_, select
@@ -318,6 +319,17 @@ class SalesOrderService(TransactionalDocumentService):
         #: Why a previewed line's choice was not taken, by line number.
         self._choice_refusals: dict[int, str] = {}
 
+    def choosing(self, *, may_choose: bool, lenient: bool = False) -> Self:
+        """Say who stages the next order, for a caller composing a chain.
+
+        ``may_choose`` is whether the person holds ``SALES_OFFER_CHOOSE``;
+        ``lenient`` marks a preview, where a refused choice is reported. A
+        counter bill raises its order through this (L7 step 6).
+        """
+        self._may_choose = may_choose
+        self._lenient_choice = lenient
+        return self
+
     def offer_candidates(
         self,
     ) -> tuple[dict[int, list[OfferCandidate]], list[OfferCandidate]]:
@@ -538,8 +550,19 @@ class SalesOrderService(TransactionalDocumentService):
         raised_as: str = "sales order",
         price_batches: Mapping[int, UUID] | None = None,
         inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
+        handed_choices: Mapping[int, OfferChoice] | None = None,
+        forgive_handed: bool = False,
     ) -> SalesOrder:
         """Create one sales order without committing it.
+
+        ``handed_choices`` are, by line number, the offer choices the order
+        is handed by the document it continues -- a converted quotation, or
+        a counter bill raised again on an edit (L7 step 6). They were made by
+        a person who could, so they need no permission now; they are judged
+        afresh on this order's date. A line that sends its own choice, a null
+        included, is not handed one. ``forgive_handed`` drops and reports a
+        handed choice that no longer holds rather than refusing the order:
+        read the reasons with `choice_refusals`.
 
         ``inherited_packs`` is the pack of each source line, by line number
         with its product, where the order continues another document -- a
@@ -670,6 +693,8 @@ class SalesOrderService(TransactionalDocumentService):
             actor_id=actor_id,
             entered=entered,
             inherited_packs=inherited_packs,
+            handed_choices=handed_choices,
+            forgive_handed=forgive_handed,
         )
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
@@ -2738,6 +2763,8 @@ class SalesOrderService(TransactionalDocumentService):
         actor_id: UUID,
         entered: Mapping[int, EnteredRate] | None = None,
         inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
+        handed_choices: Mapping[int, OfferChoice] | None = None,
+        forgive_handed: bool = False,
     ) -> dict[str, Decimal]:
         # Promotional stock is given, never sold at a price (BUY-1).
         assert_not_sold_at_a_price(
@@ -2840,12 +2867,16 @@ class SalesOrderService(TransactionalDocumentService):
         # discounted, because a minimum-order-value offer is a condition on the
         # whole document. Whatever they earn is offered to the shared rule as
         # one more tier: still below anything typed, still above the price list.
+        handed = handed_choices or {}
         terms = [
             LineTerms(
                 line_number=item.line_number,
                 gross=grosses[index],
-                choice=self._choice_of(item, existing, kept)[0],
-                kept=self._choice_of(item, existing, kept)[1],
+                choice=self._choice_of(item, existing, kept, handed)[0],
+                kept=self._choice_of(item, existing, kept, handed)[1],
+                forgiving=forgive_handed
+                and "offer_choice" not in item.model_fields_set
+                and item.line_number in handed,
                 typed=(
                     item.discount_percent is not None
                     or item.discount_amount is not None
@@ -3206,45 +3237,64 @@ class SalesOrderService(TransactionalDocumentService):
     def _kept_choices(
         self, row: SalesOrder, existing: Mapping[int, SalesOrderLine]
     ) -> dict[int, OfferChoice]:
-        """Read back, by line number, the choices the saved lines carry (L7).
-
-        One statement, and only where a saved line was chosen on: the rows
-        marked chosen are the record of each choice.
-        """
-        chosen = {
-            line.id: number
+        """Read back, by line number, the choices the saved lines carry (L7)."""
+        found = self.choices_of_lines(list(existing.values()))
+        return {
+            number: found[line.id]
             for number, line in existing.items()
-            if line.offer_choice_made
+            if line.id in found
         }
+
+    def choices_of_lines(
+        self, lines: Sequence[SalesOrderLine]
+    ) -> dict[UUID, OfferChoice]:
+        """Read back, by line id, the choices the given order lines carry (L7).
+
+        One statement, and only where a line was chosen on: the rows marked
+        chosen are the record of each choice. A counter bill raised again
+        hands its order's choices on through this (step 6).
+        """
+        chosen = [line.id for line in lines if line.offer_choice_made]
         if not chosen:
             return {}
         rows = self._session.scalars(
             select(SalesOrderOffer).where(
-                SalesOrderOffer.sales_order_id == row.id,
+                SalesOrderOffer.sales_order_line_id.in_(chosen),
                 SalesOrderOffer.chosen.is_(True),
             )
         ).all()
         found = stored_choices(rows, line_of=lambda item: item.sales_order_line_id)
         return {
-            number: found.get(line_id, OfferChoice(offers=[]))
-            for line_id, number in chosen.items()
+            line_id: found.get(line_id, OfferChoice(offers=[])) for line_id in chosen
         }
+
+    def choice_refusals(self) -> dict[int, str]:
+        """Return why the last order staged dropped a line's choice, by line.
+
+        A preview's refusals, and a forgiving handed choice's (L7 step 6).
+        """
+        return dict(self._choice_refusals)
 
     @staticmethod
     def _choice_of(
         item: SalesOrderLineWrite,
         existing: Mapping[int, SalesOrderLine],
         kept: Mapping[int, OfferChoice],
+        handed: Mapping[int, OfferChoice],
     ) -> tuple[OfferChoice | None, bool]:
         """Return the choice a line is priced with, and whether it was kept.
 
         Sent, it is the line's; left out, a line saved with a choice keeps
-        it while it still sells the same product (L7 step 5).
+        it while it still sells the same product (L7 step 5), and a line of
+        a new order takes the choice it was handed (step 6).
         """
         if "offer_choice" in item.model_fields_set:
             return item.offer_choice, False
         saved = existing.get(item.line_number)
-        if saved is None or saved.product_id != item.product_id:
+        if saved is None:
+            choice = handed.get(item.line_number)
+            return choice, choice is not None
+        if saved.product_id != item.product_id:
             return None, False
         choice = kept.get(item.line_number)
         return choice, choice is not None

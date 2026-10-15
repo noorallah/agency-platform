@@ -134,6 +134,22 @@ an edit a line that leaves `offer_choice` out keeps the choice it was saved
 with (read back from its chosen rows) while it sells the same product; an
 explicit null clears it.
 
+**The choice travels along the chain** (L7 step 6, design 3.3). A bill typed
+straight in sends `offer_choice` on its lines and the order raised behind it
+judges it, with the bill maker's `SALES_OFFER_CHOOSE`; the counter-bill
+preview reports a refused key in `choice_refused`. On an edit of a draft
+counter bill a line sent back by its source fields that leaves the choice out
+hands its order's choice to the order raised again, judged afresh there
+without asking for the permission twice; an explicit null clears it; one
+equal to what the order holds (offers as a set, `offers` as a source read as
+unnamed) changes nothing, and any other raises the order again. Free goods an
+offer gave are no longer carried to the order raised again as if typed: the
+offer gives them again or does not. A bill or an edit of documents already
+priced refuses a choice by name. A converted quotation hands each line's
+choice to the order, checked on the order's date: one that has lapsed is
+dropped, that line ordered from the start, and the `CONVERTED` timeline entry
+says which. Offers are still claimed only at the bill's approval.
+
 **Combine mode may cap one line** (backlog 59 item 3,
 `sales_workflow_settings.max_line_discount_percent`, migration
 `20261001_0193`; null is no cap). After the stack, a line whose offer discount

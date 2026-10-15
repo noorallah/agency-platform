@@ -152,6 +152,11 @@ def _sees_cost(scope: ResolvedFirmScope) -> bool:
     return scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
 
 
+def _may_choose(scope: ResolvedFirmScope) -> bool:
+    """Return whether the caller may choose what a line takes (L7 step 6)."""
+    return scope.principal.has_permission("SALES_OFFER_CHOOSE")
+
+
 # "" rather than "/", which is what the other fourteen list endpoints declare.
 # With a slash, FastAPI serves the list at `/api/v1/sales-invoices/` and answers
 # `/api/v1/sales-invoices` with a 307 -- and the desktop client sets
@@ -246,7 +251,12 @@ def create_sales_invoice(
 ) -> ApiResponse[SalesInvoiceResponse]:
     """Create a new sales invoice."""
     service = SalesInvoiceService(db)
-    row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    row = service.create_invoice(
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        may_choose=_may_choose(scope),
+    )
     return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
 
 
@@ -292,7 +302,10 @@ def preview_sales_invoice(
     """
     return ApiResponse(
         data=SalesInvoiceService(db).preview_invoice(
-            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+            data,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            may_choose=_may_choose(scope),
         )
     )
 
@@ -408,7 +421,11 @@ def update_sales_invoice(
     )
     assert_version(current.version, expected_version)
     row = service.update_invoice(
-        invoice_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        invoice_id,
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        may_choose=_may_choose(scope),
     )
     set_etag(response, row)
     return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))

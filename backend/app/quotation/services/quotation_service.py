@@ -835,7 +835,8 @@ class QuotationService(TransactionalDocumentService):
         # beside a quotation still ACCEPTED -- and convertible again, into a
         # second order for one agreement (D-SELL-14, 2026-09-19). Both halves
         # are written and committed once, together.
-        order = SalesOrderService(self._session).stage_order(
+        orders = SalesOrderService(self._session)
+        order = orders.stage_order(
             SalesOrderCreate(
                 customer_id=row.customer_id,
                 salesman_id=row.salesman_id,
@@ -918,7 +919,16 @@ class QuotationService(TransactionalDocumentService):
             # Each line keeps the pack it was quoted at, not today's (L5,
             # design 3.3): 3 boxes + 5 quoted at 12 to a box are ordered so.
             inherited_packs=held_packs(lines),
+            # What each line chose is handed over and checked on the order's
+            # own date (L7 step 6). An agreed quotation is not refused for an
+            # offer that has lapsed since: that line is ordered without the
+            # choice, and the timeline says so.
+            handed_choices=self._kept_choices(
+                row, {line.line_number: line for line in lines}
+            ),
+            forgive_handed=True,
         )
+        dropped = orders.choice_refusals()
         row.converted_sales_order_id = order.id
         # The enquiry behind the quotation is won (SEL-10).
         from app.enquiry.services import EnquiryService
@@ -944,7 +954,11 @@ class QuotationService(TransactionalDocumentService):
             action="CONVERTED",
             firm_scope=firm_scope,
             actor_id=actor_id,
-            remarks=f"Became {order.order_number}",
+            remarks=f"Became {order.order_number}"
+            + "".join(
+                f". {reason} Ordered without that choice."
+                for _, reason in sorted(dropped.items())
+            ),
             commit=False,
         )
         self._session.commit()
