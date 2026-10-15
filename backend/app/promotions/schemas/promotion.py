@@ -493,6 +493,47 @@ class PromotionEvaluationRequest(PromotionSchema):
     lines: list[PromotionLineRequest] = Field(default_factory=list, max_length=1000)
 
 
+class PromotionLineShare(PromotionSchema):
+    """What one offer took off, and gave on, one line or the whole bill (L7).
+
+    Answered after the firm's cap and after "best offer only", so a line's
+    shares add up exactly to its ``discount_amount`` and its ``free_quantity``.
+    """
+
+    promotion_id: UUID
+    #: The offer's lasting identity: an edit makes a new revision.
+    promotion_group_id: UUID
+    code: str
+    name: str
+    discount_amount: Decimal = Decimal("0")
+    #: In the **line's own unit**, as the line's ``free_quantity`` is.
+    free_quantity: Decimal = Decimal("0")
+
+
+class LineOfferResponse(PromotionSchema):
+    """One arrangement a sales line, or its whole document, was priced by (L7).
+
+    Read from ``sales_order_offers`` / ``sales_quotation_offers``. A line's
+    APPLIED rows add up to its ``discount_amount`` and its offers' free goods.
+    """
+
+    sequence: int
+    #: ``promotion``, ``price_list``, ``customer`` or ``customer_group``.
+    source: str
+    promotion_id: UUID | None = None
+    promotion_group_id: UUID | None = None
+    price_list_id: UUID | None = None
+    code: str
+    name: str
+    #: ``APPLIED`` or ``REFUSED``.
+    state: str
+    chosen: bool = False
+    discount_amount: Decimal
+    #: In the product's **stock unit**: 2 BOX of 12 free read 24.
+    free_quantity: Decimal
+    part_share: bool = False
+
+
 class PromotionLineOutcome(PromotionSchema):
     """What one line earned."""
 
@@ -503,6 +544,8 @@ class PromotionLineOutcome(PromotionSchema):
     #: free goods these are. Null where no offer gave any.
     free_promotion_id: UUID | None = None
     applied_promotion_codes: list[str]
+    #: Each offer's part of the two figures above, in the order applied.
+    offers: list[PromotionLineShare] = Field(default_factory=list)
 
 
 class PromotionDecision(PromotionSchema):
@@ -524,6 +567,10 @@ class PromotionApplication(PromotionSchema):
 
     promotion_id: UUID
     code: str
+    #: The offer's name and lasting identity, so a document can name the
+    #: offer behind a gift without reading the promotion again (L7).
+    name: str = ""
+    promotion_group_id: UUID | None = None
     coupon_id: UUID | None = None
     benefit_amount: Decimal
     #: The free units this offer gave: on its lines and as gifts together.
@@ -561,6 +608,9 @@ class PromotionEvaluationResponse(PromotionSchema):
     freight_waived: Decimal = Decimal("0")
     applied_promotion_codes: list[str]
     applied: list[PromotionApplication] = Field(default_factory=list)
+    #: Each offer's part of ``bill_discount_amount``, in the order applied:
+    #: an offer on the whole bill rather than on a line (L7).
+    bill_offers: list[PromotionLineShare] = Field(default_factory=list)
     #: Goods to add to the document. Empty for every offer that only changes
     #: what an existing line costs, which is most of them.
     gifts: list[PromotionGift] = Field(default_factory=list)

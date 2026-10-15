@@ -3,6 +3,7 @@
 from app.promotions.schemas.promotion import (
     CouponBatchRequest,
     CouponBatchResponse,
+    LineOfferResponse,
     PromotionActionResponse,
     PromotionActionType,
     PromotionActionWrite,
@@ -21,6 +22,7 @@ from app.promotions.schemas.promotion import (
     PromotionGift,
     PromotionLineOutcome,
     PromotionLineRequest,
+    PromotionLineShare,
     PromotionPerformanceRecord,
     PromotionRedemptionRecord,
     PromotionResponse,
@@ -29,6 +31,7 @@ from app.promotions.schemas.promotion import (
 )
 
 __all__ = [
+    "LineOfferResponse",
     "PromotionActionResponse",
     "PromotionActionType",
     "PromotionActionWrite",
@@ -47,6 +50,7 @@ __all__ = [
     "PromotionField",
     "PromotionGift",
     "PromotionLineOutcome",
+    "PromotionLineShare",
     "PromotionLineRequest",
     "PromotionCouponPerformanceRecord",
     "PromotionPerformanceRecord",

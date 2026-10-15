@@ -53,6 +53,7 @@ from app.promotions.schemas import (
     PromotionField,
     PromotionGift,
     PromotionLineOutcome,
+    PromotionLineShare,
     PromotionStatus,
 )
 from app.promotions.services.offer_use import claims_given
@@ -170,6 +171,11 @@ class PromotionService:
         # Which offer added how much to which line, in the order applied, so a
         # combined cap can take back the last slice first (backlog 59 item 3).
         slices: list[list[tuple[int, Decimal]]] = [[] for _ in states]
+        # The same for free units, in each line's own unit, so a line can say
+        # whose free goods it carries (L7 step 2). A cap never trims these.
+        free_slices: list[list[tuple[int, Decimal]]] = [[] for _ in states]
+        # What each offer took off the whole bill, in the order applied.
+        bill_slices: list[tuple[int, Decimal]] = []
         applied_promotions: list[Promotion] = []
         # What each budgeted offer still has to give, read once per offer.
         room: dict[UUID, BudgetRoom] = {}
@@ -269,15 +275,25 @@ class PromotionService:
                     # shipping cost the firm exactly that, and a cost report
                     # that left it out would understate it.
                     benefit_amount=worth,
+                    name=promotion.name,
+                    promotion_group_id=promotion.version_group_id,
                     free_quantity=free_given,
                 )
             )
             applied_promotions.append(promotion)
+            if added_bill > ZERO:
+                bill_slices.append((len(applications) - 1, added_bill))
             for index, state in enumerate(states):
                 delta = state.discount - before_each[index]
                 if delta > ZERO:
                     slices[index].append((len(applications) - 1, delta))
                 if state.free_quantity > before_free[index]:
+                    free_slices[index].append(
+                        (
+                            len(applications) - 1,
+                            state.free_quantity - before_free[index],
+                        )
+                    )
                     # Named on the line, so the document can say whose free
                     # goods these are when a principal is asked to pay.
                     state.free_promotion_id = promotion.id
@@ -398,10 +414,20 @@ class PromotionService:
                     free_quantity=state.free_quantity,
                     free_promotion_id=state.free_promotion_id,
                     applied_promotion_codes=state.codes,
+                    offers=_line_shares(
+                        state,
+                        slices=slices[index],
+                        free_slices=free_slices[index],
+                        applied_promotions=applied_promotions,
+                    ),
                 )
-                for state in states
+                for index, state in enumerate(states)
             ],
             bill_discount_amount=quantize_money(bill_discount),
+            bill_offers=[
+                _share(applied_promotions[at], discount=quantize_money(amount))
+                for at, amount in bill_slices
+            ],
             freight_waived=freight_waived,
             applied_promotion_codes=applied,
             gifts=gifts,
@@ -871,12 +897,16 @@ class PromotionService:
             if excess <= ZERO:
                 continue
             trimmed_from: list[str] = []
-            for application_index, slice_amount in reversed(slices[index]):
+            for position in reversed(range(len(slices[index]))):
+                application_index, slice_amount = slices[index][position]
                 if excess <= ZERO:
                     break
                 take = min(slice_amount, excess)
                 state.discount -= take
                 excess -= take
+                # Kept trimmed, so each offer's share of the line is what it
+                # gave after the cap (L7 step 2).
+                slices[index][position] = (application_index, slice_amount - take)
                 application = applications[application_index]
                 application.benefit_amount = quantize_money(
                     application.benefit_amount - take
@@ -1380,6 +1410,65 @@ def _number(params: dict[str, object], key: str) -> Decimal:
         return Decimal(str(params.get(key) or 0))
     except ArithmeticError:
         return ZERO
+
+
+def _share(
+    promotion: Promotion,
+    *,
+    discount: Decimal = ZERO,
+    free_quantity: Decimal = ZERO,
+) -> PromotionLineShare:
+    """Return what one offer gave, named as the document will keep it."""
+    return PromotionLineShare(
+        promotion_id=promotion.id,
+        promotion_group_id=promotion.version_group_id,
+        code=promotion.code,
+        name=promotion.name,
+        discount_amount=discount,
+        free_quantity=free_quantity,
+    )
+
+
+def _line_shares(
+    state: _LineState,
+    *,
+    slices: list[tuple[int, Decimal]],
+    free_slices: list[tuple[int, Decimal]],
+    applied_promotions: list[Promotion],
+) -> list[PromotionLineShare]:
+    """Return each offer's part of one line, in the order applied (L7 step 2).
+
+    Read after the cap and after "best offer only", so the discounts add up
+    to the line's quantized discount exactly: any rounding residual goes on
+    the last offer that took something off, as the cap takes from it first.
+    """
+    discount: dict[int, Decimal] = {}
+    free: dict[int, Decimal] = {}
+    for at, amount in slices:
+        discount[at] = discount.get(at, ZERO) + amount
+    for at, quantity in free_slices:
+        free[at] = free.get(at, ZERO) + quantity
+    shares: list[PromotionLineShare] = []
+    for at in sorted(set(discount) | set(free)):
+        amount = quantize_money(discount.get(at, ZERO))
+        quantity = free.get(at, ZERO)
+        if amount <= ZERO and quantity <= ZERO:
+            # The cap took back all it gave, and it gave no free goods.
+            continue
+        shares.append(
+            _share(applied_promotions[at], discount=amount, free_quantity=quantity)
+        )
+    residual = quantize_money(state.discount) - sum(
+        (share.discount_amount for share in shares), ZERO
+    )
+    if residual != ZERO:
+        last = next(
+            (share for share in reversed(shares) if share.discount_amount > ZERO),
+            None,
+        )
+        if last is not None:
+            last.discount_amount += residual
+    return shares
 
 
 def _cap(params: dict[str, object]) -> Decimal | None:

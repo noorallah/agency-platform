@@ -65,11 +65,21 @@ from app.promotions.schemas import (
     PromotionLineRequest,
 )
 from app.promotions.services import PromotionService
+from app.promotions.services.line_offers import (
+    OfferRow,
+    bill_offer_rows,
+    gift_offer_rows,
+    line_offer_rows,
+    offers_by_line,
+    rewrite_offer_rows,
+    standing_arrangement,
+)
 from app.quotation.models import (
     SalesQuotation,
     SalesQuotationAttachment,
     SalesQuotationLine,
     SalesQuotationNote,
+    SalesQuotationOffer,
 )
 from app.quotation.schemas import (
     QuotationAttachmentResponse,
@@ -1399,6 +1409,12 @@ class QuotationService(TransactionalDocumentService):
         group_id, group_discount = self._customer_group(row.customer_id)
         bill_typed = bill_amount is not None or bill_percent is not None
         units = UomService(self._session)
+        # Kept: the rows naming each line's offers count free goods in stock
+        # units too (L7 step 2).
+        offer_factors = [
+            self._offer_factor(units, row, product, item)
+            for product, item in zip(products, lines, strict=True)
+        ]
         benefits = self._promotions(
             row,
             lines=lines,
@@ -1406,10 +1422,7 @@ class QuotationService(TransactionalDocumentService):
             customer_group_id=group_id,
             bill_priced=bill_typed,
             freight_amount=freight_amount,
-            factors=[
-                self._offer_factor(units, row, product, item)
-                for product, item in zip(products, lines, strict=True)
-            ],
+            factors=offer_factors,
         )
         # A gift is a line, appended after the engine has answered and before
         # anything is priced, exactly as the order does it.
@@ -1501,6 +1514,10 @@ class QuotationService(TransactionalDocumentService):
             ],
         )
 
+        # What named each line's price, written once every line has its id
+        # (L7 step 2), exactly as the order writes its own.
+        offer_rows: list[tuple[SalesQuotationLine, list[OfferRow]]] = []
+        standing = standing_arrangement(self._session, group_id)
         for index, item in enumerate(lines):
             product = products[index]
             line_discount = priced[index]
@@ -1612,6 +1629,35 @@ class QuotationService(TransactionalDocumentService):
             line.warehouse_id = item.warehouse_id or row.warehouse_id
             line.remarks = item.remarks
             line.updated_by = actor_id
+            # A gift line is in the stock unit, so its factor is one.
+            factor = offer_factors[index] if index < asked else Decimal("1")
+            offer_rows.append(
+                (
+                    line,
+                    (
+                        gift_offer_rows(
+                            benefits.application(line.free_promotion_id),
+                            free_quantity=free_goods,
+                            stock_factor=factor,
+                        )
+                        if index >= asked
+                        else line_offer_rows(
+                            shares=benefits.line_offers(index),
+                            priced=line_discount,
+                            engine_free=item.free_quantity is None,
+                            stock_factor=factor,
+                            price_list=(
+                                prices.list_for(
+                                    item.product_id, stock_quantities[index]
+                                )
+                                if line_discount.source == "price_list"
+                                else None
+                            ),
+                            standing=standing,
+                        )
+                    ),
+                )
+            )
             seen.add(item.line_number)
             subtotal += taxable
             tax_total += tax
@@ -1620,6 +1666,25 @@ class QuotationService(TransactionalDocumentService):
             if line_number not in seen:
                 self._session.delete(line)
         self._session.flush()
+        rewrite_offer_rows(
+            self._session,
+            SalesQuotationOffer,
+            document_column="sales_quotation_id",
+            line_column="sales_quotation_line_id",
+            document_id=row.id,
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+            rows=[
+                *((line.id, found) for line, found in offer_rows if found),
+                (
+                    None,
+                    bill_offer_rows(
+                        benefits.bill_offers(),
+                        applies=row.bill_discount_source == "promotion",
+                    ),
+                ),
+            ],
+        )
         return {
             "subtotal": self._q(subtotal),
             "tax_total": self._q(tax_total),
@@ -2019,6 +2084,14 @@ class QuotationService(TransactionalDocumentService):
             SalesQuotationNote.sales_quotation_id,
             ids,
         )
+        # What priced each line, by name (L7 step 2): one read for the page.
+        offers = children_by_parent(
+            self._session,
+            SalesQuotationOffer,
+            SalesQuotationOffer.sales_quotation_id,
+            ids,
+            SalesQuotationOffer.sequence.asc(),
+        )
         customers = {
             found[0]: (found[1], found[2])
             for found in self._session.execute(
@@ -2033,6 +2106,7 @@ class QuotationService(TransactionalDocumentService):
                 lines=lines[row.id],
                 attachments=attachments[row.id],
                 notes=notes[row.id],
+                offers=offers[row.id],
                 customer=customers.get(row.customer_id),
             )
             for row in rows
@@ -2057,9 +2131,13 @@ class QuotationService(TransactionalDocumentService):
         lines: list[SalesQuotationLine],
         attachments: list[SalesQuotationAttachment],
         notes: list[SalesQuotationNote],
+        offers: list[SalesQuotationOffer],
         customer: tuple[str, str] | None,
     ) -> QuotationResponse:
         """Build one quotation's response from what the page already read."""
+        by_line = offers_by_line(
+            offers, line_of=lambda item: item.sales_quotation_line_id
+        )
         return QuotationResponse(
             id=row.id,
             firm_id=row.firm_id,
@@ -2111,9 +2189,12 @@ class QuotationService(TransactionalDocumentService):
             is_expired=self.is_expired(row),
             can_convert=self.can_convert(row),
             lines=[
-                QuotationLineResponse.model_validate(line, from_attributes=True)
+                QuotationLineResponse.model_validate(
+                    line, from_attributes=True
+                ).model_copy(update={"offers": by_line.get(line.id, [])})
                 for line in lines
             ],
+            bill_offers=by_line.get(None, []),
             attachments=[
                 QuotationAttachmentResponse.model_validate(item, from_attributes=True)
                 for item in attachments

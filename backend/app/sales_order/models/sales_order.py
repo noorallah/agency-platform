@@ -359,7 +359,8 @@ class SalesOrderOffer(LineOfferMixin, BaseEntity):
     """An arrangement applied to, or refused on, a line or the whole document.
 
     L7 step 1 (``docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md``, section 3.9).
-    A null line is an offer on the whole bill. Nothing writes these yet.
+    A null line is an offer on the whole bill. Written as each line is
+    priced (step 2).
     """
 
     __tablename__ = "sales_order_offers"

@@ -16,6 +16,7 @@ from pydantic import (
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import NumberedOnce
+from app.promotions.schemas import LineOfferResponse
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -328,6 +329,9 @@ class SalesOrderLineResponse(SalesOrderSchema):
     #: profile alone did (GST-8).
     tax_rule_code: str | None = None
     tax_rule_version: int | None = None
+    #: What priced the line, by name, in the order applied (L7 step 2): each
+    #: offer's discount and free goods, or the standing arrangement.
+    offers: list[LineOfferResponse] = Field(default_factory=list)
 
 
 class SalesOrderAdvance(SalesOrderSchema):
@@ -460,6 +464,8 @@ class SalesOrderResponse(SalesOrderSchema):
     created_at: datetime
     updated_at: datetime
     lines: list[SalesOrderLineResponse] = Field(default_factory=list)
+    #: The offers on the whole bill rather than on a line (L7 step 2).
+    bill_offers: list[LineOfferResponse] = Field(default_factory=list)
     attachments: list[SalesOrderAttachmentResponse] = Field(default_factory=list)
     notes: list[SalesOrderNoteResponse] = Field(default_factory=list)
 

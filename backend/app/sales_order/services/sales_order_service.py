@@ -81,12 +81,23 @@ from app.products.services.free_issue import assert_not_sold_at_a_price
 from app.products.services.stockless import is_stockless, stockless_products
 from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
+    PromotionApplication,
     PromotionEvaluationRequest,
     PromotionEvaluationResponse,
     PromotionGift,
     PromotionLineRequest,
+    PromotionLineShare,
 )
 from app.promotions.services import PromotionService, RedemptionService
+from app.promotions.services.line_offers import (
+    OfferRow,
+    bill_offer_rows,
+    gift_offer_rows,
+    line_offer_rows,
+    offers_by_line,
+    rewrite_offer_rows,
+    standing_arrangement,
+)
 from app.promotions.services.offer_use import offer_took_off
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.document_preview import line_companions
@@ -97,6 +108,7 @@ from app.sales_order.models import (
     SalesOrderAttachment,
     SalesOrderLine,
     SalesOrderNote,
+    SalesOrderOffer,
 )
 from app.sales_order.schemas import (
     SalesOrderAdvance,
@@ -186,6 +198,8 @@ class PromotionBenefits:
         self._bill = outcome.bill_discount_amount
         self._freight_waived = outcome.freight_waived
         self._gifts = list(outcome.gifts)
+        self._bill_offers = list(outcome.bill_offers)
+        self._applied = {item.promotion_id: item for item in outcome.applied}
 
     def line_discount(self, index: int) -> Decimal | None:
         """Return what line `index` earned, or None if nothing touched it.
@@ -208,6 +222,19 @@ class PromotionBenefits:
         """Return the offer that gave line `index` its free units, if one did."""
         item = self._lines.get(index + 1)
         return item.free_promotion_id if item is not None else None
+
+    def line_offers(self, index: int) -> list[PromotionLineShare]:
+        """Return what each offer gave line `index`, in the order applied (L7)."""
+        item = self._lines.get(index + 1)
+        return list(item.offers) if item is not None else []
+
+    def bill_offers(self) -> list[PromotionLineShare]:
+        """Return each offer's part of the bill discount, in the order applied."""
+        return self._bill_offers
+
+    def application(self, promotion_id: UUID | None) -> PromotionApplication | None:
+        """Return the offer applied under this id, to name a gift line's row."""
+        return None if promotion_id is None else self._applied.get(promotion_id)
 
     def gift_promotion(self, product_id: UUID) -> UUID | None:
         """Return the offer that gave this product away as a gift."""
@@ -1616,6 +1643,14 @@ class SalesOrderService(TransactionalDocumentService):
             ids,
             live_only=False,
         )
+        # What priced each line, by name (L7 step 2): one read for the page.
+        offers = children_by_parent(
+            self._session,
+            SalesOrderOffer,
+            SalesOrderOffer.sales_order_id,
+            ids,
+            SalesOrderOffer.sequence.asc(),
+        )
         names = customer_labels(self._session, (row.customer_id for row in rows))
         answer = [
             self._order_response(
@@ -1623,6 +1658,7 @@ class SalesOrderService(TransactionalDocumentService):
                 lines=lines[row.id],
                 attachments=attachments[row.id],
                 notes=notes[row.id],
+                offers=offers[row.id],
                 customer_name=names.get(row.customer_id, ""),
             )
             for row in rows
@@ -1653,9 +1689,11 @@ class SalesOrderService(TransactionalDocumentService):
         lines: list[SalesOrderLine],
         attachments: list[SalesOrderAttachment],
         notes: list[SalesOrderNote],
+        offers: list[SalesOrderOffer],
         customer_name: str,
     ) -> SalesOrderResponse:
         """Build one order's response from what the page already read."""
+        by_line = offers_by_line(offers, line_of=lambda item: item.sales_order_line_id)
         return SalesOrderResponse(
             id=row.id,
             version=row.version,
@@ -1712,7 +1750,13 @@ class SalesOrderService(TransactionalDocumentService):
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            lines=[self._line_response(item) for item in lines],
+            lines=[
+                self._line_response(item).model_copy(
+                    update={"offers": by_line.get(item.id, [])}
+                )
+                for item in lines
+            ],
+            bill_offers=by_line.get(None, []),
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
         )
@@ -2788,6 +2832,10 @@ class SalesOrderService(TransactionalDocumentService):
             ],
         )
 
+        # What named each line's price, written once every line has its id
+        # (L7 step 2).
+        offer_rows: list[tuple[SalesOrderLine, list[OfferRow]]] = []
+        standing = standing_arrangement(self._session, group_id)
         for index, item in enumerate(lines):
             line_discount = priced[index]
             gross = grosses[index]
@@ -2928,6 +2976,33 @@ class SalesOrderService(TransactionalDocumentService):
             )
             line.remarks = item.remarks
             line.updated_by = actor_id
+            offer_rows.append(
+                (
+                    line,
+                    (
+                        gift_offer_rows(
+                            benefits.application(free_promotion_id),
+                            free_quantity=free_quantity,
+                            stock_factor=line.conversion_factor,
+                        )
+                        if index >= asked
+                        else line_offer_rows(
+                            shares=benefits.line_offers(index),
+                            priced=line_discount,
+                            engine_free=item.free_quantity is None,
+                            stock_factor=line.conversion_factor,
+                            price_list=(
+                                prices.list_for(
+                                    item.product_id, item.quantity * factors[index]
+                                )
+                                if line_discount.source == "price_list"
+                                else None
+                            ),
+                            standing=standing,
+                        )
+                    ),
+                )
+            )
             seen.add(item.line_number)
             subtotal += taxable
             tax_total += tax
@@ -2936,6 +3011,25 @@ class SalesOrderService(TransactionalDocumentService):
             if line_number not in seen:
                 self._session.delete(line)
         self._session.flush()
+        rewrite_offer_rows(
+            self._session,
+            SalesOrderOffer,
+            document_column="sales_order_id",
+            line_column="sales_order_line_id",
+            document_id=row.id,
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+            rows=[
+                *((line.id, found) for line, found in offer_rows if found),
+                (
+                    None,
+                    bill_offer_rows(
+                        benefits.bill_offers(),
+                        applies=row.bill_discount_source == "promotion",
+                    ),
+                ),
+            ],
+        )
         return {
             "subtotal": self._q(subtotal),
             "tax_total": self._q(tax_total),
