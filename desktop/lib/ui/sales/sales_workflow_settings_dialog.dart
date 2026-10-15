@@ -256,13 +256,20 @@ class _SalesWorkflowSettingsDialogState
                     decoration: const InputDecoration(
                       labelText: 'When several offers match',
                       helperText: 'Combine applies each in Applies-at order; '
-                          'best offer gives only the one worth most.',
+                          'best offer gives only the one worth most; ask '
+                          'starts with the best and lets the bill maker '
+                          'tick more.',
+                      helperMaxLines: 2,
                     ),
                     items: const [
                       DropdownMenuItem(
                           value: 'COMBINE', child: Text('Combine offers')),
                       DropdownMenuItem(
                           value: 'BEST_OFFER', child: Text('Best offer only')),
+                      DropdownMenuItem(
+                          value: 'ASK',
+                          child: Text(
+                              'Best one, the bill maker may add more')),
                     ],
                     onChanged: _mayManage && _read && !_saving
                         ? (value) => setState(
@@ -271,7 +278,9 @@ class _SalesWorkflowSettingsDialogState
                             )
                         : null,
                   ),
-                  if (_settings.promotionMode == 'COMBINE') ...[
+                  // ASK combines what is ticked under the same cap.
+                  if (_settings.promotionMode == 'COMBINE' ||
+                      _settings.promotionMode == 'ASK') ...[
                     const SizedBox(height: AppSpacing.md),
                     TextFormField(
                       key: const ValueKey('sales-settings-line-discount-cap'),

@@ -251,6 +251,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('L7 step 8: ask is chosen here, keeps the cap and is sent',
+      (tester) async {
+    final _StagesApi api = _StagesApi(failReads: 0);
+    await _open(tester, api);
+
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('sales-settings-promotion-mode')));
+    await tester.tap(find.byKey(const ValueKey('sales-settings-promotion-mode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Best one, the bill maker may add more').last);
+    await tester.pumpAndSettle();
+    // Ticked offers combine under the same line cap, so it stays.
+    expect(find.byKey(const ValueKey('sales-settings-line-discount-cap')),
+        findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.saved.single['promotion_mode'], 'ASK');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a combined line discount cap is typed here and sent',
       (tester) async {
     // Backlog 59 item 3: Combine mode may cap one line's offer discount.

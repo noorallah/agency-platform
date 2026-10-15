@@ -898,6 +898,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         api: widget.api,
         today: DateTime.now(),
         steps: _steps,
+        mayChooseOffers:
+            widget.permissions.hasPermission('SALES_OFFER_CHOOSE'),
       ),
     );
     if (await _afterWindow(created)) return;
@@ -921,6 +923,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         today: DateTime.now(),
         orderId: order['id'] as String,
         steps: _steps,
+        mayChooseOffers:
+            widget.permissions.hasPermission('SALES_OFFER_CHOOSE'),
       ),
     );
     if (await _afterWindow(saved)) return;

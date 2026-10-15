@@ -105,6 +105,72 @@ void main() {
     expect(find.text('Over 0, up to 100.'), findsOneWidget);
   });
 
+  testWidgets('L7 step 8: a part share is offered on free goods and sent',
+      (tester) async {
+    final _Api api = _Api();
+    await _open(tester, api);
+    final Finder box = find.byKey(const ValueKey('promotion-allow-part-share'));
+    // A percent-off offer has no free goods to share.
+    expect(box, findsNothing);
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Code'), 'B11');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Name'), '11 + 1');
+    await tester.tap(find.text('Percent off each line'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Free goods (buy X, get Y)').last);
+    await tester.pumpAndSettle();
+    expect(box, findsOneWidget);
+    expect(find.text('Allow a part share'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextFormField, 'Buy'), '11');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Get free'), '1');
+    await tester.ensureVisible(box);
+    await tester.tap(box);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.sentBody!['allow_part_share'], isTrue);
+  });
+
+  testWidgets('L7 step 8: a part share is hidden and sent false elsewhere',
+      (tester) async {
+    final _Api api = _Api();
+    // Read back on, but the offer no longer gives free goods.
+    await _open(tester, api, existing: <String, dynamic>{
+      'id': 'p-1',
+      'code': 'OFF',
+      'name': 'Ten off',
+      'allow_part_share': true,
+      'actions': <Json>[
+        <String, dynamic>{
+          'action_type': 'LINE_DISCOUNT_PERCENT',
+          'parameters': <String, dynamic>{'percent': '10'},
+        },
+      ],
+    });
+    expect(find.byKey(const ValueKey('promotion-allow-part-share')),
+        findsNothing);
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.sentBody!['allow_part_share'], isFalse);
+  });
+
+  test('a part share is read with false as the fallback', () {
+    expect(
+        PromotionRecord.fromJson(<String, dynamic>{'id': 'p'}).allowPartShare,
+        isFalse);
+    expect(
+        PromotionRecord.fromJson(
+            <String, dynamic>{'id': 'p', 'allow_part_share': true})
+            .allowPartShare,
+        isTrue);
+  });
+
   test('the summary reads Buy 1, get 1 at 50% off', () {
     final PromotionActionRecord record = PromotionActionRecord.fromJson(
       <String, dynamic>{

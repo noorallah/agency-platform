@@ -1,3 +1,4 @@
+import 'offer_candidate.dart';
 import 'purchase.dart';
 
 /// One line's companions in a priced preview of any sales document: what this customer last paid
@@ -13,6 +14,8 @@ class DocumentPreviewLine {
     required this.availableQuantity,
     this.incomingQuantity = '0',
     this.outgoingQuantity = '0',
+    this.candidates = const <OfferCandidate>[],
+    this.choiceRefused,
   });
 
   final int lineNumber;
@@ -34,6 +37,13 @@ class DocumentPreviewLine {
   /// Promised there on open sales orders, not yet dispatched nor reserved.
   final String outgoingQuantity;
 
+  /// Every offer and standing arrangement the line could take, applied or
+  /// not (L7). Empty on a purchase document.
+  final List<OfferCandidate> candidates;
+
+  /// Why the choice sent on this line was not taken; null where it stood.
+  final String? choiceRefused;
+
   factory DocumentPreviewLine.fromJson(Map<String, dynamic> json) =>
       DocumentPreviewLine(
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -47,6 +57,10 @@ class DocumentPreviewLine {
         availableQuantity: '${json['available_quantity'] ?? '0'}',
         incomingQuantity: '${json['incoming_quantity'] ?? '0'}',
         outgoingQuantity: '${json['outgoing_quantity'] ?? '0'}',
+        candidates: offerCandidatesFrom(json['candidates']),
+        choiceRefused: json['choice_refused'] == null
+            ? null
+            : '${json['choice_refused']}',
       );
 }
 
@@ -58,14 +72,19 @@ class SalesOrderPreviewRecord {
     required this.order,
     required this.interstate,
     required this.lines,
+    this.billCandidates = const <OfferCandidate>[],
   });
 
   final Map<String, dynamic> order;
   final bool interstate;
   final List<DocumentPreviewLine> lines;
 
+  /// The offers on the whole bill, applied or not (L7); shown read-only.
+  final List<OfferCandidate> billCandidates;
+
   factory SalesOrderPreviewRecord.fromJson(Map<String, dynamic> json) =>
       SalesOrderPreviewRecord(
+        billCandidates: offerCandidatesFrom(json['bill_candidates']),
         order: Map<String, dynamic>.from(json['order'] as Map? ?? const {}),
         interstate: json['interstate'] == true,
         lines: _previewLines(json['lines']),
@@ -79,14 +98,19 @@ class SalesInvoicePreviewRecord {
     required this.invoice,
     required this.interstate,
     required this.lines,
+    this.billCandidates = const <OfferCandidate>[],
   });
 
   final Map<String, dynamic> invoice;
   final bool interstate;
   final List<DocumentPreviewLine> lines;
 
+  /// The offers on the whole bill, applied or not (L7); shown read-only.
+  final List<OfferCandidate> billCandidates;
+
   factory SalesInvoicePreviewRecord.fromJson(Map<String, dynamic> json) =>
       SalesInvoicePreviewRecord(
+        billCandidates: offerCandidatesFrom(json['bill_candidates']),
         invoice: Map<String, dynamic>.from(json['invoice'] as Map? ?? const {}),
         interstate: json['interstate'] == true,
         lines: _previewLines(json['lines']),

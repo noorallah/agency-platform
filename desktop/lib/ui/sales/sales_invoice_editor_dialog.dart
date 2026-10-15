@@ -12,6 +12,7 @@ import '../../models/batch_sale_settings.dart';
 import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../../models/line_margin.dart';
+import '../../models/offer_candidate.dart';
 import '../../models/customer.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
@@ -30,6 +31,7 @@ import '../workspace/box_piece_cells.dart';
 import '../workspace/brand_filter.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/offer_choice_block.dart';
 import '../workspace/party_place.dart';
 import '../workspace/price_level_box.dart';
 import '../workspace/printed_document.dart';
@@ -64,9 +66,14 @@ class SalesInvoiceEditorDialog extends StatefulWidget {
     this.printer,
     this.steps = const [],
     this.features = const BusinessFeatures.unknown(),
+    this.mayChooseOffers = false,
   });
 
   final ApiClient api;
+
+  /// Whether the signed-in user holds SALES_OFFER_CHOOSE (L7): without it
+  /// a counter line's offers block is read-only and no choice is sent.
+  final bool mayChooseOffers;
 
   /// The firm's features; BATCH_PTR_PTS shows PTR and PTS in the batch list.
   final BusinessFeatures features;
@@ -322,6 +329,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   int _previewSerial = 0;
   bool _phase2 = false;
 
+  /// L7: F6 moves here, into the side panel's offers block; Enter goes back
+  /// to whatever had focus before.
+  final FocusNode _offerFocus = FocusNode(debugLabel: 'sales-invoice-offers');
+  FocusNode? _offerReturn;
+
   /// Backlog 129: the Brand box narrows what the product boxes offer. Blank is
   /// every product, `company:` and a company id, its brands, else one brand's id.
   /// Nothing about it is stored or sent. [_brandEpoch] builds the product
@@ -427,6 +439,18 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         setState(() {
           _preview = priced;
           _defaultWalkInReceived();
+          // L7: a choice the server could not take is dropped before the
+          // save, its words kept on the line.
+          for (int at = 0; at < _directLines.length; at += 1) {
+            final int? number = _sentNumber(at);
+            if (number == null) continue;
+            for (final DocumentPreviewLine line in priced.lines) {
+              if (line.lineNumber == number &&
+                  line.productId == _directLines[at].productId) {
+                _directLines[at].offers.refusedWith(line.choiceRefused);
+              }
+            }
+          }
         });
       } on ApiException {
         // A bill the server refuses as it stands -- serials not yet picked,
@@ -621,6 +645,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   void dispose() {
     _previewTimer?.cancel();
     _splitTimer?.cancel();
+    _offerFocus.dispose();
     _customFields.dispose();
     _reference.dispose();
     _coupon.dispose();
@@ -1410,6 +1435,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       // arrangement the customer already has; sending a zero refuses it.
       if (line.discount.text.trim().isNotEmpty)
         'discount_percent': line.discount.text.trim(),
+      // L7: as [_directPayload] sends it.
+      if (line.discount.text.trim().isEmpty) ...line.offers.payload,
       if (_isSerialised(product)) 'serial_ids': [...line.serialIds],
       // Only when the person chose or reset: absent leaves the note's own
       // earliest-expiry-first choice (backlog 79 row 2).
@@ -1513,6 +1540,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         // arrangement the customer already has; sending a zero refuses it.
         if (line.discount.text.trim().isNotEmpty)
           'discount_percent': line.discount.text.trim(),
+        // L7: only once somebody ticked, and never beside a typed discount,
+        // which the server refuses as two answers on one line.
+        if (line.discount.text.trim().isEmpty) ...line.offers.payload,
         if (_isSerialised(product)) 'serial_ids': [...line.serialIds],
         // Only when the person chose or reset: absent leaves the note's own
         // earliest-expiry-first choice (backlog 79 row 2).
@@ -2737,6 +2767,10 @@ class _DirectLine {
 
   /// Goods given with the line (L5): blank takes any offer, 0 refuses it.
   final TextEditingController free = TextEditingController();
+
+  /// L7: what the person ticked among the line's offers; sent only once
+  /// they ticked something.
+  final LineOfferChoice offers = LineOfferChoice();
 
   /// L5: the line's Box, Pcs, Free box and Free pcs cells, used while the
   /// bill is typed in boxes and pieces. [quantity] and [free] stay the

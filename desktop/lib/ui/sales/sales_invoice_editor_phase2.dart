@@ -294,6 +294,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         const SingleActivator(LogicalKeyboardKey.f8): () {
           if (_counterMode && !_saving) unawaited(_holdBill());
         },
+        // L7: into the side panel's offers block for the current line.
+        const SingleActivator(LogicalKeyboardKey.f6): _focusOffers,
         const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
           if (!_direct && !_addsProducts) return;
           _setState(() {
@@ -444,6 +446,10 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                                 current: _marginCurrent,
                               ),
                             _invoiceTotals(),
+                            BillOffersNote(
+                              candidates: _preview?.billCandidates ??
+                                  const <OfferCandidate>[],
+                            ),
                           ],
                         ),
                       ),
@@ -1000,6 +1006,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     String? hint,
     bool readOnly = false,
     Key? key,
+    VoidCallback? onTyped,
   }) =>
       TextFormField(
         key: key,
@@ -1012,7 +1019,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         autovalidateMode: AutovalidateMode.onUserInteraction,
         validator: validator,
         onChanged: (_) {
-          _setState(() {});
+          _setState(() => onTyped?.call());
           _schedulePreview();
         },
       );
@@ -1327,7 +1334,17 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             },
           )
         else ...[
-          _cellBox(context, line.quantity),
+          documentQuantityWithHint(
+            context,
+            _cellBox(
+              context,
+              line.quantity,
+              onTyped: line.offers.quantityTyped,
+            ),
+            hint: offerQuantityHint(
+                companion?.candidates ?? const <OfferCandidate>[]),
+            key: ValueKey<String>('sales-invoice-direct-offer-hint-$index'),
+          ),
           // L5: the bill typed straight in gains the free goods it lacked.
           _cellBox(
             context,
@@ -2113,6 +2130,26 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     _schedulePreview();
   }
 
+  /// F6 (L7): move into the offers block of the line being typed, keeping
+  /// where the cursor was so Enter can bring it back.
+  void _focusOffers() {
+    if (_offerFocus.context == null) return;
+    _offerReturn = FocusManager.instance.primaryFocus;
+    _offerFocus.requestFocus();
+    _setState(() {});
+  }
+
+  void _returnFromOffers() {
+    final FocusNode? back = _offerReturn;
+    _offerReturn = null;
+    if (back != null && back.context != null) {
+      back.requestFocus();
+    } else {
+      _offerFocus.unfocus();
+    }
+    _setState(() {});
+  }
+
   Widget _invoiceSidePanel(BuildContext context) {
     final Customer? customer = _customer;
     final List<Widget> line = <Widget>[];
@@ -2162,6 +2199,32 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               : discountWasTyped(source) || source.isEmpty
                   ? 'typed on this bill'
                   : 'from ${discountSourceWords(source)}',
+        ),
+        OfferChoiceBlock(
+          key: ValueKey<String>('sales-invoice-offers-$index'),
+          keyPrefix: 'sales-invoice-offer',
+          candidates: companion?.candidates ?? const <OfferCandidate>[],
+          choice: draft.offers,
+          refused: companion?.choiceRefused,
+          mayChoose: widget.mayChooseOffers,
+          lockedNote: draft.discount.text.trim().isEmpty
+              ? null
+              : 'A discount typed on the line decides it; clear it to '
+                  'choose.',
+          focusNode: _offerFocus,
+          onReturn: _returnFromOffers,
+          onChanged: () {
+            _setState(() {});
+            _schedulePreview();
+          },
+          onPartShare: (OfferCandidate candidate) {
+            _setState(() {
+              draft.quantity.text = plainOfferQuantity(
+                  candidate.partShare!.chargedQuantity);
+              draft.free.clear();
+            });
+            _schedulePreview();
+          },
         ),
         ...documentTaxLines(
           taxable: documentLineTaxable(

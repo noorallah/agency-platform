@@ -108,6 +108,26 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     _schedulePreview();
   }
 
+  /// F6 (L7): move into the offers block of the line being typed, keeping
+  /// where the cursor was so Enter can bring it back.
+  void _focusOffers() {
+    if (_offerFocus.context == null) return;
+    _offerReturn = FocusManager.instance.primaryFocus;
+    _offerFocus.requestFocus();
+    _setState(() {});
+  }
+
+  void _returnFromOffers() {
+    final FocusNode? back = _offerReturn;
+    _offerReturn = null;
+    if (back != null && back.context != null) {
+      back.requestFocus();
+    } else {
+      _offerFocus.unfocus();
+    }
+    _setState(() {});
+  }
+
   Widget _rateIncludesTaxField() => DocumentField(
         label: 'Rate includes GST',
         width: 150,
@@ -162,6 +182,8 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
           if (!_locked && !_saving) unawaited(_save());
         },
+        // L7: into the side panel's offers block for the current line.
+        const SingleActivator(LogicalKeyboardKey.f6): _focusOffers,
         const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
           if (_locked) return;
           _addLine();
@@ -314,6 +336,10 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                                 current: _marginCurrent,
                               ),
                             _orderTotals(),
+                            BillOffersNote(
+                              candidates: _preview?.billCandidates ??
+                                  const <OfferCandidate>[],
+                            ),
                           ],
                         ),
                       ),
@@ -1051,10 +1077,17 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             },
           )
         else ...[
-          _cellBox(
+          documentQuantityWithHint(
             context,
-            line.quantity,
-            validator: (value) => _positive(value, 'quantity'),
+            _cellBox(
+              context,
+              line.quantity,
+              validator: (value) => _positive(value, 'quantity'),
+              onTyped: line.offers.quantityTyped,
+            ),
+            hint: offerQuantityHint(
+                companion?.candidates ?? const <OfferCandidate>[]),
+            key: ValueKey<String>('sales-order-line-offer-hint-$index'),
           ),
           _cellBox(
             context,
@@ -1274,6 +1307,33 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             : discountWasTyped(source)
                 ? 'typed on this order'
                 : 'from ${discountSourceNamed(source, priced['offers'])}',
+      ),
+      OfferChoiceBlock(
+        key: ValueKey<String>('sales-order-offers-$index'),
+        keyPrefix: 'sales-order-offer',
+        candidates: companion?.candidates ?? const <OfferCandidate>[],
+        choice: line.offers,
+        refused: companion?.choiceRefused,
+        mayChoose: widget.mayChooseOffers && !_locked,
+        lockedNote: line.discountPercent.text.trim().isEmpty &&
+                line.discountAmount.text.trim().isEmpty
+            ? null
+            : 'A discount typed on the line decides it; clear it to choose.',
+        focusNode: _offerFocus,
+        onReturn: _returnFromOffers,
+        onChanged: () {
+          _setState(() {});
+          _schedulePreview();
+        },
+        onPartShare: (OfferCandidate candidate) {
+          _setState(() {
+            line.quantity.text = plainOfferQuantity(
+                candidate.partShare!.chargedQuantity);
+            line.free.clear();
+            _loadBoxes([line]);
+          });
+          _schedulePreview();
+        },
       ),
       // D-SELL-41: silence takes the offer's free goods, a typed zero refuses.
       DocumentSideNote(

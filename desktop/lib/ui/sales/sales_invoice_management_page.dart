@@ -555,6 +555,8 @@ class _SalesInvoiceManagementPageState
         mayApprove: _mayApprove(),
         steps: _steps,
         features: _features,
+        mayChooseOffers:
+            widget.permissions.hasPermission('SALES_OFFER_CHOOSE'),
       ),
     );
     if (await _afterWindow(created, null)) return;
@@ -580,6 +582,8 @@ class _SalesInvoiceManagementPageState
         mayApprove: _mayApprove(),
         steps: _steps,
         features: _features,
+        mayChooseOffers:
+            widget.permissions.hasPermission('SALES_OFFER_CHOOSE'),
       ),
     );
     if (await _afterWindow(saved, invoice)) return;

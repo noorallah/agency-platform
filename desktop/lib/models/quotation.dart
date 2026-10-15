@@ -1,5 +1,6 @@
 import 'entities.dart';
 import 'document_preview.dart';
+import 'offer_candidate.dart';
 import 'line_tax_rule.dart';
 import 'product.dart' show AttributeValueRecord, ProductAttributeValueRecord;
 export 'document_preview.dart';
@@ -317,9 +318,13 @@ class QuotationPreviewRecord {
     required this.quotation,
     required this.interstate,
     required this.lines,
+    this.billCandidates = const <OfferCandidate>[],
   });
 
   final Quotation quotation;
+
+  /// The offers on the whole bill, applied or not (L7); shown read-only.
+  final List<OfferCandidate> billCandidates;
 
   /// IGST across states; CGST and SGST within one.
   final bool interstate;
@@ -327,6 +332,7 @@ class QuotationPreviewRecord {
 
   factory QuotationPreviewRecord.fromJson(Map<String, dynamic> json) =>
       QuotationPreviewRecord(
+        billCandidates: offerCandidatesFrom(json['bill_candidates']),
         quotation: Quotation.fromJson(
           Map<String, dynamic>.from(json['quotation'] as Map? ?? const {}),
         ),
