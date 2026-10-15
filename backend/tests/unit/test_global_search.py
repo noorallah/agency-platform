@@ -369,6 +369,10 @@ def test_no_service_resolves_firms_on_a_tenant_session() -> None:
         # platform schema by name; each firm's outbox is then reached through
         # that firm's own store.
         "app/messaging/services/runtime.py",
+        # The People and Firms settings readers count users, memberships and
+        # firms on the platform session they are handed by name; the firm's
+        # own store is passed beside it only for business profiles.
+        "app/settings_sections/services/platform.py",
     }
     # Known offenders, kept empty. Five instances of this defect shipped before
     # the guard existed; all are fixed. Anything added here needs a fix, not a

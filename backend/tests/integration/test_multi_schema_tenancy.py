@@ -59,8 +59,16 @@ def test_platform_tables_are_invisible_to_a_deployed_firm_schema(
         pytest.skip("no migrated firm schema deployed in this database")
     with engine.connect() as connection:
         connection.execute(text(f'SET search_path TO "{deployed[0]}"'))
-        with pytest.raises(ProgrammingError):
-            connection.execute(text("select id from firms limit 1"))
+        try:
+            with pytest.raises(ProgrammingError):
+                connection.execute(text("select id from firms limit 1"))
+        finally:
+            # A session-level SET outlives the transaction, so without this the
+            # pooled connection goes back holding the firm schema and the next
+            # test to draw it cannot see `firms` (CI 38803286658).
+            connection.rollback()
+            connection.execute(text("RESET search_path"))
+            connection.commit()
 
 
 def test_firm_scope_resolves_membership_on_the_platform_session(
@@ -68,7 +76,11 @@ def test_firm_scope_resolves_membership_on_the_platform_session(
 ) -> None:
     """The shared resolver works while the request session is a firm schema."""
     settings = Settings()
-    platform = sessionmaker(bind=engine, expire_on_commit=False)()
+    # One connection for the whole test: a commit hands a pooled session's
+    # connection back, and the next statement may draw one with another
+    # search_path, which is how this failed in CI 38803286658.
+    connection = engine.connect()
+    platform = sessionmaker(bind=connection, expire_on_commit=False)()
     platform.execute(text(f'SET search_path TO "{settings.database_schema}"'))
     suffix = uuid4().hex[:8]
     try:
@@ -138,6 +150,9 @@ def test_firm_scope_resolves_membership_on_the_platform_session(
         )
         platform.commit()
         platform.close()
+        connection.execute(text("RESET search_path"))
+        connection.commit()
+        connection.close()
 
 
 def test_two_firm_schemas_do_not_share_rows(engine: Engine) -> None:
