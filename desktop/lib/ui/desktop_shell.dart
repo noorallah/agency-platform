@@ -6538,7 +6538,12 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
   // before it answered must not decide, on nothing, that the category names
   // no licence at all (backlog 54).
   bool licenceTypesLoaded = false;
-  unawaited(api.tradeLicenceTypes().then((_) => licenceTypesLoaded = true));
+  // A failed read leaves the flag false, so the field is not sent; it must
+  // not escape as an uncaught error (it did while Settings was clicked).
+  unawaited(api.tradeLicenceTypes().then<void>(
+        (_) => licenceTypesLoaded = true,
+        onError: (Object _) {},
+      ));
 
   // The goods types' names, read with the grid's first page so the column can
   // say "Medicine" rather than an id. `goods_type_id` is sent only once the
@@ -6975,7 +6980,11 @@ ResourceDefinition<TradeLicenceRecord> tradeLicenceDefinition(
   // returns only an id and a label, not `expires`, so this is the one place
   // that fact is read from.
   List<TradeLicenceTypeRecord> types = const [];
-  unawaited(api.tradeLicenceTypes().then((rows) => types = rows));
+  // A failed read leaves the list empty and the server judges the date.
+  unawaited(api.tradeLicenceTypes().then<void>(
+        (rows) => types = rows,
+        onError: (Object _) {},
+      ));
   bool typeExpires(String typeId) {
     for (final TradeLicenceTypeRecord type in types) {
       if (type.id == typeId) return type.expires;

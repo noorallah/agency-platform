@@ -583,6 +583,50 @@ def test_a_firm_caller_searches_only_the_firms_own_people(
     assert len(_search_titles(session, platform, "users", "Searchable")) == 5
 
 
+def test_a_firm_caller_finds_only_the_firm_in_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ctrl+K finds one's own firm, never every firm on the platform.
+
+    `firms` has no firm column and was searched unfiltered, so the seeded
+    Viewer -- who holds every `*_VIEW` code, `FIRM_VIEW` among them -- read
+    the name, code and city of every firm (found clicking Settings on
+    2026-10-16: "Test" found four firms, "Ready" nineteen).
+    """
+    session = _session_factory()()
+    monkeypatch.setattr(
+        search_service_module, "platform_reader", lambda: nullcontext(session)
+    )
+    ours, _theirs = _firm(session, "OURS"), _firm(session, "THEIRS")
+
+    viewer = _principal(uuid4(), permissions={"FIRM_VIEW"}, firm_id=ours.id)
+    assert _search_titles(session, viewer, "firms", "Firm") == ["Firm OURS"]
+
+    unscoped = _principal(uuid4(), permissions={"FIRM_VIEW"})
+    assert _search_titles(session, unscoped, "firms", "Firm") == []
+
+    admin_id = uuid4()
+    platform = Principal(
+        subject=admin_id,
+        roles=frozenset(),
+        permissions=frozenset({"FIRM_VIEW"}),
+        claims=TokenClaims(
+            sub=str(admin_id),
+            type=TokenType.ACCESS,
+            iat=1,
+            exp=4_102_444_800,
+            roles=[],
+            permissions=["FIRM_VIEW"],
+            platform_admin=True,
+        ),
+        firm_id=None,
+    )
+    assert _search_titles(session, platform, "firms", "Firm") == [
+        "Firm OURS",
+        "Firm THEIRS",
+    ]
+
+
 def test_storage_areas_are_searched_within_the_firm() -> None:
     """A shelf belongs to a warehouse, and the warehouse to a firm.
 

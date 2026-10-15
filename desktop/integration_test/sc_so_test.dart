@@ -13,7 +13,7 @@ import 'harness.dart';
 /// user cases, whose second user works over HTTP), then once as each role:
 ///
 ///     for h in qsexe qsmgr qro; do
-///       IT_EMAIL=t10069cwy.$h@fixtures.local IT_PASSWORD=Fixture@2026pw \
+///       IT_EMAIL=<suffix>.$h@fixtures.local IT_PASSWORD=Fixture@2026pw \
 ///         LIMIT=900 bash integration_test/run.sh sc_so_test.dart; done
 ///
 /// The book's FS, SM and RO are the fixture firm's qsexe, qsmgr and qro; the
@@ -27,7 +27,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     final Server me = await Server.connect();
     final Server admin = await Server.connectAs(
-        't10069cwy.tradeadmin@fixtures.local', fixturePassword);
+        fixtureAdminEmail, fixturePassword);
     await startAndSignIn(tester);
     collectAppErrors();
     final FlowLog log = FlowLog('so-$itHandle');
@@ -477,7 +477,7 @@ void main() {
       final Json order = await apiDraftOrder(
           itHandle == 'qro'
               ? await Server.connectAs(
-                  't10069cwy.tradeadmin@fixtures.local', fixturePassword)
+                  fixtureAdminEmail, fixturePassword)
               : me,
           quantity: 1);
       final Map<String, List<String>> menu = await offeredMenu(tester);
