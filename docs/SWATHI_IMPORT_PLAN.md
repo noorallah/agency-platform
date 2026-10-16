@@ -268,7 +268,10 @@ through the same import afterwards, and what it needs beyond the smaller one
 is G1 for lots with no batch, G9 and G12.
 
 1. The dump reader and step 3 to 5 converters (goods, customers, suppliers),
-   run against the smaller firm into a test firm. Proves the approach and
+   run against the smaller firm into a test firm. (25e part 1, 2026-10-17:
+   `scripts/swathi_dump_to_templates.py` writes the seven small-master,
+   customer, supplier and account files; the check against a test firm is
+   still to run, see `docs/qa/SWATHI_TRIAL_CONVERSION.md`.) Proves the approach and
    gives the firm real lists to correct.
 2. G2, G3, G4, G5: the small master gaps.
 3. Steps 6 to 8: accounts mapping, opening balances, unpaid bills. Needs D1
