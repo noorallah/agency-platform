@@ -25,7 +25,11 @@ Checks, per month (an accounting period of the firm):
    advances held. And each customer's account, owing less advances, equals
    what their bills still owe -- the ageing's open invoices and opening bills
    less settlements, credits and adjustments
-   (``CustomerStatementService.ageing``) -- less receipts held on account.
+   (``CustomerStatementService.ageing``) -- less receipts held on account
+   and less the credit returns and credit notes gave that no bill absorbed
+   and nothing has used (``customer_credits``), and less an opening balance
+   typed on the customer master in credit, held as an advance no receipt
+   holds and no bill carries.
 3. **Payables agree.** The payables control account's balance at the
    month's end equals the sum of the suppliers' statements to that day
    (``SupplierStatementService.balances``). And each supplier's statement
@@ -52,9 +56,9 @@ TODO, later parts of item 30 (not built here):
   the challans paid.
 * Loyalty points held against loyalty payable; commission accrued against
   commission payable.
-* Check 2 does not net a customer's return or credit-note credit that no
-  bill absorbed (``customer_credits`` answers one customer at a time); such a
-  credit reads as a difference until it is set against a bill.
+* Check 2 nets an opening balance in credit at its typed figure, so one
+  later paid back by a refund that names no source reads as a difference;
+  nothing yet records which opening credit a refund drew.
 * Check 4 for the remaining posting modules (loyalty, tcs, commission,
   expenses, party adjustments, opening bills and the rest of
   ``source_module``), which have no single "has a value" column to test.
@@ -390,6 +394,10 @@ def _receivables_against_bills(
         .group_by(Settlement.customer_id)
     ).all():
         owing[customer_id] = owing.get(customer_id, ZERO) - _money(held)
+    for customer_id, credit in _unused_customer_credit(session, firm_id).items():
+        owing[customer_id] = owing.get(customer_id, ZERO) - credit
+    for customer_id, opening in _opening_credits(session, firm_id, today).items():
+        owing[customer_id] = owing.get(customer_id, ZERO) - opening
     found: list[Difference] = []
     for customer_id in sorted(set(accounts) | set(owing), key=str):
         code, owed, advance = accounts.get(customer_id, ("", ZERO, ZERO))
@@ -405,16 +413,86 @@ def _receivables_against_bills(
                 account,
                 bills,
                 "the customer's account less advances against open bills less "
-                f"receipts held on account, as at {today.isoformat()} -- "
+                "receipts held on account and return or credit-note credit "
+                "unused and opening balances in credit, as at "
+                f"{today.isoformat()} -- "
                 + (
-                    "credit not yet set against a bill (a return or a credit "
-                    "note's, which this does not net yet)"
+                    "credit on the account that no receipt, return, credit "
+                    "note or opening balance holds"
                     if bills > account
                     else "a charge on the account that no open bill carries"
                 ),
             )
         )
     return found
+
+
+def _unused_customer_credit(session: Session, firm_id: UUID) -> dict[UUID, Decimal]:
+    """Return each customer's return and credit-note credit not yet used.
+
+    What a completed return or an approved credit note gave that its own bill
+    could not absorb -- the bill already paid -- and that has been neither set
+    against another bill nor paid back. It is on the account (held as an
+    advance, or off what was owed) and on no open bill, so the bills' side
+    takes it off as it takes off a receipt held on account. Read through
+    ``customer_credits``, the figure the Customer credits screen shows, one
+    customer at a time and only for customers with a standing source.
+    """
+    from app.settlements.services.customer_credits import _sources, customer_credits
+
+    customers = {
+        source.customer_id
+        for source in _sources(session, firm_id, None, standing_only=True).values()
+    }
+    unused: dict[UUID, Decimal] = {}
+    for customer_id in sorted(customers, key=str):
+        total = sum(
+            (
+                credit.available_amount
+                for credit in customer_credits(
+                    session, firm_id=firm_id, customer_id=customer_id
+                )
+            ),
+            ZERO,
+        )
+        if total != ZERO:
+            unused[customer_id] = _money(total)
+    return unused
+
+
+def _opening_credits(
+    session: Session, firm_id: UUID, today: date
+) -> dict[UUID, Decimal]:
+    """Return each customer's opening balance in credit, from the master.
+
+    The single day-one figure typed on the customer (``OPENING_BALANCE``),
+    when the firm owed the customer at cutover: held for them as an advance
+    that no receipt holds and no bill carries, so the bills' side takes it
+    off. In debit it needs nothing here -- the ageing already carries it as
+    an "Opening balance" row. A revised figure deletes the old rows, so only
+    live rows count.
+    """
+    from app.customers.models import CustomerReceivableTransaction
+    from app.customers.schemas.customer import CustomerReceivableTransactionType
+
+    return {
+        customer_id: _money(value)
+        for customer_id, value in session.execute(
+            select(
+                CustomerReceivableTransaction.customer_id,
+                func.sum(CustomerReceivableTransaction.advance_delta),
+            )
+            .where(
+                CustomerReceivableTransaction.firm_id == firm_id,
+                CustomerReceivableTransaction.is_deleted.is_(False),
+                CustomerReceivableTransaction.transaction_type
+                == CustomerReceivableTransactionType.OPENING_BALANCE.value,
+                CustomerReceivableTransaction.transaction_date <= today,
+            )
+            .group_by(CustomerReceivableTransaction.customer_id)
+        ).all()
+        if _money(value) != ZERO
+    }
 
 
 # ---- 3. payables -----------------------------------------------------------
