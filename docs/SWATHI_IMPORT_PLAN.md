@@ -234,7 +234,7 @@ done; it needs more checking by the firm.
 | G7 | A place for history bills outside stock, ledger and GST | Step 10, way A | Open; design note first |
 | G8 | Receipt, return, credit note and voucher imports | Step 10 | Open; as history under A, as live documents under B |
 | G9 | Free quantity in fractions on a bill line | Daily billing | Fixed in PR #1425, not merged |
-| G10 | Discount given at collection | Daily billing, step 10 | Decided 2026-10-12; whether it is built is not yet checked |
+| G10 | Discount given at collection | Daily billing, step 10 | Built (checked 2026-10-16): a receipt carries `discount_amount` (Dr Discount Allowed, Cr Receivables, bill closed, reversible); the receipt screen has the Discount allowed box, prefilled with the cash discount the customer's terms earn (SEL-14); a discount above that is a clearance discount needing `PARTY_ADJUSTMENT_APPROVE` (backlog 115). An imported receipt's `cdis` maps onto `discount_amount`; the receipt import itself is G8 |
 | G11 | Bills handed to a collector for a day | Daily work | Open; the bill-and-collector point of 2026-10-12 |
 | G12 | Parent buyer with several shops under one GST number | Step 4 (six GST numbers are shared) | Built 2026-10-13 (backlog 125). A shared number is now refused on a second customer: the file names the parent in a **ParentCode** column and leaves the shop's GSTIN blank |
 | G13 | Half-page bill print with MRP, PTR, free, batch and expiry columns | Daily billing | Half page built (backlog 118). The full page against the sample is row P2 of `docs/CUSTOMER_BUILD_TASKS.md` |
