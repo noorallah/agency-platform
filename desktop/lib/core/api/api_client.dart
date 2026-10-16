@@ -7308,12 +7308,18 @@ class ApiClient {
   /// (M13). [onCustomerLevel] is told the customer's usual level, own else
   /// his group's, or null when he has none -- it is not called when the
   /// answer does not carry the field.
+  ///
+  /// [branchId] and [warehouseId] together let a firm costing by lot price
+  /// the line at the lot that leaves first (its PTR or PTS, L3); without
+  /// both the server falls back to the product's own price (D-UI-110).
   Future<Map<String, UnitPriceQuote>> unitPrices({
     required List<String> productIds,
     required String on,
     String customerId = '',
     String territoryId = '',
     String priceLevelId = '',
+    String branchId = '',
+    String warehouseId = '',
     void Function(String? customerPriceLevelId)? onCustomerLevel,
   }) async {
     // `product_ids` repeats once per product, which a `Map<String, String>`
@@ -7324,6 +7330,8 @@ class ApiClient {
       if (customerId.isNotEmpty) 'customer_id': customerId,
       if (territoryId.isNotEmpty) 'territory_id': territoryId,
       if (priceLevelId.isNotEmpty) 'price_level_id': priceLevelId,
+      if (branchId.isNotEmpty) 'branch_id': branchId,
+      if (warehouseId.isNotEmpty) 'warehouse_id': warehouseId,
     }).query;
     final Json response = await request(
       'GET',

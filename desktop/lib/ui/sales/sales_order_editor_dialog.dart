@@ -1034,6 +1034,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         on: _iso(_orderDate),
         customerId: customerId,
         priceLevelId: level,
+        // A firm costing by lot prices at the lot that leaves first, which
+        // the server can name only knowing where from (D-UI-110).
+        branchId: _branchId ?? '',
+        warehouseId: _warehouseId ?? '',
         onCustomerLevel: (String? id) {
           answeredUsual = true;
           usual = id;

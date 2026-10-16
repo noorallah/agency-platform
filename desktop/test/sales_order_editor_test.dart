@@ -1463,6 +1463,28 @@ void main() {
       expect(total.data, isNot(contains('as last saved')));
     });
 
+    testWidgets(
+        'a saved batch-tracked line fits its product, stock note and batch '
+        'choice (D-UI-111)', (tester) async {
+      final _OrderApi api = _OrderApi(
+        customerRows: <Json>[_customer('c1', 'Anand Agencies')],
+        productRows: <Json>[
+          <String, dynamic>{
+            ..._product('p1', 'P1', 'Shampoo 180ml', '100', '120'),
+            'track_batch': true,
+          },
+        ],
+      )..existing = costed();
+      await pumpPhase2(tester, api);
+
+      // The stock note from the priced draft and the Batch choice both show,
+      // under the product, and nothing overflows the row.
+      expect(find.byKey(const ValueKey<String>('sales-order-line-batch-0')),
+          findsOneWidget);
+      expect(find.textContaining('Stock 40'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a user the server sends no cost to sees no columns',
         (tester) async {
       final _OrderApi api = _api()..existing = _draft();

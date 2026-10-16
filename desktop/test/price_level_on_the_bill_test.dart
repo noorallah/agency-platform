@@ -38,10 +38,13 @@ const Map<String, Map<String, String>> _levelRates = {
 };
 
 class _Asked {
-  const _Asked(this.productIds, this.customerId, this.levelId);
+  const _Asked(this.productIds, this.customerId, this.levelId,
+      [this.branchId = '', this.warehouseId = '']);
   final List<String> productIds;
   final String customerId;
   final String levelId;
+  final String branchId;
+  final String warehouseId;
 }
 
 class _Api extends ApiClient {
@@ -81,9 +84,12 @@ class _Api extends ApiClient {
     String customerId = '',
     String territoryId = '',
     String priceLevelId = '',
+    String branchId = '',
+    String warehouseId = '',
     void Function(String? customerPriceLevelId)? onCustomerLevel,
   }) async {
-    asked.add(_Asked(productIds, customerId, priceLevelId));
+    asked.add(
+        _Asked(productIds, customerId, priceLevelId, branchId, warehouseId));
     // c1 is a wholesale customer; c2 and the cash customer have no level.
     final String? usual = customerId == 'c1' ? 'wh' : null;
     onCustomerLevel?.call(usual);
@@ -178,6 +184,8 @@ class _Api extends ApiClient {
           'sales_order_stage': false,
           'delivery_note_stage': false,
           'rate_includes_tax': rateIncludesTax,
+          'default_branch_id': 'b1',
+          'default_warehouse_id': 'w1',
           'is_configured': true,
         },
       };
@@ -466,6 +474,22 @@ void main() {
       expect((lines.first as Json)['unit_price'], '100.00');
     });
 
+    testWidgets(
+        'the price is asked from the order branch and warehouse, so a firm '
+        'by lot prices at its first lot (D-UI-110)', (tester) async {
+      final _Api api = _Api();
+      await _pumpOrder(tester, api);
+      await _chooseCustomer(tester, 'sales-order-customer', 'Anand');
+      await fillFirstLine(tester, document: 'sales-order', product: 'Shampoo');
+      await _settle(tester);
+      expect(api.asked, isNotEmpty);
+      expect(api.asked.last.branchId, 'b1');
+      expect(api.asked.last.warehouseId, 'w1');
+      await _chooseLevel(tester, 'sales-order-price-level', 'Retail');
+      expect(api.asked.last.branchId, 'b1');
+      expect(api.asked.last.warehouseId, 'w1');
+    });
+
     testWidgets('on the usual level the payload says null, and a new customer '
         'puts the box back', (tester) async {
       final _Api api = _Api();
@@ -602,6 +626,18 @@ void main() {
       expect(api.asked.last.customerId, 'c1');
       expect(api.asked.last.levelId, '');
       expect(_billPrice(tester, 1), '40.00');
+    });
+
+    testWidgets(
+        'a counter line is priced from the default branch and warehouse '
+        '(D-UI-110)', (tester) async {
+      final _Api api = _Api();
+      await _pumpBill(tester, api);
+      await _chooseCustomer(tester, 'sales-invoice-customer', 'Anand');
+      await _pickBillProduct(tester, 0, 'Shampoo');
+      expect(api.asked, isNotEmpty);
+      expect(api.asked.last.branchId, 'b1');
+      expect(api.asked.last.warehouseId, 'w1');
     });
 
     testWidgets('the switch reprices every line and the payload carries it',

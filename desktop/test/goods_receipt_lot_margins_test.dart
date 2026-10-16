@@ -260,6 +260,32 @@ void main() {
     expect(line['pts'], '110.00');
   });
 
+  testWidgets(
+      'by lot: a price typed, then a margin, keeps the typed price (D-UI-109)',
+      (tester) async {
+    final _ReceiptApi api = _ReceiptApi();
+    await _openEditor(tester, api, byLot: true);
+
+    // The boxes' own order, left to right: the price, then its margin.
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('goods-receipt-ptr-po-1-0')),
+      '104',
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(_retail), '40');
+    await tester.pumpAndSettle();
+    // The price box still holds what was typed.
+    expect(find.byKey(const ValueKey<String>('goods-receipt-ptr-po-1-0')),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('goods-receipt-save')));
+    await tester.pumpAndSettle();
+
+    final Json line = _sentLine(api);
+    // A typed price wins over the margin; the server works the margin back.
+    expect(line['ptr'], '104');
+    expect(line['retail_margin_percent'], '40');
+  });
+
   testWidgets('on Average no margin is offered or sent', (tester) async {
     final _ReceiptApi api = _ReceiptApi();
     await _openEditor(tester, api, byLot: false);

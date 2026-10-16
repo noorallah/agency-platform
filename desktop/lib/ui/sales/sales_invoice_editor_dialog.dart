@@ -1796,6 +1796,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         on: _iso(widget.today),
         customerId: customerId,
         priceLevelId: level,
+        // A firm costing by lot prices at the lot that leaves first
+        // (D-UI-110): the bill goes out of the firm's default branch and
+        // warehouse.
+        branchId: _stages.defaultBranchId ?? '',
+        warehouseId: _directWarehouse,
         onCustomerLevel: (String? id) {
           answeredUsual = true;
           usual = id;
