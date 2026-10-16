@@ -420,7 +420,11 @@ class _DeliveryNoteManagementPageState
             DocumentLineSnapshot(
               lineNumber: line.lineNumber,
               product: _labels.product(line.productId),
-              uom: _labels.unitOf(line.salesUomId, line.productId),
+              uom: _labels.unitOf(
+                line.salesUomId,
+                line.productId,
+                stockUnitId: line.inventoryUomId,
+              ),
               quantity: line.currentDeliveryQuantity,
               unitPrice: line.unitPrice,
               amount: line.grossAmount,
@@ -1650,6 +1654,7 @@ class _DeliveryNoteLine {
     required this.productId,
     required this.description,
     required this.salesUomId,
+    this.inventoryUomId = '',
     required this.packagingTypeId,
     required this.currentDeliveryQuantity,
     required this.freeQuantity,
@@ -1668,6 +1673,7 @@ class _DeliveryNoteLine {
   final String productId;
   final String description;
   final String salesUomId;
+  final String inventoryUomId;
   final String packagingTypeId;
   final String currentDeliveryQuantity;
   final String freeQuantity;
@@ -1691,6 +1697,7 @@ class _DeliveryNoteLine {
         productId: stringValue(json['product_id']),
         description: stringValue(json['description']),
         salesUomId: stringValue(json['sales_uom_id']),
+        inventoryUomId: stringValue(json['inventory_uom_id']),
         packagingTypeId: stringValue(json['packaging_type_id']),
         currentDeliveryQuantity: stringValue(json['current_delivery_quantity']),
         freeQuantity: stringValue(json['free_quantity']),
