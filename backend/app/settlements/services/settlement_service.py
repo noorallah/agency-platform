@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, and_, func, literal, or_, select
+from sqlalchemy import Select, and_, func, literal, or_, select, true
 from sqlalchemy import null as sa_null
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
@@ -2559,8 +2559,14 @@ class SettlementService(TransactionalDocumentService):
             Settlement.is_deleted.is_(False),
         )
 
-    def _require_party(self, *, firm_id: UUID, party_id: UUID) -> Customer | Vendor:
-        """Return the customer or vendor this settlement is with."""
+    def _require_party(
+        self, *, firm_id: UUID, party_id: UUID, include_deleted: bool = False
+    ) -> Customer | Vendor:
+        """Return the customer or vendor this settlement is with.
+
+        A new settlement needs a live party. A document already written still
+        names one deleted since, so reading it back passes `include_deleted`.
+        """
         if self.DIRECTION in (
             SettlementDirection.RECEIPT,
             SettlementDirection.REFUND,
@@ -2569,7 +2575,7 @@ class SettlementService(TransactionalDocumentService):
                 select(Customer).where(
                     Customer.id == party_id,
                     Customer.firm_id == firm_id,
-                    Customer.is_deleted.is_(False),
+                    (true() if include_deleted else Customer.is_deleted.is_(False)),
                 )
             )
             if customer is None:
@@ -2579,7 +2585,7 @@ class SettlementService(TransactionalDocumentService):
             select(Vendor).where(
                 Vendor.id == party_id,
                 Vendor.firm_id == firm_id,
-                Vendor.is_deleted.is_(False),
+                true() if include_deleted else Vendor.is_deleted.is_(False),
             )
         )
         if vendor is None:
@@ -2971,7 +2977,9 @@ class SettlementService(TransactionalDocumentService):
         )
         if party_id is None:  # pragma: no cover - the check constraint forbids it
             raise ValidationError("Settlement has no party.")
-        return self._require_party(firm_id=row.firm_id, party_id=party_id)
+        return self._require_party(
+            firm_id=row.firm_id, party_id=party_id, include_deleted=True
+        )
 
     def parties_of(
         self, rows: Sequence[Settlement]
@@ -2979,8 +2987,9 @@ class SettlementService(TransactionalDocumentService):
         """Answer `party_of` for a page of settlements in one read.
 
         Keyed by settlement id: the party's id, code and name. A party that
-        `party_of` would refuse -- another firm's, or deleted since -- is
-        refused the same way, so a page and a single row cannot disagree.
+        `party_of` would refuse -- another firm's -- is refused the same way.
+        One deleted since the document was written is still named by it
+        (D-FIN-37), so a page and a single row cannot disagree.
         """
         is_customer = self.DIRECTION in (
             SettlementDirection.RECEIPT,
@@ -2998,7 +3007,6 @@ class SettlementService(TransactionalDocumentService):
                     model.id.in_(
                         {party for _, party in wanted.values() if party is not None}
                     ),
-                    model.is_deleted.is_(False),
                 )
             )
         }
