@@ -4,7 +4,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app.api.dependencies.settings import get_settings
 from app.api.routers.dashboard import router as dashboard_router
@@ -40,6 +40,7 @@ from app.core.tenancy import (
     MultiTenantDatabaseProvider,
     TenantStorageLifecycleService,
 )
+from app.core.validation.periods import refuse_backwards_period
 from app.counter_shifts.api import router as counter_shifts_router
 from app.credit_note.api.router import router as credit_notes_router
 from app.customer_debit_note.api.router import router as customer_debit_notes_router
@@ -158,6 +159,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         debug=settings.debug,
         lifespan=lifespan,
         openapi_tags=OPENAPI_TAGS,
+        # Every dated report refuses a period that ends before it starts,
+        # in one place rather than in seventy handlers (D-RPT-23).
+        dependencies=[Depends(refuse_backwards_period)],
     )
     application.state.settings = settings
     application.state.database = DatabaseManager.from_settings(settings)
