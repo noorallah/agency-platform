@@ -7,6 +7,8 @@ from app.imports.services.import_mapping_service import (
     columns_for_kind,
     mapped_content,
     parse_mapping,
+    parse_value_mapping,
+    value_columns_for_kind,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "import_source_keys",
     "mapped_content",
     "parse_mapping",
+    "parse_value_mapping",
+    "value_columns_for_kind",
 ]

@@ -39,3 +39,9 @@ class ImportMapping(BaseEntity):
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     mapping: Mapped[dict[str, str | None]] = mapped_column(JSON, nullable=False)
+    #: Template column to {the source program's value: ours}, for the columns
+    #: an import declares mappable (Swathi G6): an old program's head names
+    #: read as our account groups. Null: no value is translated.
+    value_mapping: Mapped[dict[str, dict[str, str]] | None] = mapped_column(
+        JSON, nullable=True
+    )
