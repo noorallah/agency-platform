@@ -83,6 +83,13 @@ def _brands(_: Session) -> tuple[Column, ...]:
     return BrandFileImporter.COLUMNS
 
 
+def _routes(_: Session) -> tuple[Column, ...]:
+    """Return the route (beat) import's columns (Swathi G3)."""
+    from app.sales.services.route_import import RouteFileImporter
+
+    return RouteFileImporter.COLUMNS
+
+
 def _customer_bills(session: Session) -> tuple[Column, ...]:
     """Return the customer opening-bill import's columns."""
     from app.customers.services.opening_bill_import import (
@@ -126,6 +133,8 @@ IMPORT_KINDS: dict[str, ImportKind] = {
     "vendors": ImportKind("Suppliers", "VENDOR_IMPORT", _vendors),
     # Brands are kept under PRODUCT_UPDATE, so their import is too.
     "brands": ImportKind("Brands", "PRODUCT_UPDATE", _brands),
+    # A route is made on the territory form, under TERRITORY_CREATE.
+    "routes": ImportKind("Routes", "TERRITORY_CREATE", _routes),
     "customer-opening-bills": ImportKind(
         "Customer opening bills", "CUSTOMER_IMPORT", _customer_bills
     ),

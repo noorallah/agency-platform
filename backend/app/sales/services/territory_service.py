@@ -1459,6 +1459,34 @@ class SalesTerritoryService:
         actor_id: UUID,
         commit: bool = True,
     ) -> TerritoryResponse:
+        """Create a territory node, a route when it carries a route profile."""
+        row = self.stage_create_territory(
+            data, firm_scope=firm_scope, actor_id=actor_id
+        )
+        # An import owns the transaction for the whole file instead, so a CSV
+        # refused on its fifth row leaves none of the first four behind.
+        if commit:
+            self._commit()
+        return self.get_territory(row.id, firm_scope=firm_scope)
+
+    def stage_create_territory(
+        self,
+        data: TerritoryCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> SalesTerritoryNode:
+        """Create a node with every guard, flushed but not committed.
+
+        The route file import stages each new route through here and commits
+        once (Swathi G3).
+
+        Raises:
+            ConflictError: If the code, or the name under the parent, is taken.
+            ValidationError: If the level does not sit one below the parent.
+            ResourceNotFoundError: If the parent or route type is not the firm's.
+
+        """
         self._assert_unique_code(firm_scope, data.code)
         self._assert_unique_name_under_parent(
             firm_scope=firm_scope,
@@ -1502,13 +1530,8 @@ class SalesTerritoryService:
             firm_id=firm_scope,
             after_data={"code": row.code, "name": row.name},
         )
-        # An import owns the transaction for the whole file instead, so a CSV
-        # refused on its fifth row leaves none of the first four behind.
-        if commit:
-            self._commit()
-        else:
-            self._session.flush()
-        return self.get_territory(row.id, firm_scope=firm_scope)
+        self._session.flush()
+        return row
 
     def get_territory(
         self, territory_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
@@ -1573,6 +1596,30 @@ class SalesTerritoryService:
         retires it. Everything is validated on the merged values, because a
         move may name a new parent while keeping the level, or the reverse.
         """
+        row = self.stage_update_territory(
+            territory_id,
+            data,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            expected_version=expected_version,
+        )
+        self._commit()
+        return self.get_territory(row.id, firm_scope=firm_scope, include_deleted=True)
+
+    def stage_update_territory(
+        self,
+        territory_id: UUID,
+        data: TerritoryUpdate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        expected_version: int | None = None,
+    ) -> SalesTerritoryNode:
+        """Change part of a node with every guard, flushed but not committed.
+
+        The route file import stages each changed route through here and
+        commits once (Swathi G3); ``update_territory`` is this and a commit.
+        """
         row = self._territory(territory_id, firm_scope, include_deleted=True)
         self._assert_not_retired(row, "Territory")
         assert_version(row.version, expected_version)
@@ -1628,8 +1675,8 @@ class SalesTerritoryService:
             before_data=before,
             after_data=self._territory_snapshot(row),
         )
-        self._commit()
-        return self.get_territory(row.id, firm_scope=firm_scope, include_deleted=True)
+        self._session.flush()
+        return row
 
     def _territory_snapshot(self, row: SalesTerritoryNode) -> dict[str, object]:
         """Describe a node for the audit trail, including whether it is a route."""
