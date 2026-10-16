@@ -101,6 +101,13 @@ from app.customers.services.customer_records import CustomerRecordsService
 from app.customers.services.opening_bill_import import CustomerOpeningBillFileImporter
 from app.customers.services.opening_bill_service import CustomerOpeningBillService
 from app.customers.services.payment_terms import PaymentTermsService
+from app.customers.services.segment_import import SegmentFileImporter
+from app.customers.services.segment_import import (
+    template_csv as segment_template_csv,
+)
+from app.customers.services.segment_import import (
+    template_workbook as segment_template_workbook,
+)
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
     BulkApproveRequest,
@@ -845,6 +852,69 @@ def create_customer_group(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=CustomerGroupResponse.model_validate(row))
+
+
+@router.get("/groups/import-template")
+def segment_import_template(
+    scope: CustomerSettingsScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the customer segment import template (Swathi G3).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column,
+    and a lists sheet with this firm's segments and price levels. Declared
+    above ``/groups/{group_id}``, which would otherwise read it as an id.
+    """
+    if format == "csv":
+        return StreamingResponse(
+            iter([segment_template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="segment-template.csv"'
+            },
+        )
+    return StreamingResponse(
+        iter([segment_template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="segment-template.xlsx"'},
+    )
+
+
+@router.post("/groups/import-file", response_model=ApiResponse[ImportReportResponse])
+async def import_segment_file(
+    scope: CustomerSettingsScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX segment file, and with ``apply`` import it whole.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``. A segment is made and edited under
+    ``CUSTOMER_MANAGE_SETTINGS``, so the file is too, including updating
+    existing segments.
+    """
+    file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "segments"),
+    )
+    report = SegmentFileImporter(db, CustomerGroupService(db)).run(
+        content,
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 @router.get("/groups/{group_id}", response_model=ApiResponse[CustomerGroupResponse])

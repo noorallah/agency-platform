@@ -70,6 +70,18 @@ class CustomerGroupService:
         self, data: CustomerGroupWrite, *, firm_id: UUID, actor_id: UUID
     ) -> CustomerGroup:
         """Record one segment."""
+        row = self.stage_create_group(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_create_group(
+        self, data: CustomerGroupWrite, *, firm_id: UUID, actor_id: UUID
+    ) -> CustomerGroup:
+        """Record one segment with every guard, flushed but not committed.
+
+        The segment file import stages each new segment through here and
+        commits once (Swathi G3); ``create_group`` is this and a commit.
+        """
         self._assert_free(data, firm_id=firm_id)
         self._assert_level(data, firm_id=firm_id)
         row = CustomerGroup(
@@ -94,7 +106,6 @@ class CustomerGroupService:
             firm_id=firm_id,
             after_data={"code": row.code, "name": row.name},
         )
-        self._session.commit()
         return row
 
     def update_group(
@@ -106,6 +117,25 @@ class CustomerGroupService:
         actor_id: UUID,
     ) -> CustomerGroup:
         """Replace one segment's details."""
+        row = self.stage_update_group(
+            group_id, data, firm_id=firm_id, actor_id=actor_id
+        )
+        self._session.commit()
+        return row
+
+    def stage_update_group(
+        self,
+        group_id: UUID,
+        data: CustomerGroupWrite,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> CustomerGroup:
+        """Replace one segment's details with every guard, flushed, uncommitted.
+
+        The segment file import stages each changed segment through here and
+        commits once (Swathi G3); ``update_group`` is this and a commit.
+        """
         row = self.get_group(group_id, firm_id=firm_id)
         self._assert_free(data, firm_id=firm_id, excluding=row.id)
         self._assert_level(data, firm_id=firm_id)
@@ -130,7 +160,7 @@ class CustomerGroupService:
             before_data=before,
             after_data={"name": row.name, "rate": str(row.default_discount_percent)},
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def _assert_level(self, data: CustomerGroupWrite, *, firm_id: UUID) -> None:
