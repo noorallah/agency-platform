@@ -17,11 +17,24 @@ or nothing, match headings loosely, update by code on request -- live in
   carrying one is held to the same ``CUSTOMER_MANAGE_SETTINGS`` as the form.
 * **A 10-digit phone number is taken as Indian** and written as +91, because
   that is how every Indian export writes it and the stored form is E.164.
+* **A Beat puts the customer on an existing route** (Swathi G5) through
+  ``SalesTerritoryService.set_customers`` -- the route's own list plus this
+  customer, so its other rounds and every stop number are left alone. The
+  file never makes a route, and needs ``TERRITORY_ASSIGN_CUSTOMERS`` as the
+  route screen does.
+* **A licence goes on the firm's licence register** (``trade_licences``), the
+  one home a customer's licence has, through ``TradeLicenceService``'s
+  ``stage_*`` methods, and needs ``TRADE_LICENCE_MANAGE`` as that screen does.
+  A number the customer already holds of that type is renewed in place; a
+  new number is a new licence, and the old one stays as the record of what
+  was valid when past sales were made.
 """
 
 # ruff: noqa: D102, D107
 
 import re
+from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import get_args
 from uuid import UUID
@@ -38,6 +51,7 @@ from app.common.file_import import (
     ImportReport,
     ImportRow,
     RowReader,
+    parse_date,
     schema_issues,
     service_issue,
 )
@@ -54,7 +68,18 @@ from app.customers.schemas.customer import (
     CustomerType,
 )
 from app.customers.services.customer_service import CustomerService
+from app.sales.models import (
+    SalesTerritoryNode,
+    TerritoryCustomerAssignment,
+    TerritoryRouteProfile,
+)
+from app.sales.schemas import TerritoryAssignCustomersRequest
+from app.sales.services.territory_service import SalesTerritoryService
 from app.salesmen.models import Salesman
+from app.trade_licences.models import TradeLicence, TradeLicenceType
+from app.trade_licences.schemas import LicenceHolderType, TradeLicenceWrite
+from app.trade_licences.services import TradeLicenceService
+from app.trade_licences.services.trade_licence_service import DEFAULT_TYPES
 
 #: The template, in the order it is laid out. The headings are what the notes
 #: sheet explains and what every error names.
@@ -257,6 +282,48 @@ COLUMNS: tuple[Column, ...] = (
         "default to him.",
         "",
     ),
+    Column(
+        "Beat",
+        ("route", "routecode", "beatcode", "beatname", "routename"),
+        False,
+        "The route (beat) the customer is called on, by its code or name on "
+        "the Lists sheet. The route must already exist; the customer joins it "
+        "and keeps any other route it is on. Needs the assign customers to "
+        "territories permission.",
+        "",
+    ),
+    Column(
+        "LicenceType",
+        ("licencetype", "licensetype"),
+        False,
+        "The kind of licence, by its code or name on the Lists sheet "
+        "(DRUG_WHOLESALE, FSSAI ...). Needed with a LicenceNumber.",
+        "",
+    ),
+    Column(
+        "LicenceNumber",
+        (
+            "licenceno",
+            "licenseno",
+            "licensenumber",
+            "druglicence",
+            "druglicense",
+            "dlno",
+            "dlnumber",
+        ),
+        False,
+        "The customer's licence number, kept on the firm's licence register. "
+        "Needs the manage trade licences permission.",
+        "",
+    ),
+    Column(
+        "LicenceExpiry",
+        ("licencevalidto", "licensevalidto", "licenseexpiry", "dlexpiry"),
+        False,
+        "The day the licence runs out, as dd-mm-yyyy. Needed for a type that "
+        "expires.",
+        "",
+    ),
     Column("Notes", ("remarks", "narration"), False, "Free text.", ""),
 )
 
@@ -322,6 +389,35 @@ _FIELD_HEADINGS.update(
 _DR_CR = re.compile(r"^(?P<figure>.*?)\s*(?P<side>dr|cr)\.?$", re.IGNORECASE)
 
 
+#: The licence write-schema fields, for naming a register refusal.
+_LICENCE_HEADINGS: dict[str, str] = {
+    "licence_number": "LicenceNumber",
+    "licence_type_id": "LicenceType",
+    "valid_to": "LicenceExpiry",
+}
+
+
+def _named(issues: list[ImportIssue], heading: str) -> list[ImportIssue]:
+    """Give the issues that name no column the one the cells came from."""
+    return [
+        (
+            issue
+            if issue.column is not None
+            else ImportIssue(issue.row, issue.code, heading, issue.message)
+        )
+        for issue in issues
+    ]
+
+
+@dataclass(frozen=True)
+class _LicenceCells:
+    """One row's licence, read and matched but not yet recorded."""
+
+    licence_type: TradeLicenceType
+    number: str
+    valid_to: date | None
+
+
 class CustomerFileImporter(FileImporter[Customer]):
     """Check a customer file row by row, and import it whole or not at all."""
 
@@ -334,17 +430,27 @@ class CustomerFileImporter(FileImporter[Customer]):
         service: CustomerService,
         *,
         may_manage_settings: bool,
+        may_assign_routes: bool = False,
+        may_record_licences: bool = False,
     ) -> None:
         super().__init__(session)
         self._service = service
         self._may_manage_settings = may_manage_settings
+        self._may_assign_routes = may_assign_routes
+        self._may_record_licences = may_record_licences
+        self._territories = SalesTerritoryService(session)
+        self._licences = TradeLicenceService(session)
         self._groups: list[CustomerGroup] = []
         self._currency = "INR"
         self._salesmen: list[tuple[UUID, str | None, str]] = []
+        self._routes: list[SalesTerritoryNode] = []
+        self._licence_types: list[TradeLicenceType] | None = None
         self._firm_id: UUID | None = None
 
     def _prepare(self, firm_id: UUID) -> None:
         self._firm_id = firm_id
+        self._routes = firm_routes(self._session, firm_id)
+        self._licence_types = None
         self._groups = firm_segments(self._session, firm_id)
         reader = FirmMetadataReader(self._session)
         self._currency = reader.get(firm_id).currency_code or "INR"
@@ -400,7 +506,10 @@ class CustomerFileImporter(FileImporter[Customer]):
         report: ImportReport[Customer],
     ) -> None:
         issues: list[ImportIssue] = []
-        values = self._values(RowReader(row, code, issues), code, current)
+        reader = RowReader(row, code, issues)
+        values = self._values(reader, code, current)
+        route = self._route(reader)
+        licence = self._licence(reader)
         if issues:
             report.issues.extend(issues)
             return
@@ -424,7 +533,6 @@ class CustomerFileImporter(FileImporter[Customer]):
                 customer = self._service.stage_create(
                     data, firm_id=firm_id, actor_id=actor_id
                 )
-                report.to_create += 1
             elif current is not None:
                 customer = self._service.stage_update(
                     current,
@@ -433,14 +541,228 @@ class CustomerFileImporter(FileImporter[Customer]):
                     may_change_credit_limit=self._may_manage_settings,
                     may_change_standing_discount=self._may_manage_settings,
                 )
-                report.to_update += 1
         except ApplicationError as error:
             # Every guard runs before the row is written, and the opening
             # balance posting refuses before it books anything, so the session
             # is still sound and the rest of the file can be checked.
             report.issues.append(service_issue(error, row, code, _FIELD_HEADINGS))
             return
+        attached = route is None or self._join_route(
+            route, customer, row=row, code=code, actor_id=actor_id, report=report
+        )
+        if not attached:
+            return
+        if licence is not None and not self._record_licence(
+            licence, customer, row=row, code=code, actor_id=actor_id, report=report
+        ):
+            return
+        if current is None:
+            report.to_create += 1
+        else:
+            report.to_update += 1
         report.records.append(customer)
+
+    def _route(self, reader: RowReader) -> SalesTerritoryNode | None:
+        """Find the row's Beat among the firm's routes, by code then name.
+
+        Only a node with a route profile is a route; an area is refused
+        rather than having shops hung on it, and the file never makes one.
+        """
+        given = reader.text("Beat").strip()
+        if not given:
+            return None
+        if not self._may_assign_routes:
+            reader.fail(
+                "Beat",
+                "Putting a customer on a route needs the assign customers to "
+                "territories permission (TERRITORY_ASSIGN_CUSTOMERS).",
+            )
+            return None
+        wanted = given.casefold()
+        for node in self._routes:
+            if node.code.casefold() == wanted:
+                return node
+        named = [
+            node for node in self._routes if node.name.strip().casefold() == wanted
+        ]
+        if len(named) == 1:
+            return named[0]
+        if named:
+            reader.fail("Beat", f"'{given}' names more than one route; give its code.")
+        else:
+            reader.fail(
+                "Beat",
+                f"'{given}' is not one of the firm's routes; add the route "
+                "first, or name one on the Lists sheet.",
+            )
+        return None
+
+    def _licence(self, reader: RowReader) -> _LicenceCells | None:
+        """Read the row's licence cells and match the type; None if blank."""
+        number = reader.text("LicenceNumber").strip()
+        kind = reader.text("LicenceType").strip()
+        expiry_text = reader.text("LicenceExpiry").strip()
+        if not number:
+            if kind or expiry_text:
+                reader.fail(
+                    "LicenceNumber", "is needed with a LicenceType or LicenceExpiry."
+                )
+            return None
+        if not self._may_record_licences:
+            reader.fail(
+                "LicenceNumber",
+                "Recording a customer's licence needs the manage trade "
+                "licences permission (TRADE_LICENCE_MANAGE).",
+            )
+            return None
+        valid_to: date | None = None
+        if expiry_text:
+            valid_to = parse_date(expiry_text)
+            if valid_to is None:
+                reader.fail(
+                    "LicenceExpiry",
+                    f"'{expiry_text}' is not a date; write it as dd-mm-yyyy.",
+                )
+        if not kind:
+            reader.fail(
+                "LicenceType",
+                "is needed with a LicenceNumber; name one of the firm's "
+                "licence types (see the Lists sheet).",
+            )
+            return None
+        licence_type = find_licence_type(self._types(), kind)
+        if licence_type is None:
+            reader.fail(
+                "LicenceType",
+                f"'{kind}' is not one of the firm's active licence types (see "
+                "the Lists sheet).",
+            )
+            return None
+        return _LicenceCells(licence_type, number.upper(), valid_to)
+
+    def _types(self) -> list[TradeLicenceType]:
+        """Return the firm's active licence types, seeding the usual ones.
+
+        Seeded only where the firm has none at all, as the licence screen
+        does on its first read; a check rolls the seeding back with the rest.
+        """
+        if self._firm_id is None:
+            return []
+        if self._licence_types is None:
+            if not firm_licence_types(self._session, self._firm_id, active=False):
+                self._licences.ensure_default_types(self._firm_id, None)
+            self._licence_types = firm_licence_types(self._session, self._firm_id)
+        return self._licence_types
+
+    def _join_route(
+        self,
+        route: SalesTerritoryNode,
+        customer: Customer,
+        *,
+        row: ImportRow,
+        code: str,
+        actor_id: UUID,
+        report: ImportReport[Customer],
+    ) -> bool:
+        """Put the customer on the route, keeping everyone already on it.
+
+        The route's list is sent back whole with this customer added, the
+        plain shape the route screen's picker sends, so every stop number
+        stays where it was. A customer already on the route is left alone.
+        """
+        on_route = list(
+            self._session.scalars(
+                select(TerritoryCustomerAssignment.customer_id).where(
+                    TerritoryCustomerAssignment.territory_id == route.id,
+                    TerritoryCustomerAssignment.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        if customer.id in on_route:
+            return True
+        try:
+            self._territories.set_customers(
+                route.id,
+                TerritoryAssignCustomersRequest(customer_ids=[*on_route, customer.id]),
+                firm_scope=customer.firm_id,
+                actor_id=actor_id,
+                commit=False,
+            )
+        except PydanticValidationError as error:
+            report.issues.extend(_named(schema_issues(error, row, code, {}), "Beat"))
+            return False
+        except ApplicationError as error:
+            report.issues.append(ImportIssue(row.number, code, "Beat", error.message))
+            return False
+        return True
+
+    def _record_licence(
+        self,
+        licence: _LicenceCells,
+        customer: Customer,
+        *,
+        row: ImportRow,
+        code: str,
+        actor_id: UUID,
+        report: ImportReport[Customer],
+    ) -> bool:
+        """Record the licence on the register, or renew the one already held."""
+        held = self._session.scalar(
+            select(TradeLicence).where(
+                TradeLicence.firm_id == customer.firm_id,
+                TradeLicence.customer_id == customer.id,
+                TradeLicence.licence_type_id == licence.licence_type.id,
+                TradeLicence.licence_number == licence.number,
+                TradeLicence.is_deleted.is_(False),
+            )
+        )
+        if held is not None and licence.valid_to in (None, held.valid_to):
+            return True
+        if held is None and licence.valid_to is None and licence.licence_type.expires:
+            report.issues.append(
+                ImportIssue(
+                    row.number,
+                    code,
+                    "LicenceExpiry",
+                    f"is needed: a {licence.licence_type.name} runs out, and an "
+                    "expiry nobody wrote down is one nobody is warned about.",
+                )
+            )
+            return False
+        try:
+            data = TradeLicenceWrite(
+                licence_type_id=licence.licence_type.id,
+                holder_type=LicenceHolderType.CUSTOMER,
+                customer_id=customer.id,
+                licence_number=licence.number,
+                issued_by=None if held is None else held.issued_by,
+                valid_from=None if held is None else held.valid_from,
+                valid_to=licence.valid_to,
+                premises=None if held is None else held.premises,
+                remarks=None if held is None else held.remarks,
+            )
+            if held is None:
+                self._licences.stage_create_licence(
+                    data, firm_id=customer.firm_id, actor_id=actor_id
+                )
+            else:
+                self._licences.stage_update_licence(
+                    held.id, data, firm_id=customer.firm_id, actor_id=actor_id
+                )
+        except PydanticValidationError as error:
+            report.issues.extend(
+                _named(
+                    schema_issues(error, row, code, _LICENCE_HEADINGS),
+                    "LicenceExpiry",
+                )
+            )
+            return False
+        except ApplicationError as error:
+            report.issues.append(
+                ImportIssue(row.number, code, "LicenceNumber", error.message)
+            )
+            return False
+        return True
 
     def _values(
         self, reader: RowReader, code: str, current: Customer | None
@@ -678,9 +1000,61 @@ def find_segment(groups: list[CustomerGroup], value: str) -> CustomerGroup | Non
     return None
 
 
+def firm_routes(session: Session, firm_id: UUID) -> list[SalesTerritoryNode]:
+    """Return the firm's live routes -- nodes with a route profile -- by code."""
+    return list(
+        session.scalars(
+            select(SalesTerritoryNode)
+            .join(
+                TerritoryRouteProfile,
+                TerritoryRouteProfile.territory_id == SalesTerritoryNode.id,
+            )
+            .where(
+                SalesTerritoryNode.firm_id == firm_id,
+                SalesTerritoryNode.is_deleted.is_(False),
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+            .order_by(SalesTerritoryNode.code)
+        ).all()
+    )
+
+
+def firm_licence_types(
+    session: Session, firm_id: UUID, *, active: bool = True
+) -> list[TradeLicenceType]:
+    """Return the firm's live licence types by code, only active ones if asked."""
+    query = select(TradeLicenceType).where(
+        TradeLicenceType.firm_id == firm_id,
+        TradeLicenceType.is_deleted.is_(False),
+    )
+    if active:
+        query = query.where(TradeLicenceType.is_active.is_(True))
+    return list(session.scalars(query.order_by(TradeLicenceType.code)).all())
+
+
+def find_licence_type(
+    types: list[TradeLicenceType], value: str
+) -> TradeLicenceType | None:
+    """Find a licence type by code, then by name, ignoring case."""
+    wanted = value.strip().casefold()
+    for item in types:
+        if item.code.casefold() == wanted:
+            return item
+    for item in types:
+        if item.name.strip().casefold() == wanted:
+            return item
+    return None
+
+
 def template_workbook(session: Session, firm_id: UUID) -> bytes:
     """Build the XLSX template: the sheet to fill, the notes, and the lists."""
     groups = firm_segments(session, firm_id)
+    routes = firm_routes(session, firm_id)
+    # A firm that has never opened the licence screen has no types yet; the
+    # import seeds the usual ones, so the template lists those.
+    licence_types = [
+        (item.code, item.name) for item in firm_licence_types(session, firm_id)
+    ] or [(code, name) for code, name, _, _ in DEFAULT_TYPES]
     return file_import.template_workbook(
         sheet_title="Customers",
         columns=COLUMNS,
@@ -689,8 +1063,25 @@ def template_workbook(session: Session, firm_id: UUID) -> bytes:
             "more on the customer's screen.",
             "An opening balance is booked to the ledger, so the firm needs its "
             "chart of accounts and an open period first.",
+            "A Beat names a route the firm already has; the file does not "
+            "make routes.",
+            "A licence goes on the firm's licence register: give its type, "
+            "number and, for a type that runs out, its expiry.",
         ],
-        lists_header=["Segment code", "Segment name", "", "Type", "", "Status"],
+        lists_header=[
+            "Segment code",
+            "Segment name",
+            "",
+            "Type",
+            "",
+            "Status",
+            "",
+            "Route code",
+            "Route name",
+            "",
+            "Licence type code",
+            "Licence type",
+        ],
         lists=[
             [group.code for group in groups],
             [group.name for group in groups],
@@ -698,6 +1089,12 @@ def template_workbook(session: Session, firm_id: UUID) -> bytes:
             [item.value for item in CustomerType],
             [],
             [item.value for item in CustomerStatus],
+            [],
+            [route.code for route in routes],
+            [route.name for route in routes],
+            [],
+            [code for code, _ in licence_types],
+            [name for _, name in licence_types],
         ],
     )
 
