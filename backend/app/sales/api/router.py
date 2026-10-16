@@ -19,6 +19,11 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.common.file_import import (
+    ImportReportResponse,
+    file_format_of,
+    report_response,
+)
 from app.common.firm_metadata import firm_today
 from app.common.scope import (
     RequiredFirmScope,
@@ -28,7 +33,7 @@ from app.common.scope import (
 from app.core.concurrency import ExpectedVersion, publish_version
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -36,6 +41,7 @@ from app.core.security.authorization import (
     Principal,
     require_platform_admin,
 )
+from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.sales.schemas import (
     AddressMasterResponse,
     AddressMasterWrite,
@@ -85,6 +91,11 @@ from app.sales.schemas import (
 )
 from app.sales.services import SalesTerritoryService
 from app.sales.services.places_pack import PlacesPackService
+from app.sales.services.route_import import RouteFileImporter
+from app.sales.services.route_import import template_csv as route_template_csv
+from app.sales.services.route_import import (
+    template_workbook as route_template_workbook,
+)
 
 router = APIRouter(
     prefix="/api/v1/sales-territories",
@@ -1186,6 +1197,73 @@ async def import_territories(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=rows)
+
+
+@router.get("/routes/import-template")
+def route_import_template(
+    scope: TerritoryCreateScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the route (beat) import template (Swathi G3).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column,
+    and a lists sheet with this firm's areas and route types.
+    """
+    if format == "csv":
+        return StreamingResponse(
+            iter([route_template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="route-template.csv"'
+            },
+        )
+    return StreamingResponse(
+        iter([route_template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="route-template.xlsx"'},
+    )
+
+
+@router.post("/routes/import-file", response_model=ApiResponse[ImportReportResponse])
+async def import_route_file(
+    scope: TerritoryCreateScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX route file, and with ``apply`` import it whole.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``. A route is made on the territory form under
+    ``TERRITORY_CREATE``, so the file is too; updating existing routes needs
+    ``TERRITORY_UPDATE`` as editing one does.
+    """
+    file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "routes"),
+    )
+    if existing == "update" and not scope.principal.has_permission("TERRITORY_UPDATE"):
+        raise AuthorizationError(
+            "Updating existing routes from a file needs the right to edit "
+            "territories."
+        )
+    report = RouteFileImporter(db, _service(db)).run(
+        content,
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 # Declared after every literal path above, deliberately. FastAPI matches in
