@@ -187,7 +187,6 @@ defect found goes into `docs/DEFECTS.md` and is fixed in the same work.
 
 | Item | Waits for |
 | --- | --- |
-| Pull request #1425 (5.5 charged + 0.5 free on an invoice) | The owner's word to merge |
 | Year-end workbook for the CA | The customer (C9): which statements, what layout |
 | What each role must not see or do | The customer (C18) |
 | Reverse charge set-up | The customer (C10) |
