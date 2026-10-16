@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.common.audit.services import (
@@ -1459,6 +1460,9 @@ class IdentityService:
             self._assert_roles_are_assignable(role_ids, template.firm_id)
             self._set_template_roles(template, role_ids, actor_id)
         template.updated_by = actor_id
+        # The bundle is the template: an edit that moves nothing on the header
+        # still has to move its version, or a stale copy saves over it.
+        flag_modified(template, "updated_by")
         record_audit(
             self._session,
             action="user_template.updated",
