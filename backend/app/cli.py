@@ -20,6 +20,7 @@ The subcommands are the things an installed copy actually does::
     agency-server messaging-run-once
     agency-server loyalty-expire
     agency-server set-branding --file branding.json
+    agency-server create-support-admin --email support@example.com
     agency-server --version
 
 Each is thin. The work lives in ``app/core`` where the application can also
@@ -32,9 +33,13 @@ in the first place.
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app.core.config.settings import Settings
 from app.core.paths import application_root, is_compiled_build
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def _serve(args: argparse.Namespace) -> int:
@@ -392,6 +397,93 @@ def _set_branding(args: argparse.Namespace) -> int:
     return 0
 
 
+def _support_password(email: str) -> str | None:
+    """Read the support password from the environment or the console.
+
+    ``AGENCY_SUPPORT_PASSWORD`` serves a scripted install; otherwise it is
+    typed twice at a prompt that does not echo. It is never printed.
+    """
+    import getpass
+    import os
+
+    from_env = os.environ.get("AGENCY_SUPPORT_PASSWORD")
+    if from_env:
+        return from_env
+    first = getpass.getpass(f"Password for {email}: ")
+    second = getpass.getpass("Type it again: ")
+    if first != second:
+        print("error: the two passwords differ; nothing changed.", file=sys.stderr)
+        return None
+    return first
+
+
+def _create_support_admin(args: argparse.Namespace) -> int:
+    """Create the one named support account with the ALL_FIRMS designation.
+
+    The only way the account is made (backlog 29s): no API route or screen
+    creates it. Run again, it reports the account and changes nothing unless
+    ``--reset-password`` is given.
+    """
+    from app.core.database.engine import DatabaseManager
+
+    platform = DatabaseManager.from_settings(Settings())
+    try:
+        schema = platform.config.default_schema or "platform"
+        with platform.sessions(schema=schema).session() as session:
+            return run_create_support_admin(session, args)
+    finally:
+        platform.dispose()
+
+
+def run_create_support_admin(session: "Session", args: argparse.Namespace) -> int:
+    """Do the work of ``create-support-admin`` on an open platform session.
+
+    Separate from the handler so a test can hand it an in-memory session.
+    """
+    from sqlalchemy import select
+
+    from app.core.exceptions import ApplicationError
+    from app.core.validation import validate_email
+    from app.identity.models import User
+    from app.identity.services.support_admin import (
+        SupportAdminOutcome,
+        ensure_support_admin,
+    )
+
+    try:
+        email = validate_email(args.email)
+        # Asked first without a password, so an account that is already there
+        # is reported without prompting for a password it will not use.
+        exists = session.scalar(
+            select(User.id).where(User.email == email, User.is_deleted.is_(False))
+        )
+        password: str | None = None
+        if args.reset_password or exists is None:
+            password = _support_password(email)
+            if password is None:
+                return 2
+        result = ensure_support_admin(
+            session,
+            email=email,
+            full_name=args.full_name,
+            password=password,
+            reset_password=args.reset_password,
+        )
+    except ApplicationError as error:
+        print(f"error: {error.message}", file=sys.stderr)
+        return 2
+    if result.outcome is SupportAdminOutcome.CREATED:
+        print(f"created: {result.email} (ALL_FIRMS administrator)")
+    elif result.outcome is SupportAdminOutcome.PASSWORD_RESET:
+        print(f"password-reset: {result.email}")
+    else:
+        print(
+            f"exists: {result.email}; password unchanged "
+            "(--reset-password to change it)"
+        )
+    return 0
+
+
 def _quick_check(args: argparse.Namespace) -> int:
     """Check this installation end to end, read only, and write an HTML page.
 
@@ -606,6 +698,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON with agency_name, tagline and logo_path, all optional.",
     )
     branding.set_defaults(handler=_set_branding)
+
+    support = subcommands.add_parser(
+        "create-support-admin",
+        help=(
+            "Create the one named support account (ALL_FIRMS administrator); "
+            "reports it and changes nothing if it exists."
+        ),
+    )
+    support.add_argument(
+        "--email", required=True, help="The support account's sign-in address."
+    )
+    support.add_argument("--full-name", default="Support")
+    support.add_argument(
+        "--reset-password",
+        action="store_true",
+        help="Set a new password on the existing support account.",
+    )
+    support.set_defaults(handler=_create_support_admin)
 
     return parser
 

@@ -108,12 +108,13 @@ posted books, the one thing this tier exists not to touch.
 ### How a platform administrator comes to exist
 
 There is **no API for it.** The designation is a table row, created in exactly
-two places:
+three places:
 
 | Where | What it creates |
 | --- | --- |
 | Migration `20260728_0001` | The bootstrap admin — `platform-admin@agency.local`, `password_hash = '*'`, `force_password_change = true`. The first login accepts `AGENCY_BOOTSTRAP_ADMIN_PASSWORD`, hashes it, and demands a change |
 | `scripts/generate_sample_data.py` | The demo administrators, which state their `scope` explicitly |
+| `agency-server create-support-admin` | The support master account, below |
 
 The column has **no server default** and the ORM default is the narrow value, so
 a row written without stating a reach gets the safe answer. Existing rows were
@@ -140,6 +141,38 @@ Two more refusals on the same routes: nobody switches off or sets an expiry
 on **their own** account (another administrator does, and the trail shows
 who), and the bootstrap administrator's password (`BOOTSTRAP_ADMIN_USER_ID`,
 the row `20260728_0001` seeds) is set only by its holder, from My profile.
+
+### Support master account
+
+Backlog 29s. The vendor's support person reaches every firm on a customer's
+installation through **one named account** of their own, never by borrowing
+the customer's administrator:
+
+- **Created only from the command line**, on the installed machine:
+  `agency-server create-support-admin --email <address>` (`_create_support_admin`
+  in `app/cli.py`, work in `app/identity/services/support_admin.py`). No API
+  route and no screen creates it. The password is typed at a prompt that does
+  not echo, twice, or read from `AGENCY_SUPPORT_PASSWORD` for a scripted
+  install; it is hashed with the same `PasswordSecurity` as every account and
+  never stored in code, docs, console output or the audit trail.
+- **Idempotent.** Run again, it reports the account and changes nothing;
+  `--reset-password` is the one way to change the password, and it revokes
+  the account's sessions. An address held by any other account — an ordinary
+  user or a `PLATFORM` operator — is refused rather than promoted.
+- **Holds the `ALL_FIRMS` designation**, so it opens every firm without a
+  membership row. `users.department` reads `Support` so the account is
+  recognisable on the Users screen; that is informational, and nothing
+  authorises on it.
+- **Separate from the customer's own administrator**, who keeps their account
+  and their password. The customer's administrator will be able to switch
+  the support account off and on again.
+- **Not tied to licensing.** Whether a copy is licensed never decides whether
+  the support account exists or works.
+
+Still to come (parts b-d): the Users-screen switch, with who switched it and
+why kept in the trail; audit rows written by the support account marked as
+support and filterable (which needs a proper marker column and a migration);
+and the tests for both.
 
 ## Tier 2: everybody else
 
