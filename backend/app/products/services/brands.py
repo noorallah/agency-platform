@@ -183,6 +183,30 @@ class BrandService:
         brand_id: UUID | None = None,
     ) -> BrandResponse:
         """Create a brand, or rename one -- its products' text follows; commit."""
+        row = self.stage_save_brand(
+            data, firm_id=firm_id, actor_id=actor_id, brand_id=brand_id
+        )
+        self._session.commit()
+        return self._brand_responses([row])[0]
+
+    def stage_save_brand(
+        self,
+        data: BrandWrite,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        brand_id: UUID | None = None,
+    ) -> Brand:
+        """Create or change a brand with every guard, flushed but not committed.
+
+        The file import stages each row through here and commits once.
+
+        Raises:
+            ConflictError: If another live brand already has the name.
+            ValidationError: If no company is named.
+            ResourceNotFoundError: If the company or the brand is not the firm's.
+
+        """
         name = data.name.strip()
         clash = self._session.scalar(
             select(Brand.id).where(
@@ -219,8 +243,7 @@ class BrandService:
         row.updated_by = actor_id
         self._session.flush()
         self._audit("brand.saved", "brand", row.id, firm_id, actor_id, name)
-        self._session.commit()
-        return self._brand_responses([row])[0]
+        return row
 
     def delete_brand(self, brand_id: UUID, *, firm_id: UUID, actor_id: UUID) -> None:
         """Remove a brand no live product and no supplier names.
