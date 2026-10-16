@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Response
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -21,7 +21,14 @@ from app.core.database.base import Base
 from app.core.exceptions import ConflictError
 from app.core.security.authorization import Principal
 from app.identity.api.router import create_role, get_role, update_role
-from app.identity.schemas.api import RoleCreate, RoleUpdate
+from app.identity.models import Role
+from app.identity.schemas.api import (
+    RoleCreate,
+    RoleUpdate,
+    UserTemplateCreate,
+    UserTemplateUpdate,
+)
+from app.identity.services import IdentityService
 from app.identity.system_seed import seed_system_rbac
 
 
@@ -125,3 +132,30 @@ def test_an_update_naming_no_version_is_still_accepted() -> None:
     assert updated.data is not None
     assert updated.data.name == "Packer (any)"
     assert updated.data.version == 2
+
+
+def test_a_template_edit_changing_only_its_roles_moves_its_version() -> None:
+    """A roles-only edit is an edit, so a stale `If-Match` must catch it.
+
+    The bundle lives in `user_template_roles`, and the only header column the
+    edit wrote was `updated_by` -- unchanged when the same person saves twice,
+    so no UPDATE reached the template and its version stood still.
+    """
+    session = _session()
+    service = IdentityService(session, Settings())
+    actor = uuid4()
+    roles = {
+        code: session.scalar(select(Role.id).where(Role.code == code))
+        for code in ("CASHIER", "VIEWER")
+    }
+    template = service.create_user_template(
+        UserTemplateCreate(code="counter", name="Counter", role_ids=[roles["CASHIER"]]),
+        actor,
+    )
+    before = template.version
+
+    service.update_user_template(
+        template.id, UserTemplateUpdate(role_ids=[roles["VIEWER"]]), actor
+    )
+
+    assert template.version == before + 1
