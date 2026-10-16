@@ -163,9 +163,44 @@ def test_gross_less_the_discount_is_the_taxable_value() -> None:
     printed = _text_of(InvoicePdfRenderer(TRADE).render(discounted))
 
     assert "Gross | 1,000.00" in printed
-    assert "Less discount | -100.00" in printed
+    assert "Line discounts | -100.00" in printed
+    assert "Discount on bill" not in printed
     assert "Taxable value | 900.00" in printed
     assert "Net Payable: | 1,062.00" in printed
+
+
+def test_the_line_discounts_and_the_discount_on_the_bill_print_apart() -> None:
+    """D2 and D1 of the customer's sample are two figures, both before the GST."""
+    document = _document()
+    line = document.lines[0]
+    both = replace(
+        document,
+        lines=(
+            replace(
+                line,
+                discount=Decimal("100.00"),
+                taxable=Decimal("850.00"),
+                total=Decimal("1003.00"),
+                taxes=(
+                    ("CGST", Decimal("9"), Decimal("76.50")),
+                    ("SGST", Decimal("9"), Decimal("76.50")),
+                ),
+            ),
+        ),
+        bill_discount=Decimal("50.00"),
+        gross_before_bill_discount=Decimal("900.00"),
+        taxable_total=Decimal("850.00"),
+        tax_total=Decimal("153.00"),
+        grand_total=Decimal("1003.00"),
+    )
+    printed = _text_of(InvoicePdfRenderer(TRADE).render(both))
+
+    assert "Gross | 1,000.00" in printed
+    assert "Line discounts | -100.00" in printed
+    assert "Discount on bill | -50.00" in printed
+    assert "Less discount" not in printed
+    assert "Taxable value | 850.00" in printed
+    assert "Net Payable: | 1,003.00" in printed
 
 
 def test_free_goods_print_in_their_own_column_and_are_not_added_in() -> None:
