@@ -214,6 +214,23 @@ class SalesmanService:
         self, data: SalesmanCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Salesman:
         """Add one entry."""
+        row = self.stage_create(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_create(
+        self, data: SalesmanCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> Salesman:
+        """Add one entry with every guard, flushed, uncommitted.
+
+        The salesman file import stages each row through here and commits
+        once (Swathi G3); ``create`` is this and a commit.
+
+        Raises:
+            ConflictError: If a live entry has the name, code or user.
+            ValidationError: If the user is not an active member of the firm.
+
+        """
         self._assert_unique(
             firm_id, name=data.name, code=data.code, user_id=data.user_id
         )
@@ -231,7 +248,6 @@ class SalesmanService:
             firm_id=firm_id,
             after_data=_snapshot(row),
         )
-        self._session.commit()
         return row
 
     def update(
@@ -243,6 +259,30 @@ class SalesmanService:
         actor_id: UUID,
     ) -> Salesman:
         """Change the fields sent; a field left out is left alone."""
+        row = self.stage_update(salesman_id, data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_update(
+        self,
+        salesman_id: UUID,
+        data: SalesmanUpdate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> Salesman:
+        """Change the fields sent with every guard, flushed, uncommitted.
+
+        The salesman file import stages each row through here and commits
+        once (Swathi G3); ``update`` is this and a commit.
+
+        Raises:
+            ConflictError: If another live entry has the name, code or user.
+            ResourceNotFoundError: If the entry is not the firm's.
+            ValidationError: If a required field is cleared, or the user is
+                not an active member of the firm.
+
+        """
         row = self.get(salesman_id, firm_id=firm_id)
         values = data.model_dump(exclude_unset=True)
         for field in _REQUIRED_FIELDS:
@@ -271,7 +311,6 @@ class SalesmanService:
             before_data=before,
             after_data=_snapshot(row),
         )
-        self._session.commit()
         return row
 
     def delete(self, salesman_id: UUID, *, firm_id: UUID, actor_id: UUID) -> None:

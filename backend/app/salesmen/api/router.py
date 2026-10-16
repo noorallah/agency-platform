@@ -9,9 +9,15 @@ of its own salesmen is not a privilege. Changing the list needs
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.common.file_import import (
+    ImportReportResponse,
+    file_format_of,
+    report_response,
+)
 from app.common.scope import RequiredFirmScope, ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants.core import MAX_PAGE_SIZE
@@ -19,6 +25,7 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.salesmen.schemas import (
     SalesmanCreate,
     SalesmanResponse,
@@ -26,6 +33,11 @@ from app.salesmen.schemas import (
     SalesmanUpdate,
 )
 from app.salesmen.services import SalesmanService
+from app.salesmen.services.salesman_import import (
+    SalesmanFileImporter,
+    template_csv,
+    template_workbook,
+)
 from app.salesmen.services.salesman_service import SalesmanSort
 from app.salesmen.services.starting_choice import starting_choice
 
@@ -84,6 +96,70 @@ def create_salesman(
     )
     set_etag(response, row)
     return ApiResponse(data=SalesmanResponse.model_validate(row))
+
+
+# Declared above "/{salesman_id}": FastAPI matches in declaration order.
+@router.get("/import-template")
+def salesman_import_template(
+    scope: SalesmanManageScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the salesman import template (Swathi G3).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column,
+    and a lists sheet with this firm's salesmen.
+    """
+    if format == "csv":
+        return StreamingResponse(
+            iter([template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="salesman-template.csv"'
+            },
+        )
+    return StreamingResponse(
+        iter([template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="salesman-template.xlsx"'
+        },
+    )
+
+
+@router.post("/import-file", response_model=ApiResponse[ImportReportResponse])
+async def import_salesman_file(
+    scope: SalesmanManageScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX salesman file, and with ``apply`` import it whole.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``. The list is kept under ``SALESMAN_MANAGE``, so the
+    file is too, and updating existing salesmen needs nothing more.
+    """
+    file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "salesmen"),
+    )
+    report = SalesmanFileImporter(db, SalesmanService(db)).run(
+        content,
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 # Declared before "/{salesman_id}", which would read "starting-choice" as an id.
