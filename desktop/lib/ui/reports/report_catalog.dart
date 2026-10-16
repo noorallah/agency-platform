@@ -1137,8 +1137,14 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'goods_type', label: 'Goods type'),
       ReportColumn(key: 'unit', label: 'Unit'),
       ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
-      ReportColumn(key: 'rate', label: 'Cost rate', numeric: true),
-      ReportColumn(key: 'value', label: 'Value at cost', numeric: true),
+      // Cost goes only to a holder of PRODUCT_VIEW_COST_PRICE (D-STK-76).
+      ReportColumn(
+          key: 'rate', label: 'Cost rate', numeric: true, onlyWhenSent: true),
+      ReportColumn(
+          key: 'value',
+          label: 'Value at cost',
+          numeric: true,
+          onlyWhenSent: true),
       ReportColumn(key: 'mrp', label: 'MRP', numeric: true),
       ReportColumn(key: 'mrp_value', label: 'Value at MRP', numeric: true),
     ],
@@ -1228,7 +1234,9 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'goods_type', label: 'Goods type'),
       ReportColumn(key: 'unit', label: 'Unit'),
       ReportColumn(key: 'quantity', label: 'On hand', numeric: true),
-      ReportColumn(key: 'value', label: 'Value', numeric: true),
+      // Cost goes only to a holder of PRODUCT_VIEW_COST_PRICE (D-STK-76).
+      ReportColumn(
+          key: 'value', label: 'Value', numeric: true, onlyWhenSent: true),
       ReportColumn(key: 'days_0_30', label: '0-30 days', numeric: true),
       ReportColumn(key: 'days_31_60', label: '31-60', numeric: true),
       ReportColumn(key: 'days_61_90', label: '61-90', numeric: true),

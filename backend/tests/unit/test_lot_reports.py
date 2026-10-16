@@ -191,6 +191,75 @@ def test_the_route_leaves_the_cost_out_without_the_permission() -> None:
     assert hidden[0].mrp_value == D("600.00")
 
 
+@pytest.mark.parametrize("by_lot", [True, False])
+def test_the_valuation_leaves_the_cost_out_without_the_permission(
+    by_lot: bool,
+) -> None:
+    """D-STK-76: a Viewer read 20 at 41.50 = 830.00 off the stock valuation.
+
+    Quantity and MRP to anyone; the rate, the value and the closing rows
+    built from cost -- total, books, difference -- only with the right.
+    """
+    from app.inventory.api.router import stock_valuation
+
+    fixture = _traded(f"LOTR7{int(by_lot)}", by_lot=by_lot)
+
+    def answer(cost: bool) -> list[Any]:
+        return stock_valuation(
+            scope=_scope(fixture, cost=cost),  # type: ignore[arg-type]
+            to_date=date(2026, 9, 10),
+            from_date=None,
+            warehouse_id=None,
+            include_zero=False,
+            page=1,
+            page_size=100,
+            db=fixture.session,
+        ).data
+
+    shown = answer(True)
+    hidden = answer(False)
+
+    worth = D("520.00") if by_lot else D("560.00")
+    assert [row.value for row in shown] == [worth, worth, worth, D("0.00")]
+    assert shown[0].rate is not None
+    assert [row.row_type for row in hidden] == [
+        "ITEM",
+        "TOTAL",
+        "BOOKS",
+        "DIFFERENCE",
+    ]
+    assert [(row.rate, row.value) for row in hidden] == [(None, None)] * 4
+    assert hidden[0].quantity == D("5")
+    assert hidden[0].mrp_value == D("750.00")
+
+
+@pytest.mark.parametrize("by_lot", [True, False])
+def test_the_ageing_leaves_the_cost_out_without_the_permission(by_lot: bool) -> None:
+    """D-STK-76: the ageing's rate and value go only to a holder of the right."""
+    from app.inventory.api.router import stock_ageing
+
+    fixture = _traded(f"LOTR8{int(by_lot)}", by_lot=by_lot)
+
+    def answer(cost: bool) -> list[Any]:
+        return stock_ageing(
+            scope=_scope(fixture, cost=cost),  # type: ignore[arg-type]
+            to_date=date(2026, 9, 10),
+            from_date=None,
+            page=1,
+            page_size=100,
+            db=fixture.session,
+        ).data
+
+    [shown] = answer(True)
+    [hidden] = answer(False)
+
+    assert shown.value == (D("520.00") if by_lot else D("560.00"))
+    assert shown.rate == (D("104") if by_lot else D("112"))
+    assert (hidden.rate, hidden.value) == (None, None)
+    assert hidden.quantity == D("5")
+    assert hidden.days_0_30 + hidden.days_31_60 == D("5")
+
+
 def test_ageing_reads_each_lots_received_date() -> None:
     """Four of 5 August are 36 days old, one of 20 August 21: FIFO would say 5."""
     fixture = _traded("LOTR5", by_lot=True)
