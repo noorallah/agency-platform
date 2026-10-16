@@ -38,6 +38,7 @@ from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.customers.models.customer import CreditControlSettings, CustomerGroup
 from app.delivery_note.models.transporter import Transporter
+from app.document_framework.models.bill_series import BillSeriesSettings
 from app.finance.models.finance import (
     AccountGroup,
     CostCenter,
@@ -396,6 +397,7 @@ FIRM_CODES = [
     "firm-profile",
     "financial-years",
     "numbering-series",
+    "bill-series",
     "goods-types",
     "custom-fields",
     "custom-field-rules",
@@ -443,12 +445,64 @@ def test_a_bare_firm_has_one_firm_step_to_do(session: Session) -> None:
         "firm-profile": ("OPTIONAL", "Not chosen: the firm runs as General"),
         "financial-years": ("TODO", "None open: nothing can be posted"),
         "numbering-series": ("OPTIONAL", "As each document comes"),
+        "bill-series": ("OPTIONAL", "Not set: one series for every bill"),
         "goods-types": ("OPTIONAL", "None yet"),
         "custom-fields": ("OPTIONAL", "None yet"),
         "custom-field-rules": ("OPTIONAL", "None yet"),
         "messaging": ("OPTIONAL", "Off"),
         "approval-levels": ("OPTIONAL", "None yet"),
     }
+
+
+def test_bill_series_reads_configured_once_saved_or_a_company_has_a_prefix(
+    session: Session,
+) -> None:
+    """A prefix on a live company, or the saved setting, configures it."""
+    firm = _firm(session)
+    other = _firm(session, "SET02")
+
+    def bill_series() -> tuple[str, str]:
+        """Return the firm's bill-series step."""
+        return _details(_state(session, firm.id, "firm"))["bill-series"]
+
+    # Another firm's prefix and a deleted company's do not count.
+    session.add_all(
+        [
+            AgencyPrincipal(
+                firm_id=other.id, code="ITC", name="ITC", bill_series_prefix="IT"
+            ),
+            AgencyPrincipal(
+                firm_id=firm.id,
+                code="OLD",
+                name="Old",
+                bill_series_prefix="OL",
+                is_deleted=True,
+            ),
+            AgencyPrincipal(firm_id=firm.id, code="NIL", name="No prefix"),
+        ]
+    )
+    session.commit()
+    assert bill_series() == ("OPTIONAL", "Not set: one series for every bill")
+
+    session.add(
+        AgencyPrincipal(
+            firm_id=firm.id, code="HUL", name="Hindustan", bill_series_prefix="HU"
+        )
+    )
+    session.commit()
+    assert bill_series() == (
+        "OPTIONAL",
+        "Company prefixes set; bills take one series",
+    )
+
+    settings = BillSeriesSettings(firm_id=firm.id, series_driver="ONE_SERIES")
+    session.add(settings)
+    session.commit()
+    assert bill_series() == ("OPTIONAL", "One series")
+
+    settings.series_driver = "BY_COMPANY"
+    session.commit()
+    assert bill_series() == ("OPTIONAL", "By company")
 
 
 def test_a_year_is_done_while_open_and_owed_once_locked(session: Session) -> None:

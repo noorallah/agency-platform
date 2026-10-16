@@ -46,8 +46,13 @@ class FieldSpec {
     this.fullWidth,
     this.lockedWhileSet,
     this.visibleWhen,
+    this.maxLength,
   });
   final String key, label;
+
+  /// The most characters a plain text box takes, where the server's column
+  /// is narrow; left null the box takes any length.
+  final int? maxLength;
 
   /// The key of another choice field that, once something is chosen in it,
   /// decides this one -- so this one is locked until that choice is cleared.
@@ -2147,6 +2152,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
         controller: _controllers[field.key],
         readOnly: _locked(field),
         maxLines: field.multiline ? 3 : 1,
+        maxLength: field.maxLength,
         decoration: InputDecoration(
             labelText: field.label, helperText: field.helperText),
         validator: (value) =>

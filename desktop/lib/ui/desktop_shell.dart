@@ -6746,6 +6746,14 @@ ResourceDefinition<PrincipalRecord> principalDefinition(
           singleSelection: true,
           helperText: 'The supplier this principal is bought through.',
         ),
+        // The column holds ten characters (`PREFIX_COLUMN_LENGTH`); the
+        // server also refuses a prefix too long for the bill layout.
+        FieldSpec(
+          key: 'bill_series_prefix',
+          label: 'Bill series prefix',
+          maxLength: 10,
+          helperText: 'Letters and digits. Blank takes the default series.',
+        ),
         FieldSpec(key: 'is_active', label: 'Active', boolean: true),
       ],
       initialValues: (PrincipalRecord? row) => row == null
@@ -6754,12 +6762,15 @@ ResourceDefinition<PrincipalRecord> principalDefinition(
               'code': row.code,
               'name': row.name,
               'vendor_id': row.vendorId,
+              'bill_series_prefix': row.billSeriesPrefix,
               'is_active': row.isActive,
             },
       payload: (values, isCreating) => {
         'code': values['code'],
         'name': values['name'],
         'vendor_id': _blankToNull(values['vendor_id']),
+        // Blank clears the prefix: the bills take the default series.
+        'bill_series_prefix': _blankToNull(values['bill_series_prefix']),
         'is_active': values['is_active'] != false,
       },
     );

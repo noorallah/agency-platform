@@ -5,7 +5,7 @@ Every reader selects and nothing else, like the Tax subject's.
 
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from app.approvals.models import ApprovalRule
@@ -15,9 +15,11 @@ from app.business.models.framework import (
     CategoryAttributeRule,
     FirmBusinessProfile,
 )
+from app.document_framework.models.bill_series import BY_COMPANY, BillSeriesSettings
 from app.document_framework.models.document_framework import DocumentNumberingRule
 from app.finance.models.finance import FinancialYear
 from app.messaging.models.messaging import MessagingSettings
+from app.products.models.brand import Principal
 from app.products.models.goods_type import FirmGoodsType
 from app.settings_sections.services.steps import (
     DONE,
@@ -93,12 +95,46 @@ def _numbering_step(session: Session, firm_id: UUID) -> SettingsStep:
     )
 
 
+def _bill_series_step(session: Session, firm_id: UUID) -> SettingsStep:
+    """Say which series the firm's sales bills take (backlog 157).
+
+    Configured once the firm has saved its bill-series setting or given any
+    live company a prefix; one statement asks both.
+    """
+    driver, has_prefix = session.execute(
+        select(
+            select(BillSeriesSettings.series_driver)
+            .where(
+                BillSeriesSettings.firm_id == firm_id,
+                BillSeriesSettings.is_deleted.is_(False),
+            )
+            .scalar_subquery(),
+            exists().where(
+                Principal.firm_id == firm_id,
+                Principal.is_deleted.is_(False),
+                Principal.bill_series_prefix.is_not(None),
+                Principal.bill_series_prefix != "",
+            ),
+        )
+    ).one()
+    if driver == BY_COMPANY:
+        detail = "By company"
+    elif driver is not None:
+        detail = "One series"
+    elif has_prefix:
+        detail = "Company prefixes set; bills take one series"
+    else:
+        detail = "Not set: one series for every bill"
+    return SettingsStep("bill-series", OPTIONAL, detail)
+
+
 def firm_section(session: Session, firm_id: UUID) -> list[SettingsStep]:
-    """Return the eight steps of the Firm subject, in set-up order."""
+    """Return the nine steps of the Firm subject, in set-up order."""
     return [
         profile_step(session, firm_id),
         _financial_years_step(session, firm_id),
         _numbering_step(session, firm_id),
+        _bill_series_step(session, firm_id),
         counted_step(
             session, FirmGoodsType, firm_id, "goods-types", ("in use", "in use")
         ),

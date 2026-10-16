@@ -220,6 +220,7 @@ class PrincipalRecord {
     required this.name,
     required this.vendorId,
     required this.isActive,
+    this.billSeriesPrefix = '',
   });
 
   final String id;
@@ -230,12 +231,17 @@ class PrincipalRecord {
   final String vendorId;
   final bool isActive;
 
+  /// The prefix this company's sales bills take when the firm numbers its
+  /// bills by company (backlog 157); empty when none.
+  final String billSeriesPrefix;
+
   factory PrincipalRecord.fromJson(Json json) => PrincipalRecord(
         id: stringValue(json['id']),
         code: stringValue(json['code']),
         name: stringValue(json['name']),
         vendorId: stringValue(json['vendor_id']),
         isActive: boolValue(json['is_active'], fallback: true),
+        billSeriesPrefix: stringValue(json['bill_series_prefix']),
       );
 }
 
