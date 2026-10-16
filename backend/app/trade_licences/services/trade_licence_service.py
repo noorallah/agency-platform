@@ -336,6 +336,18 @@ class TradeLicenceService:
         self, data: TradeLicenceWrite, *, firm_id: UUID, actor_id: UUID
     ) -> TradeLicence:
         """Record one licence."""
+        row = self.stage_create_licence(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_create_licence(
+        self, data: TradeLicenceWrite, *, firm_id: UUID, actor_id: UUID
+    ) -> TradeLicence:
+        """Record one licence and its audit row; flush, never commit.
+
+        The customer import composes this inside its one transaction (Swathi
+        G5), so a file whose tenth row fails leaves no licence behind.
+        """
         self._checked(data, firm_id)
         row = TradeLicence(
             firm_id=firm_id,
@@ -355,7 +367,6 @@ class TradeLicenceService:
             firm_id=firm_id,
             after_data=_snapshot(row),
         )
-        self._session.commit()
         return row
 
     def update_licence(
@@ -367,6 +378,21 @@ class TradeLicenceService:
         actor_id: UUID,
     ) -> TradeLicence:
         """Replace one licence's fields -- a renewal, or a correction."""
+        row = self.stage_update_licence(
+            licence_id, data, firm_id=firm_id, actor_id=actor_id
+        )
+        self._session.commit()
+        return row
+
+    def stage_update_licence(
+        self,
+        licence_id: UUID,
+        data: TradeLicenceWrite,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> TradeLicence:
+        """Replace one licence's fields and audit it; flush, never commit."""
         row = self.get_licence(licence_id, firm_id=firm_id)
         self._checked(data, firm_id)
         before = _snapshot(row)
@@ -385,7 +411,6 @@ class TradeLicenceService:
             before_data=before,
             after_data=_snapshot(row),
         )
-        self._session.commit()
         return row
 
     def delete_licence(

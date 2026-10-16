@@ -738,6 +738,8 @@ async def import_customer_file(
         db,
         CustomerService(db),
         may_manage_settings=scope.principal.has_permission("CUSTOMER_MANAGE_SETTINGS"),
+        may_assign_routes=scope.principal.has_permission("TERRITORY_ASSIGN_CUSTOMERS"),
+        may_record_licences=scope.principal.has_permission("TRADE_LICENCE_MANAGE"),
     ).run(
         content,
         file_format=file_format,

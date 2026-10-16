@@ -42,7 +42,13 @@ from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
+from app.sales.models import (
+    SalesTerritoryNode,
+    TerritoryCustomerAssignment,
+    TerritoryRouteProfile,
+)
 from app.salesmen.models import Salesman
+from app.trade_licences.models import TradeLicence, TradeLicenceType
 
 
 def _factory() -> sessionmaker[Session]:
@@ -94,12 +100,16 @@ def _run(
     existing: str = "refuse",
     file_format: str = "csv",
     may_manage_settings: bool = True,
+    may_assign_routes: bool = True,
+    may_record_licences: bool = True,
 ) -> ImportReport[Customer]:
     """Check or apply one file as a single actor."""
     return CustomerFileImporter(
         session,
         CustomerService(session),
         may_manage_settings=may_manage_settings,
+        may_assign_routes=may_assign_routes,
+        may_record_licences=may_record_licences,
     ).run(
         content,
         file_format=file_format,  # type: ignore[arg-type]
@@ -420,3 +430,228 @@ def test_an_account_manager_is_named_from_the_salesman_list_not_the_members() ->
         stored = fresh.scalar(select(Customer).where(Customer.code == "SHOP-1"))
         assert stored is not None
         assert stored.salesman_id == entry.id
+
+
+def _route(
+    session: Session, firm_id: UUID, code: str, name: str, *, area: bool = False
+) -> SalesTerritoryNode:
+    """Add a territory node; a route unless ``area``, which has no profile."""
+    node = SalesTerritoryNode(
+        firm_id=firm_id, hierarchy_level_id=uuid4(), code=code, name=name, path=code
+    )
+    session.add(node)
+    session.flush()
+    if not area:
+        session.add(TerritoryRouteProfile(territory_id=node.id))
+    session.commit()
+    return node
+
+
+def _on_route(session: Session, route_id: UUID) -> dict[str, int | None]:
+    """Return the live customers on a route by code, with their stop."""
+    rows = session.execute(
+        select(Customer.code, TerritoryCustomerAssignment.visit_sequence)
+        .join(Customer, Customer.id == TerritoryCustomerAssignment.customer_id)
+        .where(
+            TerritoryCustomerAssignment.territory_id == route_id,
+            TerritoryCustomerAssignment.is_deleted.is_(False),
+        )
+    ).all()
+    return {code: stop for code, stop in rows}
+
+
+def test_a_beat_puts_the_customer_on_an_existing_route_and_keeps_its_round() -> None:
+    """By code or name; the route's other shops and their stops stay put (G5)."""
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+    beat = _route(session, firm.id, "BEAT-01", "Market Road")
+    _run(session, firm.id, _csv("Code,Name", "FIRST,First shop"), apply=True)
+    first = session.scalars(select(Customer).where(Customer.code == "FIRST")).one()
+    session.add(
+        TerritoryCustomerAssignment(
+            territory_id=beat.id, customer_id=first.id, visit_sequence=1
+        )
+    )
+    session.commit()
+
+    report = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,Route", "BYCODE,By code,beat-01", "BYNAME,By name,market road"),
+        apply=True,
+    )
+
+    assert report.imported, [issue.describe() for issue in report.issues]
+    with factory() as fresh:
+        assert _on_route(fresh, beat.id) == {"FIRST": 1, "BYCODE": None, "BYNAME": None}
+        audits = fresh.scalars(
+            select(AuditLog).where(AuditLog.action == "sales_territory.customers_set")
+        ).all()
+        assert len(audits) == 2
+
+    again = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,Beat", "BYCODE,,BEAT-01"),
+        apply=True,
+        existing="update",
+    )
+    assert again.imported, [issue.describe() for issue in again.issues]
+    with factory() as fresh:
+        assert len(_on_route(fresh, beat.id)) == 3
+
+
+def test_an_unknown_beat_or_an_area_is_refused_and_nothing_is_written() -> None:
+    """The file never makes a route, nor hangs a shop off an area."""
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+    _route(session, firm.id, "SOUTH", "South Zone", area=True)
+    content = _csv(
+        "Code,Name,Beat", "NOWHERE,Nowhere,BEAT-99", "AREA,Area,SOUTH", "NONE,None,"
+    )
+
+    report = _run(session, firm.id, content, apply=True)
+
+    assert [(issue.row, issue.column) for issue in report.issues] == [
+        (2, "Beat"),
+        (3, "Beat"),
+    ]
+    assert "'BEAT-99' is not one of the firm's routes" in report.issues[0].message
+    assert _codes(factory) == []
+
+
+def test_a_beat_needs_the_permission_the_route_screen_needs() -> None:
+    """A file is a second way to fill a round, and answers to the same code."""
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+    _route(session, firm.id, "BEAT-01", "Market Road")
+
+    refused = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,Beat", "SHOP,Shop,BEAT-01"),
+        apply=True,
+        may_assign_routes=False,
+    )
+
+    assert [issue.column for issue in refused.issues] == ["Beat"]
+    assert "TERRITORY_ASSIGN_CUSTOMERS" in refused.issues[0].message
+    assert _codes(factory) == []
+
+
+def _licences(session: Session) -> list[tuple[str, str, date | None]]:
+    """Return every live licence as (customer code, number, valid to)."""
+    rows = session.execute(
+        select(Customer.code, TradeLicence.licence_number, TradeLicence.valid_to)
+        .join(Customer, Customer.id == TradeLicence.customer_id)
+        .where(TradeLicence.is_deleted.is_(False))
+        .order_by(Customer.code, TradeLicence.licence_number)
+    ).all()
+    return [(code, number, valid_to) for code, number, valid_to in rows]
+
+
+def test_a_licence_goes_on_the_register_and_is_renewed_by_its_number() -> None:
+    """Type, number and expiry land on trade_licences; a re-import renews (G5)."""
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+    content = _csv(
+        "Code,Name,Licence Type,DL No,Licence Expiry",
+        "PHARMA,Pharma,DRUG_WHOLESALE,tn-01-20b-123,31-03-2027",
+        "OTHER,Other,Other licence,LIC-9,",
+    )
+
+    report = _run(session, firm.id, content, apply=True)
+
+    assert report.imported, [issue.describe() for issue in report.issues]
+    with factory() as fresh:
+        assert _licences(fresh) == [
+            ("OTHER", "LIC-9", None),
+            ("PHARMA", "TN-01-20B-123", date(2027, 3, 31)),
+        ]
+        # The usual types were seeded, as the licence screen's first read does.
+        assert len(fresh.scalars(select(TradeLicenceType)).all()) >= 8
+        created = fresh.scalars(
+            select(AuditLog).where(AuditLog.action == "trade_licence.created")
+        ).all()
+        assert len(created) == 2
+
+    renewed = _run(
+        session,
+        firm.id,
+        _csv(
+            "Code,Name,LicenceType,LicenceNumber,LicenceExpiry",
+            "PHARMA,,DRUG_WHOLESALE,TN-01-20B-123,2028-03-31",
+            "OTHER,,OTHER,LIC-10,",
+        ),
+        apply=True,
+        existing="update",
+    )
+
+    assert renewed.imported, [issue.describe() for issue in renewed.issues]
+    with factory() as fresh:
+        # Renewed in place; a new number is a new licence, the old one kept.
+        assert _licences(fresh) == [
+            ("OTHER", "LIC-10", None),
+            ("OTHER", "LIC-9", None),
+            ("PHARMA", "TN-01-20B-123", date(2028, 3, 31)),
+        ]
+
+
+def test_a_licence_row_is_refused_by_the_cell_that_is_wrong() -> None:
+    """Each refusal names its column, and the file writes nothing."""
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+    content = _csv(
+        "Code,Name,LicenceType,LicenceNumber,LicenceExpiry",
+        "NOEXP,No expiry,DRUG_WHOLESALE,DL-1,",
+        "BADTYPE,Bad type,LIQUOR,DL-2,31-03-2027",
+        "NOTYPE,No type,,DL-3,31-03-2027",
+        "BADDATE,Bad date,FSSAI,DL-4,someday",
+        "NONUM,No number,FSSAI,,31-03-2027",
+    )
+
+    report = _run(session, firm.id, content, apply=True)
+
+    assert [(issue.row, issue.column) for issue in report.issues] == [
+        (2, "LicenceExpiry"),
+        (3, "LicenceType"),
+        (4, "LicenceType"),
+        (5, "LicenceExpiry"),
+        (6, "LicenceNumber"),
+    ], [issue.describe() for issue in report.issues]
+    assert _codes(factory) == []
+    with factory() as fresh:
+        assert _licences(fresh) == []
+
+    refused = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,LicenceType,LicenceNumber", "SHOP,Shop,OTHER,DL-5"),
+        apply=True,
+        may_record_licences=False,
+    )
+    assert [issue.column for issue in refused.issues] == ["LicenceNumber"]
+    assert "TRADE_LICENCE_MANAGE" in refused.issues[0].message
+
+
+def test_the_template_lists_the_firms_routes_and_licence_types() -> None:
+    """A Beat and a LicenceType are picked from the Lists sheet."""
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+    _route(session, firm.id, "BEAT-01", "Market Road")
+
+    workbook = load_workbook(BytesIO(template_workbook(session, firm.id)))
+
+    listed = {
+        value
+        for row in workbook["Lists"].iter_rows(values_only=True)
+        for value in row
+        if value
+    }
+    assert {"BEAT-01", "Market Road", "DRUG_WHOLESALE", "FSSAI"} <= listed
