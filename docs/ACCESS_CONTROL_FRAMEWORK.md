@@ -161,18 +161,43 @@ the customer's administrator:
   user or a `PLATFORM` operator — is refused rather than promoted.
 - **Holds the `ALL_FIRMS` designation**, so it opens every firm without a
   membership row. `users.department` reads `Support` so the account is
-  recognisable on the Users screen; that is informational, and nothing
-  authorises on it.
+  recognisable on the Users screen. Beside the `ALL_FIRMS` designation it
+  also names the account for the switch below, which lets more people turn
+  it **off**; it never widens what the account itself may do.
 - **Separate from the customer's own administrator**, who keeps their account
-  and their password. The customer's administrator will be able to switch
-  the support account off and on again.
+  and their password, and who switches the support account off and on again
+  (below).
 - **Not tied to licensing.** Whether a copy is licensed never decides whether
   the support account exists or works.
 
-Still to come (parts b-d): the Users-screen switch, with who switched it and
-why kept in the trail; audit rows written by the support account marked as
-support and filterable (which needs a proper marker column and a migration);
-and the tests for both.
+**Switching it off and on (part b).** `PATCH /users/{id}` with `is_active`
+and a `reason` (required, non-blank, at most 500 characters). The trail
+writes `identity.support_admin_disabled` or `identity.support_admin_enabled`
+on the platform trail, carrying the actor and the reason, in place of a
+`user.updated` for that change. Switching it off revokes its refresh tokens
+and bumps its authorization version, as any switch-off does.
+
+The rank rule alone would get this wrong: the support account holds
+`ALL_FIRMS`, so a customer administrator designated `PLATFORM` could never
+switch it off, and the installation's owner must always be able to shut the
+vendor out. The exemption (`_assert_may_switch_support`) is the narrowest
+that fixes it: **any platform administrator of either reach, other than the
+support account itself, may change `is_active` on it and nothing else.** A
+body carrying anything more — a rename, an expiry, an unlock — goes through
+the rank rule as before, and its password is still only the command line's.
+An undesignated caller is refused, and so is the support account aiming at
+itself. "The support account" is decided by the server — an `ALL_FIRMS`
+designation **and** `department` reading `Support`, so a customer's own
+Support department is not mistaken for it — and published as
+`is_support_account` on the Users list and the single read.
+
+On the Users screen the support row's dialog footer has a **Support access**
+switch in place of Reset password, for a platform administrator; it asks for
+the reason in a dialog before anything is sent (`support_access_dialog.dart`).
+
+Still to come (parts c-d): audit rows written by the support account marked
+as support and filterable (which needs a proper marker column and a
+migration), and the tests for that.
 
 ## Tier 2: everybody else
 

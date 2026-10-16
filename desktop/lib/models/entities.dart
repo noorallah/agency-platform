@@ -414,9 +414,14 @@ class PlatformUser {
     this.updatedAt = '',
     this.belongsToOtherFirms = false,
     this.isDeleted = false,
+    this.isSupportAccount = false,
   });
   final String id, email, fullName;
   final bool isActive, forcePasswordChange;
+
+  /// The installation's support account (backlog 29s), the one row whose
+  /// Support access switch the Users screen offers. The server decides it.
+  final bool isSupportAccount;
 
   /// Soft-deleted. Listed only when a platform administrator asks for
   /// deleted rows, which is how one is found in order to be restored.
@@ -467,6 +472,7 @@ class PlatformUser {
         expiresAt: stringValue(json['expires_at']),
         belongsToOtherFirms: boolValue(json['belongs_to_other_firms']),
         isDeleted: boolValue(json['is_deleted']),
+        isSupportAccount: boolValue(json['is_support_account']),
         personalMobile: stringValue(json['personal_mobile']),
         alternateMobile: stringValue(json['alternate_mobile']),
         personalEmail: stringValue(json['personal_email']),
