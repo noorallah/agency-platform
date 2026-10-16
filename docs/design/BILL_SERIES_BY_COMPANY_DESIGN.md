@@ -308,7 +308,7 @@ Tests that would guard it (names are proposals):
     table of drivers, to prove a new level is an entry in a table and not a
     rewrite.
 
-## 12. Points awaiting the owner
+## 12. Points for the owner -- Decided 2026-10-16: all eight accepted as proposed
 
 1. May a person choose GENERAL by hand for a bill of one company? Proposed:
    no, the series follows the lines.
