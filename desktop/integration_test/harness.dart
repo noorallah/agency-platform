@@ -262,6 +262,9 @@ Future<void> chooseIn(WidgetTester tester, String key, String label) async {
   await pumpFor(tester, const Duration(milliseconds: 500));
   final Finder entry = find.textContaining(label);
   await pumpUntil(tester, entry, waitingFor: 'picker entry "$label"');
+  // A long list (a firm with many documents) scrolls; bring the entry in view.
+  await tester.ensureVisible(entry.last);
+  await pumpFor(tester, const Duration(milliseconds: 300));
   await tester.tap(entry.last);
   await pumpFor(tester, const Duration(milliseconds: 600));
 }
