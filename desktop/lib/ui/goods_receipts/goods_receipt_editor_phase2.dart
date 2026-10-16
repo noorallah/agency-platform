@@ -1043,21 +1043,32 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
           ),
         );
     return [
-      price('ptr', _retailPriceLabel, line.ptr, (value) => line.ptr = value),
+      price('ptr', _retailPriceLabel, line.ptr, (value) {
+        line.ptr = value;
+        line.ptrTyped = true;
+      }),
       margin('retail-margin', 'Retail margin %', line.retailMargin, (value) {
         line.retailMargin = value;
         // A margin changed re-works its price: a price carried in from the
-        // saved draft would otherwise win over it.
-        if (value.trim().isNotEmpty && line.ptr.trim().isNotEmpty) {
+        // saved draft would otherwise win over it. A price typed here wins
+        // over the margin and stays (D-UI-109).
+        if (value.trim().isNotEmpty &&
+            line.ptr.trim().isNotEmpty &&
+            !line.ptrTyped) {
           line.ptr = '';
           line.priceEpoch++;
         }
       }),
-      price('pts', _wholesalePriceLabel, line.pts, (value) => line.pts = value),
+      price('pts', _wholesalePriceLabel, line.pts, (value) {
+        line.pts = value;
+        line.ptsTyped = true;
+      }),
       margin('wholesale-margin', 'Wholesale margin %', line.wholesaleMargin,
           (value) {
         line.wholesaleMargin = value;
-        if (value.trim().isNotEmpty && line.pts.trim().isNotEmpty) {
+        if (value.trim().isNotEmpty &&
+            line.pts.trim().isNotEmpty &&
+            !line.ptsTyped) {
           line.pts = '';
           line.priceEpoch++;
         }

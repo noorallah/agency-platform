@@ -552,6 +552,8 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 *Clicked 2026-10-16 in part (`sc_lot_test.dart`, `SCREEN_FLOW_CHECK_LOTS_2026-10-16.md`): steps 1 and 2 (Trace matches the server, cost only for the admin).*
 ### TC-LOT-015 — A goods type hands its margins to a new product
 
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1, 2 and 4 on the product form (25 / 12.5 taken, retail 30 kept, -1 and 1000 refused).*
+
 *Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_015.py`; screen-only steps were not driven.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
@@ -559,6 +561,8 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Steps:** (1) Create a product in a category of that goods type giving no margins. (2) Create another giving retail 30 only. (3) Change the goods type to 20 and 10 and open the first product. (4) Try a margin of -1, then 1000.
 - **Expect:** (1) The product holds 25 and 12.5. (2) Retail 30; wholesale still follows the type (12.5). (3) The first product still holds 25 and 12.5: the type never writes over a product afterwards. (4) Both refused naming the field.
 ### TC-LOT-016 — A receipt line works its prices from the margins, blank or typed
+
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 3 on a goods receipt (PTR/PTS 100.00/90.00 and 112.00/90.00, the lot page agreeing).*
 
 *Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_016.py`; screen-only steps were not driven.*
 
@@ -568,6 +572,8 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Expect:** (1) The line and its lot carry PTR 100.00 and PTS 90.00 (80 x 1.25, 80 x 1.125), margins 25 and 12.5. (2) PTR 112.00 (80 x 1.40), PTS 90.00; the lot holds margins 40 and 12.5. Nothing is rounded beyond the paisa.
 ### TC-LOT-017 — A typed price wins and its margin is worked back
 
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 3 (typed 104.00 stands, margin 30.00 shown; D-UI-109 fixed).*
+
 *Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_017.py`; screen-only steps were not driven.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
@@ -575,6 +581,8 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Steps:** (1) Receive 10 at 80.00 typing PTR 104.00 and leaving the retail margin blank. (2) Receive 10 at 80.00 typing PTR 104.00 and a retail margin of 40. (3) Read each line and lot.
 - **Expect:** (1) The price stays 104.00 and the line shows retail margin 30.00 (worked back). (2) The price 104.00 stands over the margin 40, and the margin shown is 30.00. Wholesale is worked from the product as usual (90.00).
 ### TC-LOT-018 — Above the MRP warns with tax and is refused before tax
+
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): step 1 (the MRP warning on the line, word for word as the server's).*
 
 *Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_018.py`; screen-only steps were not driven.*
 
@@ -584,6 +592,8 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.16, cut to the paisa below 130 / 1.18). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line and both prices: PTS 112.00 cannot exceed the PTR 88.00 (the message says PTS and PTR, not wholesale and retail).
 ### TC-LOT-019 — Changing a price on the lot page works the margin back
 
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 4 on the lot page (108.00 gives margin 35.00, 85.00 refused, read-only for the Viewer).*
+
 *Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_019.py`; screen-only steps were not driven.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
@@ -591,6 +601,8 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Steps:** (1) Open the lot page of TEST03-M1. (2) Change the retail price to 108.00 and save. (3) Change it to 85.00 and save. (4) Repeat step 2 as the user without `BATCH_UPDATE`.
 - **Expect:** (1) Both prices, both margins and any warning show. (2) Saved; the retail margin reads 35.00 (108 over cost 80) and wholesale is unchanged. (3) Refused: the retail price may not be below the wholesale price 90.00. (4) The price boxes are read-only, or the save is refused (403).
 ### TC-LOT-020 — The bill switch: Retail or Wholesale, from the customer's kind
+
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 4 (Retail 100.00, Wholesale 90.00, a Wholesaler starts at Wholesale; D-UI-110 fixed).*
 
 *Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_020.py`; screen-only steps were not driven.*
 
@@ -600,6 +612,8 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Expect:** (1) The level box reads Retail and the line is priced at the lot that leaves first, TEST03-M1: 100.00. (2) Every line reprices to 90.00 (its PTS). (3) The box reads Wholesale and the line is 90.00. (4) 100.00. (5) Renaming is accepted; deleting or making it inactive is refused.
 ### TC-LOT-021 — Cost and margin on the line, only with the cost permission, never printed
 
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 and 2 on the draft order and bill (cost 160.00, margin 40.00, 25.00 %; no column for the Viewer).*
+
 *Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_021.py`; screen-only steps were not driven.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
@@ -607,6 +621,8 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Steps:** (1) As the user with the permission open the saved order and the saved bill. (2) Change the quantity on the screen without saving. (3) **(HTTP)** `GET` the bill as the user without the permission. (4) Print the bill and open its PDF.
 - **Expect:** (1) Cost 160.00 (marked *est.* on an order or an undispatched bill line), margin 40.00 on a taxable value (the line's `gross_amount`) of 200.00, which is 25.00 % of cost, with totals. (2) The figures drop and the total says *as last saved*. (3) No cost or margin fields, and no Cost or Margin column on screen. (4) Neither the print nor the PDF shows cost or margin.
 ### TC-LOT-022 — A counter bill line over lots at two prices is split
+
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1, 2 and 4 on the counter bill (split 10 at 100.00 + 5 at 112.00 from the picker's shares; a typed 105.00 kept).*
 
 *Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_022.py`; screen-only steps were not driven.*
 

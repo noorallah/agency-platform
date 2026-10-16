@@ -979,9 +979,14 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             line.netOfDiscount;
     final double tax = double.tryParse(stringValue(priced?['tax_amount'])) ?? 0;
     final double rate = taxable > 0 ? tax / taxable * 100 : 0;
+    // A batch-tracked line stacks its product, its stock note and its Batch
+    // choice: three rows do not fit the usual 52 (D-UI-111).
+    final bool batchRow =
+        product != null && product.trackBatch && !product.trackSerial;
     return DocumentLineRow(
       key: ValueKey<String>('sales-order-line-$index'),
       columns: _columns,
+      height: batchRow ? 70 : 52,
       current: index == _current,
       onTap: () => _setState(() => _current = index),
       cells: [

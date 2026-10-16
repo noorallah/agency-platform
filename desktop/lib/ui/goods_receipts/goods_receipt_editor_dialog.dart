@@ -134,6 +134,13 @@ class GoodsReceiptDraftLine {
   /// draft, so the price box is rebuilt empty: a margin changed re-works its
   /// price, and a price left in the box would win over it.
   int priceEpoch = 0;
+
+  /// Whether the price was typed in this window rather than carried in from
+  /// the saved draft. A typed price wins over its margin (the server works
+  /// the margin back from it), so typing a margin after it leaves it alone
+  /// (D-UI-109); only a carried-in price is cleared.
+  bool ptrTyped = false;
+  bool ptsTyped = false;
   String remarks;
 
   /// The supplier's scheme the free goods came under (BUY-1); optional.
