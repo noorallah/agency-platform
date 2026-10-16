@@ -929,7 +929,13 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "FIRM_AUDIT_LOG_VIEW",
             "SETTINGS_VIEW",
         }
-    ),
+    )
+    # D-IDN-17: every `*_VIEW` code swept in `FIRM_VIEW` and
+    # `DIAGNOSTICS_VIEW`, platform codes the Firm admin does not hold, so the
+    # Viewer was offered the platform's Firm settings and Business profile
+    # screens. A firm's read-only role reads nothing the platform keeps.
+    # `20261016_0391` takes them off the VIEWER in stores that already exist.
+    - PLATFORM_PERMISSION_CODES,
     # The person who carries unpaid bills to customers (backlog 123). One
     # code and nothing beside it: `RECEIPT_VIEW` or `CUSTOMER_VIEW` would show
     # him every bill and every customer of the firm, and his screen is the
