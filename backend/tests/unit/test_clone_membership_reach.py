@@ -15,7 +15,7 @@ from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
-from fastapi import Request
+from fastapi import Request, Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -152,6 +152,7 @@ def test_a_platform_operator_cannot_staff_a_firm_by_cloning() -> None:
             user_id=source.id,
             data=_request("clone@example.com"),
             principal=_principal("PLATFORM", {}),
+            response=Response(),
             db=session,
             settings=Settings(),
         )
@@ -170,6 +171,7 @@ def test_naming_a_firm_out_of_reach_is_refused_too() -> None:
             user_id=source.id,
             data=_request("clone@example.com", firm.id),
             principal=_principal("PLATFORM", {}),
+            response=Response(),
             db=session,
             settings=Settings(),
         )
@@ -185,6 +187,7 @@ def test_an_all_firms_administrator_still_clones_into_every_firm() -> None:
         user_id=source.id,
         data=_request("clone@example.com"),
         principal=_principal("ALL_FIRMS", {}),
+        response=Response(),
         db=session,
         settings=Settings(),
     )
@@ -209,6 +212,7 @@ def test_a_caller_who_staffs_every_firm_the_source_is_in_may_clone() -> None:
         user_id=source.id,
         data=_request("clone@example.com"),
         principal=_principal("PLATFORM", staffing),
+        response=Response(),
         db=session,
         settings=Settings(),
     )

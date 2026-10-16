@@ -197,6 +197,10 @@ class UserResponse(UserProfileFields):
     expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    #: The optimistic-concurrency version, echoed back as `If-Match` on an
+    #: update (D-IDN-15). On the body as well as the `ETag` because the
+    #: desktop opens its editors from list rows.
+    version: int
     #: Whether this person also works somewhere the caller cannot see.
     #:
     #: A user record is platform-wide, so `_assert_exclusive_firm_user` refuses
@@ -259,6 +263,8 @@ class RoleResponse(ApiSchema):
     is_active: bool
     is_system: bool
     firm_id: UUID | None
+    #: The optimistic-concurrency version (D-IDN-15); see `UserResponse`.
+    version: int
 
 
 class UserTemplateCreate(ApiSchema):
@@ -329,6 +335,8 @@ class UserTemplateResponse(ApiSchema):
     is_system: bool
     role_ids: list[UUID]
     role_codes: list[str]
+    #: The optimistic-concurrency version (D-IDN-15); see `UserResponse`.
+    version: int
 
 
 class UserTemplateApply(ApiSchema):

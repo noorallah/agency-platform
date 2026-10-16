@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
 from fastapi.routing import APIRoute
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -149,6 +150,7 @@ def test_naming_a_firm_in_the_header_no_longer_creates_users_in_it() -> None:
         create_user(
             UserCreate(email="plant@example.com", full_name="Plant", password=PASSWORD),
             _global_claim_holder(firm.id),
+            Response(),
             db=session,
             settings=Settings(),
         )
