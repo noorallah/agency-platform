@@ -111,6 +111,30 @@ class BrandService:
         principal_id: UUID | None = None,
     ) -> PrincipalResponse:
         """Create a principal, or change one; commit."""
+        row = self.stage_save_principal(
+            data, firm_id=firm_id, actor_id=actor_id, principal_id=principal_id
+        )
+        self._session.commit()
+        return PrincipalResponse.model_validate(row)
+
+    def stage_save_principal(
+        self,
+        data: PrincipalWrite,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        principal_id: UUID | None = None,
+    ) -> Principal:
+        """Create or change a principal with every guard, flushed, uncommitted.
+
+        The principal file import stages each row through here and commits
+        once (Swathi G3); ``save_principal`` is this and a commit.
+
+        Raises:
+            ConflictError: If another live principal already has the code.
+            ResourceNotFoundError: If the principal is not the firm's.
+
+        """
         clash = self._session.scalar(
             select(Principal.id).where(
                 Principal.firm_id == firm_id,
@@ -132,8 +156,7 @@ class BrandService:
         self._audit(
             "principal.saved", "principal", row.id, firm_id, actor_id, data.code
         )
-        self._session.commit()
-        return PrincipalResponse.model_validate(row)
+        return row
 
     def delete_principal(
         self, principal_id: UUID, *, firm_id: UUID, actor_id: UUID
