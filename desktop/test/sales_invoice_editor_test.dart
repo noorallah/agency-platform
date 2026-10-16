@@ -883,6 +883,47 @@ void main() {
     expect(api.created?['salesman_id'], 'sm-meera');
   });
 
+  // Clicked 2026-10-16 (TC-SELL-115): with two notes waiting, the customer
+  // is chosen and the note ticked from the list, and the box stayed on the
+  // customer's starting choice ("Nobody") while the note named a salesman.
+  testWidgets('phase 2 bill: a note ticked from the list brings its salesman',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[
+      <String, dynamic>{..._billable(), 'salesman_id': 'sm-meera'},
+      <String, dynamic>{
+        ..._billable(),
+        'source_document_id': 'dn-2',
+        'source_document_number': 'DN-2026-2027-000005',
+        'salesman_id': null,
+        'lines': <Json>[
+          <String, dynamic>{
+            ...(_billable()['lines'] as List<dynamic>).first as Json,
+            'source_document_line_id': 'dnl-2',
+          },
+        ],
+      },
+    ]);
+    await pumpPhase2(tester, api);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-bill-customer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Anand Agencies').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-tick-dn-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-tick-done')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    final Finder box = find.byKey(const ValueKey('sales-invoice-salesman'));
+    expect(find.descendant(of: box, matching: find.text('Meera Raghavan')),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created?['salesman_id'], 'sm-meera');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('phase 2 direct bill with no coupon omits the key',
       (tester) async {
     final _InvoiceApi api = _InvoiceApi()

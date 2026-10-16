@@ -761,8 +761,12 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
           _saveWarning = _warningIn(updated);
         } on ApiException catch (exception) {
           // Only a resource that sends its version can lose a race, and the
-          // dialog stays open holding what was typed.
-          if (exception.isConflict && widget.definition.updateRecord != null) {
+          // dialog stays open holding what was typed. Any other 409 -- a
+          // name or code already on the list -- is the server's own reason
+          // and is shown as it is, as the delete below does: rewriting it
+          // told a salesman edit "somebody else saved this" for a clash.
+          if (exception.isStaleWrite &&
+              widget.definition.updateRecord != null) {
             throw ApiException(
               concurrencyMessage(
                 widget.definition.recordNoun ?? 'record',

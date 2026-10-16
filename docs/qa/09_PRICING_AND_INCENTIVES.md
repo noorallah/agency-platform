@@ -136,7 +136,7 @@ commission uses `commission-firm`:
   - Step 6: the transfer or voucher prints as before.
 ### TC-SELL-114 — A salesman with no sign-in, picked on a bill
 
-*Added 2026-10-14 (P2, the firm's own list of salesmen). **No screen was clicked**; the server half is held by unit tests.*
+*Added 2026-10-14 (P2, the firm's own list of salesmen). **Clicked 2026-10-16** (`sc_sm_test.dart`, `SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`): the entry and the order were clicked; the bill is one billed off a note, the fixture firm having no counter sale.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Steps:** as the prepared **Firm admin**: Settings > Selling > **Salesmen** → New: name `Phone order`, Signs in as left empty, Earns commission off → Save. Sell > Sales Invoices → New counter bill for `QA-C01`, one line `QA-DET` × 1; open the Salesman box and choose `Phone order` → Save. Open the saved bill.
@@ -144,7 +144,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-115 — What the Salesman box starts on
 
-*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+*Added 2026-10-14 (P2). **Clicked 2026-10-16 in part** (`SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`): the tied user's own entry, an inactive entry, and the bill taking the note's salesman; the account-manager and round choices were not driven (the fixture has no round).*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** salesman entries `Asha` (tied to the user you sign in as), `Bala` and `Chitra`; `QA-C01` with account manager Bala and on a round whose primary salesman is Chitra and which Bala also covers (not primary); `QA-C02` with no account manager and the same round; a customer with neither.
@@ -153,7 +153,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-116 — "Salesman required" refuses a save without one
 
-*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+*Added 2026-10-14 (P2). **Clicked 2026-10-16 in part** (`SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`): the switch, the order and the bill, on and off; the delivery note and the quotation were not driven.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Steps:** as the prepared **Firm admin**: Settings > Selling > Sales Stages → switch **Salesman required** on → Save. Sell > Sales Orders → New Order for a customer with no account manager and no round, Salesman left blank → Create draft. Repeat for a delivery note and a sales bill. Switch the setting off and save each again. Last, with the setting on again, save a quotation with no salesman.
@@ -169,7 +169,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-118 — Two salesmen cannot share a name
 
-*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+*Added 2026-10-14 (P2). **Clicked 2026-10-16** (`SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`).*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Steps:** Settings > Selling > Salesmen: with `Phone order` present, New → name `phone order` → Save. Then New → name `Phone Order 2` → Save; edit it to read `PHONE ORDER` → Save.
