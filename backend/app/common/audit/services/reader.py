@@ -183,6 +183,8 @@ class AuditLogReader:
             statement = statement.where(AuditLog.entity_id == filters.entity_id)
         if filters.actor_id is not None:
             statement = statement.where(AuditLog.actor_id == filters.actor_id)
+        if filters.by_support is not None:
+            statement = statement.where(AuditLog.by_support.is_(filters.by_support))
         # Bounds are inclusive UTC calendar days, matching the created_from /
         # created_to convention used by the customer and product list filters.
         if filters.date_from is not None:

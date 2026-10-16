@@ -25,10 +25,9 @@ from app.core.validation import validate_email, validate_password_policy
 from app.identity.models import PlatformAdmin, RefreshToken, User
 
 #: Written to ``users.department`` so the account reads as support on the
-#: Users screen. With the ALL_FIRMS designation it also names the account
-#: any platform administrator may switch off and on (part b,
-#: `IdentityService._assert_may_switch_support`); it never widens what the
-#: account may do. A column that marks support for the trail filter is part c.
+#: Users screen. Display only: what marks the account is
+#: ``users.is_support_account`` (part c), which only this module writes --
+#: a customer may well have a department called Support of their own.
 SUPPORT_DEPARTMENT = "Support"
 
 
@@ -60,7 +59,8 @@ def ensure_support_admin(
 
     Idempotent: an existing support account is left exactly as it is unless
     ``reset_password`` is set. An address held by any other live account --
-    an ordinary user or a narrower ``PLATFORM`` operator -- is refused rather
+    an ordinary user, a ``PLATFORM`` operator, or a customer's own
+    ``ALL_FIRMS`` administrator, none of them marked -- is refused rather
     than promoted, because widening somebody's reach is not what this command
     was asked to do. ``password`` may be ``None`` only when nothing needs one,
     which is the "already exists" answer.
@@ -76,8 +76,10 @@ def ensure_support_admin(
                 PlatformAdmin.is_deleted.is_(False),
             )
         )
-        if designation is None or designation.scope != (
-            PlatformAdminScope.ALL_FIRMS.value
+        if (
+            not user.is_support_account
+            or designation is None
+            or designation.scope != PlatformAdminScope.ALL_FIRMS.value
         ):
             raise ConflictError(
                 f"{normalized} belongs to an account that is not the support "
@@ -120,6 +122,7 @@ def ensure_support_admin(
         is_active=True,
         force_password_change=False,
         department=SUPPORT_DEPARTMENT,
+        is_support_account=True,
     )
     session.add(user)
     session.flush()

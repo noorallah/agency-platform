@@ -58,6 +58,14 @@ class User(BaseEntity):
     authorization_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    #: The installation's support account (backlog 29s). Written only by
+    #: `ensure_support_admin`, which the `create-support-admin` command runs;
+    #: no API schema carries it, so nobody signed in can set it. It widens
+    #: nothing -- reach is the `platform_admins` row -- it names the account
+    #: the customer may switch off, and marks every audit row it writes.
+    is_support_account: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Optional HR/profile enrichment fields (Phase 9). These are purely
     # informational and are never consulted by authentication/authorization —

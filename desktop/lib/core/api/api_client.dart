@@ -11934,6 +11934,7 @@ class ApiClient {
     String? dateFrom,
     String? dateTo,
     String? search,
+    bool? bySupport,
   }) =>
       _list(
         '/api/v1/audit-logs',
@@ -11948,6 +11949,9 @@ class ApiClient {
           if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
           if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
           if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+          // Only what the support account did, or only what it did not
+          // (backlog 29s); null lists both.
+          if (bySupport != null) 'by_support': '$bySupport',
         },
       );
 

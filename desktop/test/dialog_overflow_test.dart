@@ -247,6 +247,7 @@ class _AuditApi extends ApiClient {
     String? dateFrom,
     String? dateTo,
     String? search,
+    bool? bySupport,
   }) async =>
       PagedResult<AuditLogEntry>(items: rows, total: rows.length);
 }

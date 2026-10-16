@@ -19,6 +19,7 @@ def record_audit(
     before_data: dict[str, object] | None = None,
     after_data: dict[str, object] | None = None,
     application_version: str | None = None,
+    by_support: bool = False,
 ) -> None:
     """Stage one immutable audit event in the current transaction.
 
@@ -27,10 +28,18 @@ def record_audit(
     ``firm_id``, so a row left null in a firm's own store -- the business
     framework catalogue, geography -- was on no screen at all (D-CFG-13). The
     platform store carries no such key, so platform rows are unchanged.
+
+    A row is marked ``by_support`` when the request was authenticated as the
+    support account (backlog 29s), which `get_current_principal` records on
+    the request context -- so no module has to remember to pass it. The
+    argument exists for the one write made before anybody is signed in: the
+    sign-in itself.
     """
     if firm_id is None:
         firm_id = session.info.get(STORE_FIRM_SESSION_KEY)
     context = get_request_context()
+    if context is not None and context.actor.by_support:
+        by_support = True
     before_payload = _with_context_metadata(before_data, context)
     after_payload = _with_context_metadata(after_data, context)
     session.add(
@@ -44,6 +53,7 @@ def record_audit(
             after_data=after_payload,
             ip_address=context.client_ip if context is not None else None,
             application_version=application_version,
+            by_support=by_support,
         )
     )
 

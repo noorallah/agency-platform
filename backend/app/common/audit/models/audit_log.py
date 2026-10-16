@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, String, event, func
+from sqlalchemy import JSON, Boolean, DateTime, String, event, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.base import Base
@@ -29,6 +29,12 @@ class AuditLog(UUIDMixin, Base):
     after_data: Mapped[dict[str, object] | None] = mapped_column(JSON)
     ip_address: Mapped[str | None] = mapped_column(String(45))
     application_version: Mapped[str | None] = mapped_column(String(50))
+    #: Written while the support account (backlog 29s) was the one signed in,
+    #: so the customer can list everything the vendor's support person did.
+    #: Set by `record_audit` from the request, never by the caller.
+    by_support: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
 
 def _reject_audit_mutation(*_: object) -> None:

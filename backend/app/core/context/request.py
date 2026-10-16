@@ -1,9 +1,24 @@
 """Request-scoped context propagated through the current execution flow."""
 
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
+
+
+@dataclass(slots=True)
+class RequestActor:
+    """What authentication learned about who is acting, filled in mid-request.
+
+    Mutable, and held by the frozen `RequestContext`, because it is learned
+    inside a dependency: FastAPI runs a sync dependency in a worker thread on
+    a *copy* of the context, so a `ContextVar` set there never reaches the
+    handler -- a change to an object both share does.
+    """
+
+    #: Set when the signed-in account is the support account (backlog 29s),
+    #: so `record_audit` marks every row the request writes.
+    by_support: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +31,7 @@ class RequestContext:
     requested_at: datetime
     user_id: UUID | None = None
     firm_id: UUID | None = None
+    actor: RequestActor = field(default_factory=RequestActor)
 
 
 _request_context: ContextVar[RequestContext | None] = ContextVar(
@@ -36,6 +52,17 @@ def reset_request_context(token: Token[RequestContext | None]) -> None:
 def get_request_context() -> RequestContext | None:
     """Return the active request context, if execution is request-scoped."""
     return _request_context.get()
+
+
+def mark_support_actor() -> None:
+    """Record that the support account is the one acting in this request.
+
+    Outside a request (the CLI, a script) there is nobody signed in and
+    nothing to mark.
+    """
+    context = _request_context.get()
+    if context is not None:
+        context.actor.by_support = True
 
 
 #: The key under ``Session.info`` naming the firm whose store a session was
