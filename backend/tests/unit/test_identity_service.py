@@ -272,6 +272,34 @@ def test_failed_logins_lock_account_at_configured_threshold() -> None:
     assert session.query(LoginHistory).count() == 5
 
 
+def test_two_sign_ins_of_one_account_at_once_both_succeed() -> None:
+    """A sign-in whose user row was read before another sign-in is not refused."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    make = sessionmaker(bind=engine, expire_on_commit=False)
+    password = "Secure-Passphrase1!"
+    first, second = make(), make()
+    first.add(
+        User(
+            email="twice@example.com",
+            full_name="Twice",
+            password_hash=PasswordSecurity().hash_password(password),
+        )
+    )
+    first.commit()
+    stale = second.scalar(select(User).where(User.email == "twice@example.com"))
+    assert stale is not None  # read before the other sign-in moves the row
+
+    IdentityService(first, _settings()).login(
+        "twice@example.com", password, client_ip=None, user_agent=None
+    )
+    response = IdentityService(second, _settings()).login(
+        "twice@example.com", password, client_ip=None, user_agent=None
+    )
+
+    assert response.access_token
+
+
 def test_refresh_token_is_single_use_after_rotation() -> None:
     """Ensure a rotated refresh token cannot issue a second replacement pair."""
     session = _session()

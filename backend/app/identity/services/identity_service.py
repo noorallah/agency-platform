@@ -270,7 +270,14 @@ class IdentityService:
             )
             self._session.commit()
             raise unavailable
-        user.failed_login_attempts, user.locked_until, user.last_login_at = 0, None, now
+        # A statement, not an attribute write: two sign-ins of one account at
+        # the same moment would otherwise race on the row's version and the
+        # second would be refused 409 (D-IDN-13).
+        self._session.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(failed_login_attempts=0, locked_until=None, last_login_at=now)
+        )
         self._record_login(
             user.id, normalized_email, "success", client_ip, user_agent, None
         )
