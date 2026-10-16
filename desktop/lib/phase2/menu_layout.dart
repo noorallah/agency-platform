@@ -623,6 +623,7 @@ abstract final class MenuLayout {
       MenuItemSpec(AppModule.masters, 'financial-years', 'Financial Years'),
       MenuItemSpec(
           AppModule.administration, 'numbering-series', 'Numbering Series'),
+      MenuItemSpec(AppModule.administration, 'bill-series', 'Bill Series'),
       MenuItemSpec(AppModule.administration, 'goods-types', 'Goods Types'),
       MenuItemSpec(
           AppModule.administration, 'firm-custom-fields', 'Custom Fields'),

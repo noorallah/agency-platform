@@ -6720,6 +6720,57 @@ class ApiClient {
     return stringValue(response['data']);
   }
 
+  /// Which series the firm's sales bills take: one, or one per company
+  /// (backlog 157). Any member of the firm may read it.
+  Future<BillSeriesSettings> billSeriesSettings() async =>
+      BillSeriesSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/document-framework/bill-series-settings',
+          ),
+        ),
+      );
+
+  /// Choose the series the firm's sales bills take. Needs `SETTINGS_UPDATE`,
+  /// as the numbering series do; switching resets and reuses nothing.
+  Future<BillSeriesSettings> saveBillSeriesSettings(
+    String seriesDriver,
+  ) async =>
+      BillSeriesSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/document-framework/bill-series-settings',
+            body: <String, dynamic>{'series_driver': seriesDriver},
+          ),
+        ),
+      );
+
+  /// Which series a bill of [productIds] would take, and the number it would
+  /// get on [invoiceDate] (the firm's today when empty). Writes nothing.
+  Future<BillSeriesPreview> salesInvoiceSeriesPreview({
+    required List<String> productIds,
+    String invoiceDate = '',
+  }) async {
+    // `product_id` repeats once per line, which a `Map<String, String>` query
+    // cannot say, so the query string is built here and rides on the path.
+    final String queryString = Uri(queryParameters: <String, dynamic>{
+      if (productIds.isNotEmpty) 'product_id': productIds,
+      if (invoiceDate.isNotEmpty) 'invoice_date': invoiceDate,
+    }).query;
+    return BillSeriesPreview.fromJson(
+      _unwrapMap(
+        await request(
+          'GET',
+          queryString.isEmpty
+              ? '/api/v1/sales-invoices/series-preview'
+              : '/api/v1/sales-invoices/series-preview?$queryString',
+        ),
+      ),
+    );
+  }
+
   // A price offered before anything is sold. The quotation commits nothing,
   // so there is no posting or reservation behind any of these calls -- the
   // only one that changes the world is `convertQuotation`, which creates the

@@ -213,6 +213,14 @@ abstract final class SettingsSubjects {
             'the defaults unless the firm numbers its own way.',
       ),
       SubjectStep(
+        path: 'administration/bill-series',
+        label: 'Bill series',
+        code: 'bill-series',
+        summary: 'One series for every sales bill, or a series per company.',
+        topLine: 'Builds on the sales-bill series from the step before. '
+            'Switching affects new bills only.',
+      ),
+      SubjectStep(
         path: 'administration/goods-types',
         label: 'Goods types',
         code: 'goods-types',

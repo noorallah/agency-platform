@@ -277,6 +277,14 @@ abstract final class ModuleCatalog {
           label: 'Numbering Series',
           requiredPermissions: ['SETTINGS_VIEW'],
         ),
+        // One series or a series per company for the sales bill (backlog
+        // 157). Read with SETTINGS_VIEW; saving needs SETTINGS_UPDATE, which
+        // the screen checks before it offers Save.
+        ModuleTabDefinition(
+          id: 'bill-series',
+          label: 'Bill Series',
+          requiredPermissions: ['SETTINGS_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'goods-types',
           label: 'Goods Types',
@@ -1659,6 +1667,7 @@ abstract final class ModuleCatalog {
         'conversion-rules',
         'unit-sets',
         'numbering-series',
+        'bill-series',
         'goods-types',
         'firm-custom-fields',
         'firm-custom-field-rules',
@@ -1804,6 +1813,12 @@ abstract final class ModuleCatalog {
                 label: 'Numbering Series',
                 path: 'numbering-series',
                 icon: Icons.confirmation_number_outlined,
+              ),
+            if (visibleTabIds.contains('bill-series'))
+              const WorkspaceNavigationNode(
+                label: 'Bill Series',
+                path: 'bill-series',
+                icon: Icons.receipt_long_outlined,
               ),
             if (visibleTabIds.contains('goods-types'))
               const WorkspaceNavigationNode(
