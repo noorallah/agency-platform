@@ -71,8 +71,17 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
   bool _isCustomised = false;
   String? _error;
 
+  /// True once the firm's settings have been read. Until then every box
+  /// holds a blank default, and a save would write those blanks over the
+  /// firm's copies, declaration and letterhead.
+  bool _loaded = false;
+
   bool get _mayManage =>
       widget.permissions.hasPermission(widget.managePermission);
+
+  /// The boxes and Save work only for somebody who may change the settings,
+  /// and only once they hold what the firm has.
+  bool get _mayEdit => _mayManage && _loaded;
 
   @override
   void initState() {
@@ -128,11 +137,13 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
         ];
         _isCustomised = template.isCustomised;
         _loading = false;
+        _loaded = true;
       });
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = error.message;
+        _error = '${error.message} The settings could not be read, so '
+            'nothing here can be saved: close this and open it again.';
         _loading = false;
       });
     }
@@ -251,7 +262,19 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (!_isCustomised)
+                    // Every box greyed out and Save dead, with nothing
+                    // saying why, reads as a broken screen.
+                    if (!_mayManage)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          'You can read these settings but not change them: '
+                          'your role does not allow changing settings.',
+                          key: const ValueKey('print-settings-read-only'),
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                    if (_loaded && !_isCustomised)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: Text(
@@ -273,7 +296,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                         const SizedBox(width: 12),
                         DropdownButton<int>(
                           value: _copies.length,
-                          onChanged: _mayManage
+                          onChanged: _mayEdit
                               ? (value) => _setCopyCount(value ?? 0)
                               : null,
                           items: [
@@ -295,7 +318,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                         padding: const EdgeInsets.only(top: 8),
                         child: TextField(
                           controller: _copies[index],
-                          enabled: _mayManage,
+                          enabled: _mayEdit,
                           decoration: InputDecoration(
                             labelText: 'Copy ${index + 1} label',
                             isDense: true,
@@ -311,7 +334,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Show bank details'),
                       value: _showBank,
-                      onChanged: _mayManage
+                      onChanged: _mayEdit
                           ? (value) => setState(() => _showBank = value)
                           : null,
                     ),
@@ -351,7 +374,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                           DropdownButton<String>(
                             key: const ValueKey('print-bill-layout'),
                             value: _billLayout,
-                            onChanged: _mayManage
+                            onChanged: _mayEdit
                                 ? (value) => setState(
                                     () => _billLayout = value ?? 'STANDARD')
                                 : null,
@@ -380,7 +403,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                         const SizedBox(width: 12),
                         DropdownButton<String>(
                           value: _pageSize,
-                          onChanged: _mayManage
+                          onChanged: _mayEdit
                               ? (value) =>
                                   setState(() => _pageSize = value ?? 'A4')
                               : null,
@@ -433,11 +456,11 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
         if (widget.documentType == 'SALES_INVOICE')
           OutlinedButton(
             key: const ValueKey('print-preview'),
-            onPressed: !_previewing && !_loading ? _preview : null,
+            onPressed: !_previewing && _loaded ? _preview : null,
             child: Text(_previewing ? 'Drawing…' : 'Preview'),
           ),
         FilledButton(
-          onPressed: _mayManage && !_saving && !_loading ? _save : null,
+          onPressed: _mayEdit && !_saving && !_loading ? _save : null,
           child: Text(_saving ? 'Saving…' : 'Save'),
         ),
       ],
@@ -458,7 +481,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
         padding: const EdgeInsets.only(top: 8),
         child: TextField(
           controller: controller,
-          enabled: _mayManage,
+          enabled: _mayEdit,
           maxLines: lines,
           decoration: InputDecoration(labelText: label, isDense: true),
         ),
@@ -469,6 +492,6 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
         contentPadding: EdgeInsets.zero,
         title: Text(label),
         value: value,
-        onChanged: _mayManage ? onChanged : null,
+        onChanged: _mayEdit ? onChanged : null,
       );
 }

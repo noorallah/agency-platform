@@ -784,6 +784,8 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 
 *Added 2026-10-13 (backlog 118). **Driven over HTTP** that day on a preparation firm (38 checks); the screens were not clicked and nothing was put through a printer.*
 
+*Clicked 2026-10-16 in part (`sc_prt_test.dart`, `SCREEN_FLOW_CHECK_PRINTING_2026-10-16.md`): steps 1 to 4, 6 and 7 (half and full page read from the printed PDF; a long bill on A4 by itself; an A4 firm does not read the customer's half page). Not clicked: steps 5 and 8, the half page's column list and GST summary.*
+
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Also needs:** a product **P** with stock; three customers, **A**, **B** and **C**. Where the firm types orders and delivery notes, each bill below continues a note.
 - **Steps**

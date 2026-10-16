@@ -30,6 +30,8 @@ commission uses `commission-firm`:
 
 *Added 2026-10-14 (backlog 151, row P1). The server was driven over HTTP on a preparation firm; the box on screen is covered by widget tests only and **no screen was clicked**, so those steps are written from the build. Nothing was put through a printer.*
 
+*Clicked 2026-10-16 in part (`sc_prt_test.dart`, `SCREEN_FLOW_CHECK_PRINTING_2026-10-16.md`): steps 1 to 5, 7 and 8, as Firm admin and Viewer (the box names the paper, one print switched to Full page gives A4, the next print opens on Half again, Cancel prints nothing). Not clicked: step 9 (Print selected).*
+
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Also needs:** a product **P** with stock; two customers, **A** (Bill paper: Firm's setting) and **B**. Where the firm types orders and delivery notes, each bill below continues a note.
 - **Steps**

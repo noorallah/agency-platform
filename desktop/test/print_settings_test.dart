@@ -39,7 +39,7 @@ PermissionService _permissions({bool mayManage = true}) => PermissionService()
   ));
 
 class _TemplateApi extends ApiClient {
-  _TemplateApi({this.stored})
+  _TemplateApi({this.stored, this.failRead = false})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -50,6 +50,9 @@ class _TemplateApi extends ApiClient {
   /// What the firm has saved, or null for a firm that has saved nothing.
   final Json? stored;
   Json? saved;
+
+  /// The read is lost on the way back (a dropped connection).
+  final bool failRead;
 
   /// What Preview sent, and where (backlog 143).
   Json? previewed;
@@ -82,6 +85,7 @@ class _TemplateApi extends ApiClient {
       saved = Map<String, dynamic>.from(body ?? const <String, dynamic>{});
       return {'data': {...saved!, 'document_type': 'SALES_INVOICE', 'is_customised': true}};
     }
+    if (failRead) throw const ApiException('Cannot reach the API server.');
     return {
       'data': stored ??
           <String, dynamic>{
@@ -336,6 +340,45 @@ void main() {
       final DropdownButton<int> copies =
           tester.widget<DropdownButton<int>>(find.byType(DropdownButton<int>).first);
       expect(copies.onChanged, isNull);
+    });
+
+    // A read that failed left every box at a blank default with Save live,
+    // and saving wrote those blanks over the firm's three copies and its
+    // declaration (screen click round, 2026-10-16).
+    testWidgets('settings that could not be read cannot be saved over',
+        (tester) async {
+      final _TemplateApi api = _TemplateApi(failRead: true);
+      await _open(tester, api);
+
+      final FilledButton save = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Save'),
+      );
+      expect(save.onPressed, isNull);
+      expect(find.textContaining('could not be read'), findsOneWidget);
+      expect(find.textContaining('platform defaults'), findsNothing);
+      final DropdownButton<String> paper = tester.widget<DropdownButton<String>>(
+          find.byType(DropdownButton<String>).last);
+      expect(paper.onChanged, isNull);
+      expect(api.saved, isNull);
+    });
+
+    // Every box greyed out and Save dead, with nothing saying why, read as
+    // a broken screen to a Viewer (screen click round, 2026-10-16).
+    testWidgets('somebody who may only view is told why nothing can be saved',
+        (tester) async {
+      await _open(tester, _TemplateApi(), mayManage: false);
+
+      expect(find.byKey(const ValueKey('print-settings-read-only')),
+          findsOneWidget);
+      expect(find.textContaining('not change them'), findsOneWidget);
+    });
+
+    testWidgets('somebody who may change it is not told otherwise',
+        (tester) async {
+      await _open(tester, _TemplateApi());
+
+      expect(find.byKey(const ValueKey('print-settings-read-only')),
+          findsNothing);
     });
   });
 
