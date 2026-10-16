@@ -17,6 +17,7 @@ import '../../models/sales_invoice.dart' show SalesWorkflowSettings;
 import '../../models/document_file.dart';
 import '../purchases/document_attachments_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/offer_choice_block.dart' show savedOffersLine;
 import '../workspace/printed_document.dart';
 import '../settings/send_message_dialog.dart';
 import 'quotation_editor_dialog.dart';
@@ -864,6 +865,15 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
+                // D-UI-118: what each line was priced with, and who chose it.
+                for (final QuotationLine line in row.lines)
+                  if (savedOffersLine(line.offers).isNotEmpty)
+                    Text(
+                      'Line ${line.lineNumber}. ${savedOffersLine(line.offers)}',
+                      key: ValueKey<String>(
+                          'quotation-view-offers-${line.lineNumber}'),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                 const Divider(),
                 Text('${row.subtotal} + ${row.taxTotal} tax = '
                     '${row.grandTotal}'),

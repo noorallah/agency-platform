@@ -187,6 +187,56 @@ class LineOfferChoice {
   /// "0.5 free from TEA-11", once a part share was taken.
   String partShareNote = '';
 
+  /// Take back the choice a saved line holds, read from its `offers` rows
+  /// (D-UI-117): a reopened draft is priced as it was saved, not from the
+  /// start, so the block and the totals show what the save keeps. Nothing
+  /// where no row was chosen by a person -- the line follows the server.
+  ///
+  /// The keys are the ones the candidates carry: an offer's version group,
+  /// a price list's id, `CUSTOMER` or `CUSTOMER_GROUP`.
+  void hold(Object? savedOffers) {
+    final List<Map<dynamic, dynamic>> rows = <Map<dynamic, dynamic>>[
+      for (final dynamic row in savedOffers is List ? savedOffers : const [])
+        if (row is Map && '${row['state']}' == 'APPLIED') row,
+    ];
+    if (!rows.any((Map<dynamic, dynamic> row) => row['chosen'] == true)) {
+      return;
+    }
+    String? discountFrom;
+    String? partShare;
+    String note = '';
+    final List<String> offers = <String>[];
+    for (final Map<dynamic, dynamic> row in rows) {
+      final double off = double.tryParse('${row['discount_amount']}') ?? 0;
+      switch ('${row['source']}') {
+        case 'promotion':
+          final String key = '${row['promotion_group_id'] ?? ''}';
+          if (key.isEmpty) continue;
+          offers.add(key);
+          if (off > 0) discountFrom ??= 'offers';
+          if (row['part_share'] == true) {
+            partShare = key;
+            note = '${plainOfferQuantity('${row['free_quantity']}')} free '
+                'from ${row['code'] ?? row['name'] ?? ''}';
+          }
+        case 'price_list':
+          if (off > 0) discountFrom = '${row['price_list_id']}';
+        case 'customer':
+          if (off > 0) discountFrom = 'CUSTOMER';
+        case 'customer_group':
+          if (off > 0) discountFrom = 'CUSTOMER_GROUP';
+      }
+    }
+    choice = OfferChoice(
+      discountFrom: discountFrom ?? 'offers',
+      offers: offers,
+      partShare: partShare,
+    );
+    partShareNote = note;
+    // Sent back as it was: the server keeps a choice it already holds.
+    touched = true;
+  }
+
   /// The line's fields for a write or a preview: nothing on an untouched
   /// line, so the server decides -- and an edit keeps the stored choice.
   Map<String, dynamic> get payload => touched
@@ -229,6 +279,13 @@ class LineOfferChoice {
       }
     } else {
       discountFrom = tickedNow ? 'offers' : candidate.key;
+      // A standing arrangement ticked gives the line its discount, so an
+      // offer that takes money off leaves the set: the server refuses the
+      // two together, and the tick never took (D-UI-115). Free goods stay.
+      if (!tickedNow) {
+        offers.removeWhere((String key) => candidates.any(
+            (OfferCandidate item) => item.key == key && item.gives.discounts));
+      }
     }
     choice = OfferChoice(
       discountFrom: discountFrom,

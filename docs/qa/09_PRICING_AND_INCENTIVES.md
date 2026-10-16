@@ -310,6 +310,8 @@ commission uses `commission-firm`:
 
 While a sales line is typed, the side panel lists every offer and standing discount that could act on it, with what each gives, why it is or is not applied, a "buy N more" hint and, for an offer that allows it, a part share; the bill maker may tick a different set and the server prices the line again. `docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md` (sections 1, 3 and 6) is the reference; what was built is the L7 row of `docs/CUSTOMER_BUILD_TASKS.md`.
 
+*Screens clicked 2026-10-16 (`desktop/integration_test/sc_ofl_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_OFFERS_LINE_2026-10-16.md`): the side panel, hint, refused choice, part share, the third setting, the offer form and the saved rows, as Firm admin and Viewer on the lot-firm fixture; TC-OFR-005, 006 and 012 stay HTTP-only. D-UI-115 to D-UI-119 fixed.*
+
 The kept scripts are `docs/qa/checks/offers/` (`setup.py` once, then `python docs/qa/checks/run.py offers`); each makes a fresh scene, so any case runs alone and twice. Results: `docs/qa/OFFERS_ON_THE_LINE_API_CHECK_2026-10-15.md`. The steps are the HTTP calls the screens make (`POST /api/v1/sales-orders/preview` is what the side panel shows); the screens themselves were not clicked.
 
 ### TC-OFR-001 — A line's candidates and reasons in the preview

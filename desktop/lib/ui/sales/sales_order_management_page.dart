@@ -19,6 +19,7 @@ import '../../phase2/indian_format.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/reason_prompt.dart';
 import '../settings/send_message_dialog.dart';
+import '../workspace/offer_choice_block.dart' show savedOffersLine;
 import '../workspace/printed_document.dart';
 import 'sales_document_steps.dart';
 import 'sales_order_editor_dialog.dart';
@@ -451,7 +452,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           amount: '${item['gross_amount'] ?? '0'}',
           netAmount: '${item['net_amount'] ?? '0'}',
           remarks: 'Avail: ${item['available_stock'] ?? '0'} | '
-              'Res: ${item['reserved_stock'] ?? '0'} ${item['remarks'] ?? ''}',
+              'Res: ${item['reserved_stock'] ?? '0'} ${item['remarks'] ?? ''}'
+              // D-UI-118: what the line was priced with, and who chose it.
+              '${savedOffersLine(item['offers']).isEmpty ? '' : ' | ${savedOffersLine(item['offers'])}'}',
         );
       }).toList(growable: false);
 

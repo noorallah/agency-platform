@@ -19,6 +19,7 @@ import '../workspace/bulk_action.dart';
 import '../../models/document_file.dart';
 import '../purchases/document_attachments_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/offer_choice_block.dart' show savedOffersLine;
 import '../workspace/reason_prompt.dart';
 import 'bill_paper_prompt.dart';
 import 'sales_invoice_editor_dialog.dart';
@@ -460,7 +461,13 @@ class _SalesInvoiceManagementPageState
           taxProfile: _labels.taxProfile('${item['tax_profile_id'] ?? ''}'),
           amount: '${item['gross_amount'] ?? '0'}',
           netAmount: '${item['net_amount'] ?? '0'}',
-          remarks: (item['remarks'] as String?) ?? '',
+          // D-UI-118: what the line was priced with, and who chose it.
+          remarks: <String>[
+            if (((item['remarks'] as String?) ?? '').isNotEmpty)
+              item['remarks'] as String,
+            if (savedOffersLine(item['offers']).isNotEmpty)
+              savedOffersLine(item['offers']),
+          ].join(' | '),
         );
       }).toList(growable: false);
 

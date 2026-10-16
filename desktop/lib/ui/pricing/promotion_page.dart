@@ -791,6 +791,21 @@ class _PromotionPageState extends State<PromotionPage> {
                 : 'This promotion ends the stack: nothing after it applies.',
             style: theme.textTheme.bodySmall,
           ),
+          // D-UI-119: the form's "Allow a part share", said on the view a
+          // reader without the right to edit opens.
+          if (row.actions.any((PromotionActionRecord action) =>
+              action.actionType == 'FREE_QUANTITY')) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              row.allowPartShare
+                  ? 'A part share may be billed: free goods in proportion, '
+                      '5.5 bought gives 0.5 free on 11 + 1.'
+                  : 'No part share: the free goods come only with a whole '
+                      'round bought.',
+              key: const ValueKey('promotion-part-share'),
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
         ],
       ),
     );

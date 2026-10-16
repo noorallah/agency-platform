@@ -822,7 +822,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           ..savedMargin = LineMargin.maybeFrom(line)
           ..savedOffers = line['offers'] is List
               ? line['offers'] as List<dynamic>
-              : const <dynamic>[],
+              : const <dynamic>[]
+          // D-UI-117: priced again as saved, not from the start.
+          ..offers.hold(line['offers']),
       );
       _lines.last.savedSignature = _lines.last.signature;
     }
