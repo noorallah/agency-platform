@@ -160,7 +160,13 @@ from app.finance.services.tds_return import (
     return_workbook,
 )
 from app.finance.services.tds_sections import TdsSectionService
-from app.imports.services import columns_for_kind, mapped_content, parse_mapping
+from app.imports.services import (
+    columns_for_kind,
+    mapped_content,
+    parse_mapping,
+    parse_value_mapping,
+    value_columns_for_kind,
+)
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -637,6 +643,7 @@ async def import_ledger_account_file(
     existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
     apply: Annotated[bool, Form()] = False,
     mapping: Annotated[str | None, Form()] = None,
+    value_mapping: Annotated[str | None, Form()] = None,
 ) -> ApiResponse[ImportReportResponse]:
     """Check a CSV or XLSX chart-of-accounts file; with ``apply``, import it.
 
@@ -645,6 +652,8 @@ async def import_ledger_account_file(
     ``imported: false``. The chart is kept under ``ACCOUNT_MANAGE``, so the
     file is too, and updating existing accounts needs nothing more. Opening
     balances are the opening trial balance's, not this file's.
+    ``value_mapping`` reads the source program's head names in *Group* as
+    our groups (Swathi G6); a name it does not cover is read as it is.
     """
     file_format = file_format_of(file.filename)
     # A file mapped on the import screen is read as mapped (decision B3).
@@ -653,6 +662,8 @@ async def import_ledger_account_file(
         file_format,
         parse_mapping(mapping),
         columns_for_kind(db, "ledger-accounts"),
+        parse_value_mapping(value_mapping),
+        value_columns=value_columns_for_kind("ledger-accounts"),
     )
     report = LedgerAccountFileImporter(db, FinanceService(db)).run(
         content,
