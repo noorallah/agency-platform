@@ -190,7 +190,9 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
   Future<void> _open([Vendor? vendor]) async {
     final bool creating = vendor == null;
     if (creating && !_canCreate) return;
-    if (!creating && !_canEdit) return;
+    // Without VENDOR_UPDATE the record opens to be read, every field
+    // disabled and no Save (D-UI-113), as the customer record does.
+    final bool readOnly = !creating && !_canEdit;
     // Phase 2 opens the record as a full-page tab titled with the vendor's
     // name (owner, 2026-09-26); phase 1 keeps its dialog.
     final bool phase2 = Phase2Scope.of(context);
@@ -227,6 +229,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             builder: (context) => _VendorEditorDialog(
               api: widget.api,
               vendor: vendor,
+              readOnly: readOnly,
               onSave: saveIt,
               offerBoxAndPieces: _boxAndPieces,
               loadLicences: vendor != null &&
@@ -296,10 +299,13 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
           )
         : await showDialog<Json>(
             context: context,
-            builder: (context) =>
-                _VendorEditorDialog(api: widget.api, vendor: vendor),
+            builder: (context) => _VendorEditorDialog(
+              api: widget.api,
+              vendor: vendor,
+              readOnly: readOnly,
+            ),
           );
-    if (payload == null || !mounted) return;
+    if (payload == null || readOnly || !mounted) return;
     try {
       if (phase2) {
         await _load();
@@ -647,6 +653,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
           onSelect: (item) => setState(() => _selected = item),
           onOpen: (item) => _open(item),
           contextActionsFor: (item) => [
+            if (!_canEdit) WorkspaceContextAction.view,
             if (_canEdit && !item.isDeleted) WorkspaceContextAction.edit,
             if (_canDelete && !item.isDeleted) WorkspaceContextAction.delete,
             if (_canRestore && item.isDeleted) WorkspaceContextAction.restore,
@@ -654,6 +661,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
           ],
           onContextAction: (action, item) {
             switch (action) {
+              case WorkspaceContextAction.view:
               case WorkspaceContextAction.edit:
                 _open(item);
                 break;
@@ -824,7 +832,12 @@ class _VendorEditorDialog extends StatefulWidget {
     this.onSave,
     this.branchOf,
     this.offerBoxAndPieces = false,
+    this.readOnly = false,
   });
+
+  /// For somebody without `VENDOR_UPDATE` (D-UI-113): every field of the
+  /// record is disabled, no add or remove, and no Save.
+  final bool readOnly;
 
   /// L5: the firm's buying switch for boxes and pieces is on, so the form
   /// offers the tick *Buys in boxes and pieces* and sends it. Off: neither.
@@ -1084,6 +1097,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     unawaited(_loadFamily());
   }
 
+  /// Opened to be read only: fields disabled, no Save.
+  bool get _readOnly => widget.readOnly;
+
   /// Whether the record being opened belongs to a supplier company at all.
   bool get _hasFamily {
     final Vendor? vendor = widget.vendor;
@@ -1161,6 +1177,14 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
               '${branches == 1 ? 'branch' : 'branches'}.',
           helperMaxLines: 2,
         ),
+      );
+    }
+    if (_readOnly) {
+      return TextFormField(
+        key: const ValueKey('vendor-parent'),
+        initialValue: _parentLabel,
+        readOnly: true,
+        decoration: const InputDecoration(labelText: 'Branch of'),
       );
     }
     return Autocomplete<Vendor>(
@@ -1549,7 +1573,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         for (final AssignmentOption option in options)
           DropdownMenuItem<String?>(value: option.id, child: Text(option.label)),
       ],
-      onChanged: onChanged,
+      onChanged: _readOnly ? null : onChanged,
     );
   }
 
@@ -1596,7 +1620,11 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   }
 
   Widget _dialog(BuildContext context) => AlertDialog(
-        title: Text(widget.vendor == null ? 'Create vendor' : 'Edit vendor'),
+        title: Text(widget.vendor == null
+            ? 'Create vendor'
+            : _readOnly
+                ? 'View vendor'
+                : 'Edit vendor'),
         content: SizedBox(
           width: 900,
           child: Column(
@@ -1632,6 +1660,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                       child: CustomFieldsSection(
                         controller: _customFields,
                         noun: 'vendors',
+                        readOnly: _readOnly,
                       ),
                     ),
                   ],
@@ -1643,21 +1672,22 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(_readOnly ? 'Close' : 'Cancel'),
           ),
-          FilledButton(
-            onPressed: () {
-              if (_currencyProblem() != null) return;
-              final String? customField = _customFields.validate();
-              if (customField != null) {
-                NotificationService.show(context, customField,
-                    kind: AppNotificationKind.warning);
-                return;
-              }
-              Navigator.pop(context, _payload());
-            },
-            child: const Text('Save'),
-          ),
+          if (!_readOnly)
+            FilledButton(
+              onPressed: () {
+                if (_currencyProblem() != null) return;
+                final String? customField = _customFields.validate();
+                if (customField != null) {
+                  NotificationService.show(context, customField,
+                      kind: AppNotificationKind.warning);
+                  return;
+                }
+                Navigator.pop(context, _payload());
+              },
+              child: const Text('Save'),
+            ),
         ],
       );
 
@@ -1720,7 +1750,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                         child: Text(vendorGstTypeName(option.key)),
                       ),
                   ],
-                  onChanged: (value) => setState(() => _gstType = value),
+                  onChanged: _readOnly
+                      ? null
+                      : (value) => setState(() => _gstType = value),
                 ),
               ),
             ],
@@ -1779,7 +1811,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED', 'BLOCKED']
                 .map((item) => DropdownMenuItem(value: item, child: Text(item)))
                 .toList(),
-            onChanged: (value) => setState(() => _status = value ?? 'ACTIVE'),
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _status = value ?? 'ACTIVE'),
           ),
           // A block stops new orders and bills and says why to whoever meets
           // it (backlog 69 row 4); the server refuses one with no reason.
@@ -1792,7 +1826,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
           SwitchListTile(
             title: const Text('GST Registration'),
             value: _gstRegistration,
-            onChanged: (value) => setState(() => _gstRegistration = value),
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _gstRegistration = value),
           ),
           SwitchListTile(
             key: const ValueKey('vendor-issues-e-invoices'),
@@ -1801,7 +1837,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                 'A bill from them with no IRN is warned about when it is '
                 'entered (rule 48(4)).'),
             value: _issuesEInvoices,
-            onChanged: (value) => setState(() => _issuesEInvoices = value),
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _issuesEInvoices = value),
           ),
           if (widget.offerBoxAndPieces)
             CheckboxListTile(
@@ -1810,8 +1848,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
               controlAffinity: ListTileControlAffinity.leading,
               title: const Text('Buys in boxes and pieces'),
               value: _boxAndPieces,
-              onChanged: (value) =>
-                  setState(() => _boxAndPieces = value ?? false),
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _boxAndPieces = value ?? false),
             ),
           const SizedBox(height: 12),
           Row(
@@ -1840,8 +1879,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                     DropdownMenuItem(value: 'SMALL', child: Text('Small')),
                     DropdownMenuItem(value: 'MEDIUM', child: Text('Medium')),
                   ],
-                  onChanged: (value) =>
-                      setState(() => _msmeCategory = value ?? ''),
+                  onChanged: _readOnly
+                      ? null
+                      : (value) => setState(() => _msmeCategory = value ?? ''),
                 ),
               ),
             ],
@@ -1853,6 +1893,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                 child: TextField(
                   key: const ValueKey('vendor-currency'),
                   controller: _currency,
+                  readOnly: _readOnly,
                   maxLength: 3,
                   textCapitalization: TextCapitalization.characters,
                   decoration: InputDecoration(
@@ -1860,7 +1901,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                     counterText: '',
                     helperText: 'Blank is rupees. Bills for this supplier '
                         'default to it.',
-                    suffixIcon: PopupMenuButton<String>(
+                    suffixIcon: _readOnly ? null : PopupMenuButton<String>(
                       key: const ValueKey('vendor-currency-pick'),
                       tooltip: 'Common currencies',
                       icon: const Icon(Icons.arrow_drop_down),
@@ -1897,8 +1938,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                   ),
                 ),
             ],
-            onChanged: (value) =>
-                setState(() => _defaultTdsSection = value ?? ''),
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _defaultTdsSection = value ?? ''),
           ),
           if (_defaultTdsSection == '194C' || _defaultTdsSection == '194J')
             Padding(
@@ -1920,8 +1962,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                   DropdownMenuItem(value: 'YES', child: Text('Yes')),
                   DropdownMenuItem(value: 'NO', child: Text('No')),
                 ],
-                onChanged: (value) => setState(() => _tdsIndividualHuf =
-                    value == 'YES' ? true : (value == 'NO' ? false : null)),
+                onChanged: _readOnly
+                    ? null
+                    : (value) => setState(() => _tdsIndividualHuf =
+                        value == 'YES' ? true : (value == 'NO' ? false : null)),
               ),
             ),
           CheckboxListTile(
@@ -1931,8 +1975,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             subtitle: const Text('Off: nothing is proposed on a bill or a payment. '
                 'An amount typed on one bill is still deducted on that bill.'),
             value: _tdsApplicable,
-            onChanged: (value) =>
-                setState(() => _tdsApplicable = value ?? true),
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _tdsApplicable = value ?? true),
           ),
           if (_defaultTdsSection == '194J')
             CheckboxListTile(
@@ -1940,8 +1985,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
               contentPadding: EdgeInsets.zero,
               title: const Text('Technical services (2%)'),
               value: _tdsTechnical,
-              onChanged: (value) =>
-                  setState(() => _tdsTechnical = value ?? false),
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _tdsTechnical = value ?? false),
             ),
           if (_msmeCategory == 'MICRO' || _msmeCategory == 'SMALL')
             CheckboxListTile(
@@ -1951,8 +1997,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                   'Without one the law allows 15 days (MSMED Act s.15); an '
                   'unpaid bill past it is disallowed this year (s.43B(h)).'),
               value: _msmeAgreement,
-              onChanged: (value) =>
-                  setState(() => _msmeAgreement = value ?? false),
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _msmeAgreement = value ?? false),
             ),
           const SizedBox(height: 12),
           _field(_remarks, 'Remarks', maxLines: 3),
@@ -1982,11 +2029,12 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                 Expanded(
                   child: Text(count == 0 ? 'No $noun yet' : '$count $noun'),
                 ),
-                OutlinedButton.icon(
-                  onPressed: () => setState(onAdd),
-                  icon: const Icon(Icons.add),
-                  label: Text('Add $noun'),
-                ),
+                if (!_readOnly)
+                  OutlinedButton.icon(
+                    onPressed: () => setState(onAdd),
+                    icon: const Icon(Icons.add),
+                    label: Text('Add $noun'),
+                  ),
               ],
             ),
           ),
@@ -2029,17 +2077,21 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         contentPadding: EdgeInsets.zero,
         value: value,
         title: const Text('Primary'),
-        onChanged: (next) => setState(() {
-          demoteOthers();
-          onChanged(next ?? false);
-        }),
+        onChanged: _readOnly
+            ? null
+            : (next) => setState(() {
+                  demoteOthers();
+                  onChanged(next ?? false);
+                }),
       );
 
-  Widget _removeButton(String tooltip, VoidCallback onRemove) => IconButton(
-        tooltip: tooltip,
-        onPressed: () => setState(onRemove),
-        icon: const Icon(Icons.delete_outline),
-      );
+  Widget _removeButton(String tooltip, VoidCallback onRemove) => _readOnly
+      ? const SizedBox.shrink()
+      : IconButton(
+          tooltip: tooltip,
+          onPressed: () => setState(onRemove),
+          icon: const Icon(Icons.delete_outline),
+        );
 
   Widget _contactsTab() => _collectionTab(
         noun: 'contact(s)',
@@ -2208,9 +2260,11 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                       DropdownMenuItem(
                           value: 'DELIVERY', child: Text('Delivery')),
                     ],
-                    onChanged: (value) => setState(
-                      () => row.noteType = value ?? 'GENERAL',
-                    ),
+                    onChanged: _readOnly
+                        ? null
+                        : (value) => setState(
+                              () => row.noteType = value ?? 'GENERAL',
+                            ),
                   ),
                 ),
                 const Spacer(),
@@ -2231,6 +2285,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
           {int maxLines = 1, String? helper}) =>
       TextField(
         controller: controller,
+        readOnly: _readOnly,
         maxLines: maxLines,
         decoration: InputDecoration(labelText: label, helperText: helper),
       );
@@ -2250,13 +2305,14 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                         : '${_addresses.length} address(es)',
                   ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: () => setState(
-                    () => _addresses.add(_EditableAddress.empty()),
+                if (!_readOnly)
+                  OutlinedButton.icon(
+                    onPressed: () => setState(
+                      () => _addresses.add(_EditableAddress.empty()),
+                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add address'),
                   ),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add address'),
-                ),
               ],
             ),
           ),
@@ -2311,10 +2367,12 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                                             value: 'WAREHOUSE',
                                             child: Text('Warehouse')),
                                       ],
-                                      onChanged: (value) => setState(
-                                        () => row.addressType =
-                                            value ?? 'BILLING',
-                                      ),
+                                      onChanged: _readOnly
+                                          ? null
+                                          : (value) => setState(
+                                                () => row.addressType =
+                                                    value ?? 'BILLING',
+                                              ),
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -2327,31 +2385,37 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                                       // choosing one here demotes the rest
                                       // rather than letting the save be
                                       // refused for a rule the form knows.
-                                      onChanged: (value) => setState(() {
-                                        for (final other in _addresses) {
-                                          other.isPrimary = false;
-                                        }
-                                        row.isPrimary = value ?? false;
-                                      }),
+                                      onChanged: _readOnly
+                                          ? null
+                                          : (value) => setState(() {
+                                                for (final other
+                                                    in _addresses) {
+                                                  other.isPrimary = false;
+                                                }
+                                                row.isPrimary = value ?? false;
+                                              }),
                                     ),
                                   ),
-                                  IconButton(
-                                    tooltip: 'Remove address',
-                                    icon: const Icon(Icons.close),
-                                    onPressed: () => setState(
-                                      () => _addresses.removeAt(index),
+                                  if (!_readOnly)
+                                    IconButton(
+                                      tooltip: 'Remove address',
+                                      icon: const Icon(Icons.close),
+                                      onPressed: () => setState(
+                                        () => _addresses.removeAt(index),
+                                      ),
                                     ),
-                                  ),
                                 ],
                               ),
                               TextField(
                                 controller: row.line1,
+                                readOnly: _readOnly,
                                 decoration: const InputDecoration(
                                   labelText: 'Address line 1',
                                 ),
                               ),
                               TextField(
                                 controller: row.line2,
+                                readOnly: _readOnly,
                                 decoration: const InputDecoration(
                                   labelText: 'Address line 2',
                                 ),
@@ -2359,6 +2423,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                               const SizedBox(height: 12),
                               GeoAreaPicker(
                                 loadPlaces: widget.api.geoPlaces,
+                                enabled: !_readOnly,
                                 value: row.place,
                                 onChanged: (value) =>
                                     setState(() => row.place = value),

@@ -13,6 +13,7 @@ import 'package:agency_desktop/ui/vendors/vendor_management_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _accessToken(Map<String, dynamic> claims) =>
@@ -383,6 +384,79 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('vendor-save')));
       await tester.pumpAndSettle();
       expect(api.saved!.containsKey('box_and_piece_entry'), isFalse);
+    });
+  });
+
+  group('D-UI-113: a supplier opens read-only without VENDOR_UPDATE', () {
+    Future<_VendorApi> pump(WidgetTester tester, List<String> codes) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _VendorApi api = _VendorApi(rows: <Json>[_vendorJson()]);
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: VendorManagementPage(
+            api: api,
+            permissions: PermissionService()
+              ..applyAccessToken(_accessToken({
+                'roles': <String>['user'],
+                'permissions': codes,
+              })),
+            hasActiveFirm: true,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    Future<void> openRow(WidgetTester tester) async {
+      await tester.tap(find.text('V001').first);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('V001').first);
+      await tester.pumpAndSettle();
+    }
+
+    final Finder name = find.widgetWithText(TextField, 'Vendor Name');
+    final Finder tds = find.byKey(const ValueKey('vendor-tds-applicable'));
+
+    testWidgets('a viewer opens the record with every field disabled',
+        (tester) async {
+      final _VendorApi api = await pump(tester, <String>['VENDOR_VIEW']);
+      await openRow(tester);
+      expect(tester.takeException(), isNull);
+
+      expect(name, findsOneWidget);
+      expect(tester.widget<TextField>(name).readOnly, isTrue);
+      expect(find.byKey(const ValueKey('vendor-save')), findsNothing);
+      expect(find.text('Close'), findsOneWidget);
+      expect(find.text('View only'), findsOneWidget);
+      expect(find.text('Add contact(s)'), findsNothing);
+      expect(find.text('Add address'), findsNothing);
+      await tester.ensureVisible(tds);
+      expect(tester.widget<CheckboxListTile>(tds).onChanged, isNull);
+
+      // Ctrl+S saves nothing either.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(api.saved, isNull);
+    });
+
+    testWidgets('an editor still opens it to edit and save', (tester) async {
+      final _VendorApi api =
+          await pump(tester, <String>['VENDOR_VIEW', 'VENDOR_UPDATE']);
+      await openRow(tester);
+
+      expect(tester.widget<TextField>(name).readOnly, isFalse);
+      expect(find.text('View only'), findsNothing);
+      await tester.ensureVisible(tds);
+      expect(tester.widget<CheckboxListTile>(tds).onChanged, isNotNull);
+      await tester.tap(find.byKey(const ValueKey('vendor-save')));
+      await tester.pumpAndSettle();
+      expect(api.saved?['code'], 'V001');
     });
   });
 }

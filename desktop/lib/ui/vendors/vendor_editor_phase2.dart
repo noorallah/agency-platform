@@ -33,6 +33,7 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
       };
 
   void _submit() {
+    if (_readOnly) return;
     if (_currencyProblem() != null) return;
     final String? customField = _customFields.validate();
     if (customField != null) {
@@ -51,7 +52,9 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
             leaveDocument(context),
-        const SingleActivator(LogicalKeyboardKey.keyS, control: true): _submit,
+        if (!_readOnly)
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+              _submit,
       },
       // A scope, not a plain Focus: after a click outside a text box the
       // focus falls to the nearest scope, which was above these
@@ -72,18 +75,20 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
                 chips: [
                   if (_code.text.trim().isNotEmpty) _code.text.trim(),
                   _statusWords(_status),
+                  if (_readOnly) 'View only',
                 ],
-                hint: 'Ctrl+S save  ·  Esc close',
+                hint: _readOnly ? 'Esc close' : 'Ctrl+S save  ·  Esc close',
                 actions: [
                   TextButton(
                     onPressed: cancelHandler,
-                    child: const Text('Cancel'),
+                    child: Text(_readOnly ? 'Close' : 'Cancel'),
                   ),
-                  FilledButton(
-                    key: const ValueKey('vendor-save'),
-                    onPressed: saving ? null : _submit,
-                    child: const Text('Save vendor'),
-                  ),
+                  if (!_readOnly)
+                    FilledButton(
+                      key: const ValueKey('vendor-save'),
+                      onPressed: saving ? null : _submit,
+                      child: const Text('Save vendor'),
+                    ),
                 ],
               ),
               if (saveError != null)
@@ -227,7 +232,11 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
             _heading(context, 'Notes', ''),
             _notesTab(),
             _heading(context, 'Custom fields', ''),
-            CustomFieldsSection(controller: _customFields, noun: 'vendors'),
+            CustomFieldsSection(
+              controller: _customFields,
+              noun: 'vendors',
+              readOnly: _readOnly,
+            ),
             if (widget.loadLicences != null) ...[
               _heading(context, 'Licences', 'trade licences this vendor holds'),
               _licencesTab(),
