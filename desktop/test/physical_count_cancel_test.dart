@@ -68,8 +68,9 @@ Future<void> _open(
   _Api api, {
   String status = 'DRAFT',
   bool canCount = true,
+  Size size = const Size(1600, 1100),
 }) async {
-  tester.view.physicalSize = const Size(1600, 1100);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
@@ -130,5 +131,13 @@ void main() {
     await _open(tester, _Api(), canCount: false);
 
     expect(find.widgetWithText(TextButton, 'Abandon sheet'), findsNothing);
+  });
+
+  testWidgets('the footer fits at 800x600 (D-UI-102)', (tester) async {
+    await _open(tester, _Api(), size: const Size(800, 600));
+
+    expect(tester.takeException(), isNull);
+    expect(find.widgetWithText(FilledButton, 'Post count'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Abandon sheet'), findsOneWidget);
   });
 }

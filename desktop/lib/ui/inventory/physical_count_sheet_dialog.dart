@@ -410,33 +410,44 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
       // can see -- losing an afternoon of counting to an unknown shortcut is
       // the failure this screen exists to avoid.
       footer: editable
-          ? Row(children: [
-              Text(
-                '${_countedSoFar()} of ${_sheet.lines.length} counted',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(width: AppSpacing.md),
-              // Left of the spacer, away from the two actions that commit:
-              // abandoning and posting are the two irreversible things this
-              // dialog does, and they should not sit next to each other.
-              TextButton.icon(
-                onPressed: _busy ? null : () => unawaited(_abandon()),
-                icon: const Icon(Icons.cancel_outlined, size: 18),
-                label: const Text('Abandon sheet'),
-              ),
-              const Spacer(),
-              OutlinedButton.icon(
-                onPressed: _busy ? null : () => unawaited(_save()),
-                icon: const Icon(Icons.save_outlined),
-                label: const Text('Save progress'),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              FilledButton.icon(
-                onPressed: _busy ? null : () => unawaited(_confirmPost()),
-                icon: const Icon(Icons.done_all),
-                label: const Text('Post count'),
-              ),
-            ])
+          // A Wrap, not a Row: at 800 px the totals and three buttons do
+          // not fit side by side (D-UI-102), so the right-hand group drops
+          // under the left one rather than overflowing.
+          ? Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              runSpacing: AppSpacing.sm,
+              children: [
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(
+                    '${_countedSoFar()} of ${_sheet.lines.length} counted',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  // Away from the two actions that commit: abandoning and
+                  // posting are the two irreversible things this dialog does,
+                  // and they should not sit next to each other.
+                  TextButton.icon(
+                    onPressed: _busy ? null : () => unawaited(_abandon()),
+                    icon: const Icon(Icons.cancel_outlined, size: 18),
+                    label: const Text('Abandon sheet'),
+                  ),
+                ]),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : () => unawaited(_save()),
+                    icon: const Icon(Icons.save_outlined),
+                    label: const Text('Save progress'),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  FilledButton.icon(
+                    onPressed: _busy ? null : () => unawaited(_confirmPost()),
+                    icon: const Icon(Icons.done_all),
+                    label: const Text('Post count'),
+                  ),
+                ]),
+              ],
+            )
           : null,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
