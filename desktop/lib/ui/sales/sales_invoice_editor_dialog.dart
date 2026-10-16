@@ -18,6 +18,7 @@ import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/salesman.dart';
+import '../../models/document_framework.dart';
 import '../../models/document_preview.dart';
 import '../../models/line_tax_rule.dart';
 import '../../models/tax_framework.dart';
@@ -329,6 +330,19 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   int _previewSerial = 0;
   bool _phase2 = false;
 
+  /// Backlog 157: the series a new bill would take, asked of the server
+  /// once per set of products and cached, and only while the firm numbers
+  /// by company -- the first answer saying one series stops the asking.
+  final Map<String, BillSeriesPreview> _seriesSeen =
+      <String, BillSeriesPreview>{};
+  String _seriesKey = '';
+  String _seriesWanted = '';
+  bool _seriesOff = false;
+
+  /// What the band says about the series, or null to say nothing.
+  BillSeriesPreview? get _series =>
+      _seriesOff || _editing ? null : _seriesSeen[_seriesKey];
+
   /// L7: F6 moves here, into the side panel's offers block; Enter goes back
   /// to whatever had focus before.
   final FocusNode _offerFocus = FocusNode(debugLabel: 'sales-invoice-offers');
@@ -452,11 +466,55 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
             }
           }
         });
+        unawaited(_askSeries(priced.invoice));
       } on ApiException {
         // A bill the server refuses as it stands -- serials not yet picked,
         // a quantity past what is left -- keeps the last figures.
       }
     });
+  }
+
+  /// Backlog 157: which series the bill's goods give, behind the pricing
+  /// pause rather than a timer of its own. A set of products already asked
+  /// about is answered from the cache, so retyping a quantity costs nothing.
+  Future<void> _askSeries(Json invoice) async {
+    if (_seriesOff || _editing) return;
+    final dynamic lines = invoice['lines'];
+    final List<String> ids = <String>{
+      // The staged bill's own lines: a bill of notes names its products
+      // only there.
+      if (lines is List)
+        for (final dynamic line in lines)
+          if (line is Map && stringValue(line['product_id']).isNotEmpty)
+            stringValue(line['product_id']),
+    }.toList()
+      ..sort();
+    final String key = ids.join(',');
+    _seriesWanted = key;
+    if (key.isEmpty) {
+      if (_seriesKey.isNotEmpty) setState(() => _seriesKey = '');
+      return;
+    }
+    if (_seriesSeen.containsKey(key)) {
+      if (key != _seriesKey) setState(() => _seriesKey = key);
+      return;
+    }
+    try {
+      final BillSeriesPreview answer =
+          await widget.api.salesInvoiceSeriesPreview(productIds: ids);
+      if (!mounted) return;
+      setState(() {
+        if (answer.seriesDriver == BillSeriesSettings.oneSeries) {
+          _seriesOff = true;
+          return;
+        }
+        _seriesSeen[key] = answer;
+        // An older answer landing late is kept, not shown.
+        if (key == _seriesWanted) _seriesKey = key;
+      });
+    } on Object {
+      // Nothing said; the number still comes from the server at save.
+    }
   }
 
   /// The draft as it was read, when correcting one.

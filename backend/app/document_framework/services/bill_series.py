@@ -164,6 +164,31 @@ def company_prefixes_in_use(session: Session, firm_id: UUID) -> list[str]:
     )
 
 
+def company_names_by_prefix(
+    session: Session, firm_id: UUID, prefixes: Iterable[str | None]
+) -> dict[str, str]:
+    """Return the company name behind each prefix, in one read.
+
+    Companies sharing a prefix share its series, so their names are joined.
+    GENERAL and blank ask nothing.
+    """
+    from app.products.models.brand import Principal
+
+    wanted = {p for p in prefixes if p and p != GENERAL_SERIES}
+    if not wanted:
+        return {}
+    names: dict[str, list[str]] = {}
+    for prefix, name in session.execute(
+        select(Principal.bill_series_prefix, Principal.name).where(
+            Principal.firm_id == firm_id,
+            Principal.is_deleted.is_(False),
+            Principal.bill_series_prefix.in_(wanted),
+        )
+    ).all():
+        names.setdefault(prefix, []).append(name)
+    return {prefix: ", ".join(sorted(group)) for prefix, group in names.items()}
+
+
 def sales_bill_rule(session: Session, firm_id: UUID) -> DocumentNumberingRule | None:
     """Return the series the firm's sales bills are numbered from, if any.
 
@@ -550,6 +575,7 @@ __all__ = [
     "BillSeriesSettingsWrite",
     "SeriesChoice",
     "assert_prefix_fits",
+    "company_names_by_prefix",
     "company_prefixes_in_use",
     "longest_prefix",
     "normalise_prefix",

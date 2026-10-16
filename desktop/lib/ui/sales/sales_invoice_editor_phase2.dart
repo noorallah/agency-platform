@@ -262,6 +262,18 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     return null;
   }
 
+  /// The band's line about the series (backlog 157), with why where the
+  /// bill falls back to the firm's own series.
+  String _seriesSentence(BillSeriesPreview series) {
+    final String why = switch (series.reason) {
+      'MIXED' => " -- the firm's own series, as its goods are of more than "
+          'one company',
+      'NO_GOODS' => " -- the firm's own series",
+      _ => '',
+    };
+    return 'This bill will be numbered like ${series.number}$why';
+  }
+
   Widget _phase2Page(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
@@ -376,6 +388,19 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   ),
                 ],
               ),
+              // Backlog 157: on a firm numbering by company, which series
+              // this bill's goods give it. The server decides; this repeats.
+              if (_series != null && _series!.number.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                  child: Text(
+                    _seriesSentence(_series!),
+                    key: const ValueKey('sales-invoice-series-preview'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
