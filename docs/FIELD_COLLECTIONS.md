@@ -6,8 +6,89 @@ yet.** It extends `docs/BACKLOG.md` §39 (field collections offline) and the
 phone decision in §48 (orders and collections work offline). Offline sales
 orders follow the same pattern later.
 
-Written 2026-09-30 from a design discussion with the owner. The decisions at the
-end are still open.
+Written 2026-09-30 from a design discussion with the owner. **This file is the
+one place for the phone collection app** -- design, decisions and the points
+still to discuss. Decided so far is in the next section; the rest of the open
+decisions are at the end.
+
+## Decided by the owner, 2026-10-17
+
+- **Offline first.** Build option 2 -- the phone saves all day and syncs over
+  the office Wi-Fi. The **online** app (option 1) comes later, because it needs
+  a domain or a fixed IP and a certificate at each firm.
+- **When:** third, in this order -- (1) finish testing the product, (2) the
+  old-data import, (3) this app. It is also wanted as a showcase.
+- **Still to discuss and plan together** before anything is built beyond a
+  showcase: the points under *Office Wi-Fi sync, step by step* below and the
+  remaining open decisions.
+
+## Office Wi-Fi sync, step by step
+
+The office server PC and the phone only need to be on the same office Wi-Fi.
+No internet and no domain.
+
+**Once, at set-up**
+
+- The server PC (running the backend) has an address on the office network,
+  for example `192.168.1.10`. The backend listens on the network, not only on
+  the PC itself (`-BindHost 0.0.0.0`, port 8000 open).
+- The collector's phone joins the office Wi-Fi like any visitor.
+- The app is given that address once -- today's Android test build already
+  has this setting under *Application Settings*. Plain `http` is allowed only
+  to a private address like this one (the LAN transport decision).
+- The phone is registered to one collector, who signs in with their own user.
+
+**Morning, in the office (on Wi-Fi)**
+
+1. The collector opens the app and taps **Sync**.
+2. The phone downloads the day's **route pack**: the shops on today's route in
+   visit order, each shop's outstanding and open bills, and a block of receipt
+   numbers (for example `FC-07-0101` to `0200`).
+3. The phone stores it in its own small database and can leave the office.
+
+**During the day, in the field (no network needed)**
+
+4. At each shop the collector records the payment: amount, cash / cheque /
+   UPI, cheque number.
+5. The phone gives it the next number from the block and saves it **on the
+   phone only**. Nothing is sent, nothing is posted.
+6. The phone shows *morning outstanding minus what I collected today* -- a
+   guide for the collector, never sent and never trusted.
+7. A saved entry is never edited; a mistake is marked **VOID** with a reason.
+
+**Evening, back in the office (on Wi-Fi again)**
+
+8. The collector taps **Sync**; the phone sends the day's collections.
+9. The server records each one as a **normal receipt**, exactly as if the
+   office had typed it, so the ledger and the outstanding update the usual way.
+10. The server checks no number is missing and no amount was changed, and
+    records something that arrives twice only once.
+11. The server answers with a confirmation -- numbers accepted, numbers
+    refused with the reason, the total accepted -- and tomorrow's route pack.
+12. The phone compares the server's total with its own. Only when they match
+    does it clear the day and load the new pack. If anything is missing, it
+    keeps everything and tells the collector what to send again.
+
+**What this means**
+
+- Money is recorded only by the server; the phone only carries "I took ₹2,500
+  from shop X" to the office.
+- If the phone dies before syncing, only that day's unsynced entries are at
+  risk -- the paper receipt book is the backup evidence.
+- The phone needs the office Wi-Fi twice a day; no mobile data.
+
+**Points to discuss (owner, open)**
+
+1. **Does every collector come back to the office every evening?** If some
+   do not, Wi-Fi sync does not suit them -- they need the file option (USB /
+   Nearby Share, option 3) or the online app later.
+2. **Paper receipt book, or the phone's own number?** If the collector writes
+   a paper receipt for the shop, that book number can be the receipt number.
+3. **Collect on account, or against specific bills?** On account is simpler --
+   the office applies it to bills after. Against bills means the collector
+   picks bills on the phone with figures a few hours old.
+4. **Is the office Wi-Fi on the same network as the server PC?** In most small
+   offices one router serves both. If not, a small router setting is needed.
 
 ## The rule everything else follows
 
@@ -224,7 +305,8 @@ what to re-send. Nothing is lost by a failed sync; the old data simply stays.
    account -- the office applies it -- which removes the staleness problem.
 2. **Paper receipt-book numbers, or blocks issued to the phone?** The book is
    better evidence; blocks suit printing from the phone later.
-3. **Which option first:** 2 (office Wi-Fi) or 3 (file, no network)?
+3. ~~**Which option first:** 2 (office Wi-Fi) or 3 (file, no network)?~~
+   **Decided 2026-10-17: option 2, office Wi-Fi.** Online (option 1) later.
 4. **Separate small app or a mode in the existing app?**
 5. **Late sync across a closed period:** hold the period open, or post into the
    open period keeping the true collection date?
