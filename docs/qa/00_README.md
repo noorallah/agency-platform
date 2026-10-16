@@ -15,7 +15,7 @@ column, `Sell > Credit Notes` may be written without its group, and the gear at 
 (`Settings > Firm > Numbering Series`, `Settings > Set up > Pricing > Price
 Lists`, `Settings > Platform > People > Users`).
 
-Generated on 2026-10-05 from the product's own sources. The detailed cases
+Generated on 2026-10-16 from the product's own sources. The detailed cases
 come from `docs/INDEPENDENT_TEST_CASES.md`, whose every expectation was
 driven against a running server. The screen checks and the role matrix come
 from the application's screen catalogue and role seed. The files are
