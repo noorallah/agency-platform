@@ -412,10 +412,12 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         ),
       );
 
+  /// What the box searches: the server matches the number alone, so the
+  /// hint does not promise a product (the lots click flow, 2026-10-16).
   String get _searchHint => switch (widget.section) {
-        BatchSerialSection.batches => 'Search batch number, product…',
-        BatchSerialSection.lots => 'Search lot number, product…',
-        BatchSerialSection.serials => 'Search serial number, product…',
+        BatchSerialSection.batches => 'Search batch number…',
+        BatchSerialSection.lots => 'Search lot number…',
+        BatchSerialSection.serials => 'Search serial number…',
         BatchSerialSection.expiryMonitor => 'Search expiring batches…',
       };
 

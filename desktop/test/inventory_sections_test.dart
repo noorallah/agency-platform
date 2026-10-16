@@ -387,6 +387,40 @@ void main() {
     });
   }
 
+  // The server's search matches the batch, lot or serial number alone, so a
+  // hint promising a product sent a person searching for one to "No search
+  // results" (the lots click flow, 2026-10-16).
+  for (final BatchSerialSection section in const <BatchSerialSection>[
+    BatchSerialSection.batches,
+    BatchSerialSection.lots,
+    BatchSerialSection.serials,
+  ]) {
+    testWidgets('the ${section.name} search box promises only the number',
+        (tester) async {
+      await _pump(
+        tester,
+        BatchManagementPage(
+          api: _InventoryApi(),
+          preferences: DesktopPreferencesService(),
+          permissions: _permissions(),
+          hasActiveFirm: true,
+          section: section,
+        ),
+      );
+
+      final List<String> hints = <String>[
+        for (final TextField field
+            in tester.widgetList<TextField>(find.byType(TextField)))
+          field.decoration?.hintText ?? '',
+      ].where((String h) => h.startsWith('Search')).toList();
+      expect(hints, isNotEmpty, reason: 'no search box found');
+      for (final String hint in hints) {
+        expect(hint, contains('number'));
+        expect(hint.toLowerCase(), isNot(contains('product')));
+      }
+    });
+  }
+
   testWidgets('the settings screen offers settings, not a design brief',
       (tester) async {
     await _pump(
