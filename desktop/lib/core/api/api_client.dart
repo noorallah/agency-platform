@@ -622,6 +622,21 @@ class ApiClient {
         },
       )));
 
+  /// Switch the support account off or on (backlog 29s), saying why.
+  ///
+  /// The server requires the reason for this account and keeps it in the
+  /// trail; any platform administrator may do it, the account itself may not.
+  Future<PlatformUser> setSupportAccess(
+    String id, {
+    required bool active,
+    required String reason,
+  }) async =>
+      PlatformUser.fromJson(_unwrapMap(await request(
+        'PATCH',
+        '/api/v1/users/$id',
+        body: {'is_active': active, 'reason': reason},
+      )));
+
   /// Bring a soft-deleted user back with their old firms and roles.
   /// Platform administrators only.
   Future<PlatformUser> restoreUser(String id) async =>

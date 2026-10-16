@@ -9,6 +9,7 @@ import 'identity/firm_roles_dialog.dart';
 import 'identity/primary_firm_dialog.dart';
 import 'identity/profile_dialog.dart';
 import 'identity/reset_password_dialog.dart';
+import 'identity/support_access_dialog.dart';
 
 import '../core/api/api_client.dart';
 import '../core/api/concurrency.dart';
@@ -5660,8 +5661,11 @@ ResourceDefinition<PlatformUser> userDefinition(
         // after somebody left. Platform administrators only -- a firm
         // administrator would be taking over an account that may also work
         // in a firm they cannot see. The server refuses the caller's own
-        // account and says where to go instead.
-        if (permissions.isPlatformAdmin)
+        // account and says where to go instead. Not on the support account's
+        // row: its password is changed only by `create-support-admin
+        // --reset-password` on the machine (backlog 29s), and that row's
+        // footer has the Support access switch in its place.
+        if (permissions.isPlatformAdmin && !user.isSupportAccount)
           TextButton.icon(
             icon: const Icon(Icons.lock_reset_outlined),
             label: const Text('Reset password'),
@@ -5678,6 +5682,33 @@ ResourceDefinition<PlatformUser> userDefinition(
                 'They are signed out everywhere and any lock is cleared.',
                 kind: AppNotificationKind.success,
               );
+            },
+          ),
+        // The support account's on/off (backlog 29s), on that row alone. Any
+        // platform administrator may; the server asks for the reason this
+        // dialog collects and refuses the account switching itself.
+        if (permissions.isPlatformAdmin && user.isSupportAccount)
+          TextButton.icon(
+            icon: const Icon(Icons.support_agent_outlined),
+            label: Text(user.isActive
+                ? 'Support access: on'
+                : 'Support access: off'),
+            onPressed: () async {
+              final PlatformUser? saved = await switchSupportAccess(
+                dialogContext,
+                api: api,
+                user: user,
+              );
+              if (saved == null || !dialogContext.mounted) return;
+              NotificationService.show(
+                dialogContext,
+                saved.isActive
+                    ? 'Support access is on.'
+                    : 'Support access is off; the support account is signed '
+                        'out everywhere.',
+                kind: AppNotificationKind.success,
+              );
+              Navigator.of(dialogContext).pop();
             },
           ),
       ];

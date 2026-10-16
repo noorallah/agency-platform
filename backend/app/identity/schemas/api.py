@@ -181,6 +181,9 @@ class UserUpdate(UserProfileFields):
     is_active: bool | None = None
     expires_at: datetime | None = None
     unlock: bool = False
+    #: Why the support account is being switched off or on (backlog 29s).
+    #: Required for that switch and kept in the trail; read for nothing else.
+    reason: str | None = Field(default=None, max_length=500)
 
 
 class UserResponse(UserProfileFields):
@@ -212,6 +215,10 @@ class UserResponse(UserProfileFields):
     #: Always False for a platform caller: they can see every firm, so nothing
     #: is hidden from them and the guard does not apply.
     belongs_to_other_firms: bool = False
+    #: The installation's support account (backlog 29s): the one row whose
+    #: Support access switch the Users screen offers. Set by the list and the
+    #: single read; False wherever else a user is returned.
+    is_support_account: bool = False
     #: Soft-deleted. Only listed when a platform administrator asks for
     #: deleted rows, which is how a deleted user is found in order to be
     #: restored.

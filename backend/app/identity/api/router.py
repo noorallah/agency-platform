@@ -487,10 +487,16 @@ def list_users(
     # One query for the page rather than one per row. Without it the grid
     # cannot know whom it may edit, and offers a form that cannot save.
     shared = _service(db, settings).shared_user_ids([row.id for row in rows], scope)
+    # Which row is the support account (29s), so the screen offers its switch
+    # on that row alone. One query for the page, like `shared`.
+    support = _service(db, settings).support_account_ids([row.id for row in rows])
     return PaginatedResponse(
         data=[
             UserResponse.model_validate(row).model_copy(
-                update={"belongs_to_other_firms": row.id in shared}
+                update={
+                    "belongs_to_other_firms": row.id in shared,
+                    "is_support_account": row.id in support,
+                }
             )
             for row in rows
         ],
@@ -599,7 +605,8 @@ def get_user(
             update={
                 "belongs_to_other_firms": bool(
                     service.shared_user_ids([user.id], scope)
-                )
+                ),
+                "is_support_account": bool(service.support_account_ids([user.id])),
             }
         )
     )
@@ -628,7 +635,11 @@ def update_user(
     assert_version(service._get_user(user_id, scope).version, expected_version)
     user = service.update_user(user_id, data, _actor_id(principal), scope)
     set_etag(response, user)
-    return ApiResponse(data=UserResponse.model_validate(user))
+    return ApiResponse(
+        data=UserResponse.model_validate(user).model_copy(
+            update={"is_support_account": bool(service.support_account_ids([user.id]))}
+        )
+    )
 
 
 @router.delete(

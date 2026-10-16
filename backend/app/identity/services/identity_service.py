@@ -65,6 +65,7 @@ from app.identity.schemas.api import (
     UserTemplateUpdate,
     UserUpdate,
 )
+from app.identity.services.support_admin import SUPPORT_DEPARTMENT
 from app.identity.system_seed import (
     DESIGNATION_ONLY_PERMISSION_CODES,
     FIRM_ROLE_CODES,
@@ -630,11 +631,26 @@ class IdentityService:
         actor_id: UUID,
         firm_scope: UUID | None = None,
     ) -> User:
-        """Update allowed user properties or explicitly remove a lock."""
+        """Update allowed user properties or explicitly remove a lock.
+
+        The support account (backlog 29s) is the one exception to the rank
+        rule: any platform administrator other than the account itself may
+        switch it off and on again, with a reason, and nothing else. See
+        `_assert_may_switch_support`.
+        """
         user = self._get_user(user_id, firm_scope)
         if firm_scope is not None:
             self._assert_exclusive_firm_user(user.id, firm_scope)
-        self._assert_may_administer(user.id, actor_id)
+        support_switch = (
+            data.is_active is not None
+            and data.is_active != user.is_active
+            and self._is_support_account(user)
+        )
+        reason = (data.reason or "").strip()
+        if support_switch:
+            self._assert_may_switch_support(user.id, actor_id, data, reason)
+        else:
+            self._assert_may_administer(user.id, actor_id)
         if user.id == actor_id and (
             data.is_active is False
             or ("expires_at" in data.model_fields_set and data.expires_at is not None)
@@ -658,6 +674,24 @@ class IdentityService:
         before_data, after_data = changed_fields(before, self._user_state(user))
         user.updated_by = actor_id
         self._revoke_user_tokens(user.id)
+        if support_switch:
+            # Its own event, carrying who and why; `user.updated` below keeps
+            # whatever else changed, which for this account is nothing.
+            before_data.pop("is_active", None)
+            after_data.pop("is_active", None)
+            record_audit(
+                self._session,
+                action=(
+                    "identity.support_admin_enabled"
+                    if user.is_active
+                    else "identity.support_admin_disabled"
+                ),
+                entity_type="user",
+                entity_id=user.id,
+                actor_id=actor_id,
+                before_data={"is_active": not user.is_active},
+                after_data={"is_active": user.is_active, "reason": reason},
+            )
         if after_data:
             # Every firm the person works in: a user record is platform-wide,
             # so a rename or a switch-off concerns each of them.
@@ -3383,6 +3417,78 @@ class IdentityService:
                 "This administrator's reach is wider than yours, so only an "
                 "administrator with the same reach can change their account."
             )
+
+    def _is_support_account(self, user: User) -> bool:
+        """Return whether this is the installation's support account (29s).
+
+        The account `create-support-admin` makes: an `ALL_FIRMS` designation
+        on a user whose department reads `SUPPORT_DEPARTMENT`. Both, because a
+        customer may well have a department called Support of their own.
+        """
+        return bool(self.support_account_ids([user.id]))
+
+    def support_account_ids(self, user_ids: list[UUID]) -> set[UUID]:
+        """Return which of these accounts is the support account, in one query.
+
+        See `_is_support_account`. A page of the Users list asks once.
+        """
+        if not user_ids:
+            return set()
+        return set(
+            self._session.scalars(
+                select(User.id)
+                .join(PlatformAdmin, PlatformAdmin.user_id == User.id)
+                .where(
+                    User.id.in_(user_ids),
+                    User.department == SUPPORT_DEPARTMENT,
+                    PlatformAdmin.scope == PlatformAdminScope.ALL_FIRMS.value,
+                    PlatformAdmin.is_deleted.is_(False),
+                )
+            )
+        )
+
+    #: What a switch of the support account may carry. Anything else -- a
+    #: rename, an expiry, an unlock -- is ordinary administration and goes
+    #: through the rank rule like any other change.
+    _SUPPORT_SWITCH_FIELDS = frozenset({"is_active", "reason"})
+
+    def _assert_may_switch_support(
+        self, target_id: UUID, actor_id: UUID, data: UserUpdate, reason: str
+    ) -> None:
+        """Let the customer's administrator switch the support account off or on.
+
+        The support account holds `ALL_FIRMS`, so under `_assert_may_administer`
+        a customer administrator designated `PLATFORM` could never switch it
+        off -- and the installation's owner must always be able to shut the
+        vendor out. The exemption is the narrowest that does that: any
+        platform administrator (either reach) other than the support account
+        itself, changing `is_active` and nothing else, with a reason the trail
+        keeps. A password reset, a rename or an expiry still needs the rank.
+
+        Raises:
+            ValidationError: If no reason was given.
+            BusinessRuleError: If the support account aims at itself.
+            AuthorizationError: If the actor holds no designation, or the body
+                changes more than `is_active` without the rank to do so.
+
+        """
+        if target_id == actor_id:
+            raise BusinessRuleError(
+                "The support account cannot switch itself off or on. The "
+                "installation's administrator does that."
+            )
+        if not reason:
+            raise ValidationError(
+                "Say why the support account is being switched off or on; the "
+                "reason is kept in the audit trail."
+            )
+        if self._platform_admin_scope(actor_id) is None:
+            raise AuthorizationError(
+                "Only a platform administrator can switch the support account "
+                "off or on."
+            )
+        if not data.model_fields_set <= self._SUPPORT_SWITCH_FIELDS or data.unlock:
+            self._assert_may_administer(target_id, actor_id)
 
     @staticmethod
     def _assert_not_own_access(user_id: UUID, actor_id: UUID) -> None:

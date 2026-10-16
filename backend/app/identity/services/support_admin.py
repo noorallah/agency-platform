@@ -25,8 +25,10 @@ from app.core.validation import validate_email, validate_password_policy
 from app.identity.models import PlatformAdmin, RefreshToken, User
 
 #: Written to ``users.department`` so the account reads as support on the
-#: Users screen. Informational only: nothing authorises on it, and a column
-#: that marks support for the trail filter is part c of 29s.
+#: Users screen. With the ALL_FIRMS designation it also names the account
+#: any platform administrator may switch off and on (part b,
+#: `IdentityService._assert_may_switch_support`); it never widens what the
+#: account may do. A column that marks support for the trail filter is part c.
 SUPPORT_DEPARTMENT = "Support"
 
 
