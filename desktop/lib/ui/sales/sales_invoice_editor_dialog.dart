@@ -1227,6 +1227,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       }
     }
     final String? before = _document?.customerId;
+    final String? primaryBefore = _document?.sourceDocumentId;
     _document = picked.isEmpty ? null : picked.first;
     _extraDocuments
       ..clear()
@@ -1238,6 +1239,16 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       unawaited(_loadAddresses(after));
     }
     _followBillCustomer();
+    // The primary note's salesman follows, as when a note is chosen one at a
+    // time: ticking notes left the box on the customer's starting choice
+    // while the server billed the note's own salesman (clicked 2026-10-16).
+    // After the frame's own setState, which this is called inside.
+    if (_phase2 &&
+        _salesmanAsked &&
+        _document != null &&
+        _document!.sourceDocumentId != primaryBefore) {
+      scheduleMicrotask(_fillSalesman);
+    }
   }
 
   /// The quantity in the source line's unit, which is what the price and the

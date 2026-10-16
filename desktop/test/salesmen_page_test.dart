@@ -74,6 +74,9 @@ class _SalesmenApi extends ApiClient {
   Json? created;
   Json? updated;
   int? sentVersion;
+
+  /// When set, the next update is refused with this.
+  ApiException? refuseUpdate;
   final List<String> deleted = <String>[];
   final List<String> restored = <String>[];
 
@@ -120,6 +123,8 @@ class _SalesmenApi extends ApiClient {
     Json data, {
     int? expectedVersion,
   }) async {
+    final ApiException? refusal = refuseUpdate;
+    if (refusal != null) throw refusal;
     updated = data;
     sentVersion = expectedVersion;
     return Salesman.fromJson(<String, dynamic>{'id': id, ...data});
@@ -263,6 +268,51 @@ void main() {
     expect(api.updated?['phone'], '98450 99999');
     expect(api.updated?['user_id'], 'user-meera');
     expect(api.sentVersion, 3);
+  });
+
+  // TC-SELL-118, clicked 2026-10-16: an edit to a name already on the list
+  // is refused with a 409 that is not a lost race, and was shown as
+  // "Somebody else saved this salesman".
+  testWidgets('an edit to a name already on the list says so', (tester) async {
+    final _SalesmenApi api = _SalesmenApi()
+      ..refuseUpdate = const ApiException(
+        'A salesman named MEERA RAGHAVAN is already on the list.',
+        statusCode: 409,
+      );
+    await _pump(tester, api);
+    await _select(tester, 'Ravi Kumar');
+
+    await tester.tap(find.byKey(const ValueKey('selection-edit')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Name')), 'MEERA RAGHAVAN');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save & Close').last);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('is already on the list'), findsWidgets);
+    expect(find.textContaining('Somebody else saved'), findsNothing);
+    expect(find.byType(Dialog), findsOneWidget, reason: 'the typing is kept');
+  });
+
+  testWidgets('an edit that lost a race still says somebody else saved it',
+      (tester) async {
+    final _SalesmenApi api = _SalesmenApi()
+      ..refuseUpdate = const ApiException(
+        'This record changed since you loaded it. Reload and try again.',
+        statusCode: 409,
+      );
+    await _pump(tester, api);
+    await _select(tester, 'Ravi Kumar');
+
+    await tester.tap(find.byKey(const ValueKey('selection-edit')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Phone')), '98450 12345');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save & Close').last);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Somebody else saved this salesman'),
+        findsWidgets);
   });
 
   testWidgets('a deleted salesman can be restored while the screen is open',
