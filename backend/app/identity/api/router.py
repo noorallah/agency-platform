@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_request_settings
 from app.common.scope import FirmScope, optional_firm_scope
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.config.settings import Settings
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import firm_store_session, get_db
@@ -506,6 +507,7 @@ def list_users(
 def create_user(
     data: UserCreate,
     principal: UserCreatePrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
@@ -514,6 +516,7 @@ def create_user(
     user = _service(db, settings).create_user(
         data, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
+    set_etag(response, user)
     return ApiResponse(data=UserResponse.model_validate(user))
 
 
@@ -577,6 +580,7 @@ def lookup_users(
 def get_user(
     user_id: UUID,
     principal: UserViewPrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
@@ -589,6 +593,7 @@ def get_user(
     scope = _firm_scope(principal, caller_scope)
     service = _service(db, settings)
     user = service._get_user(user_id, scope, include_deleted=scope is None)
+    set_etag(response, user)
     return ApiResponse(
         data=UserResponse.model_validate(user).model_copy(
             update={
@@ -607,14 +612,22 @@ def update_user(
     user_id: UUID,
     data: UserUpdate,
     principal: UserUpdatePrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
-    """Update user status, expiry, name, or clear a lock."""
-    user = _service(db, settings).update_user(
-        user_id, data, _actor_id(principal), _firm_scope(principal, caller_scope)
-    )
+    """Update user status, expiry, name, or clear a lock.
+
+    `If-Match` refuses a save aimed at a version somebody else has since
+    moved past (D-IDN-15); sending none is still accepted.
+    """
+    scope = _firm_scope(principal, caller_scope)
+    service = _service(db, settings)
+    assert_version(service._get_user(user_id, scope).version, expected_version)
+    user = service.update_user(user_id, data, _actor_id(principal), scope)
+    set_etag(response, user)
     return ApiResponse(data=UserResponse.model_validate(user))
 
 
@@ -648,6 +661,7 @@ def delete_user(
 def restore_user(
     user_id: UUID,
     principal: PlatformPrincipal,
+    response: Response,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
@@ -659,6 +673,7 @@ def restore_user(
     when a live account has since taken the address.
     """
     user = _service(db, settings).restore_user(user_id, _actor_id(principal))
+    set_etag(response, user)
     return ApiResponse(data=UserResponse.model_validate(user))
 
 
@@ -671,6 +686,7 @@ def reset_user_password(
     user_id: UUID,
     data: AdminPasswordReset,
     principal: PlatformPrincipal,
+    response: Response,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
@@ -686,6 +702,7 @@ def reset_user_password(
         _actor_id(principal),
         force_change=data.force_password_change,
     )
+    set_etag(response, user)
     return ApiResponse(data=UserResponse.model_validate(user))
 
 
@@ -920,18 +937,17 @@ def list_roles(
 def create_role(
     data: RoleCreate,
     principal: RoleCreatePrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[RoleResponse]:
     """Create a custom role."""
-    return ApiResponse(
-        data=RoleResponse.model_validate(
-            _service(db, settings).create_role(
-                data, _actor_id(principal), _firm_scope(principal, caller_scope)
-            )
-        )
+    role = _service(db, settings).create_role(
+        data, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
+    set_etag(response, role)
+    return ApiResponse(data=RoleResponse.model_validate(role))
 
 
 def _template_response(template: UserTemplate) -> UserTemplateResponse:
@@ -951,6 +967,7 @@ def _template_response(template: UserTemplate) -> UserTemplateResponse:
         is_system=template.is_system,
         role_ids=[row.role_id for row in live],
         role_codes=sorted(row.role.code for row in live if row.role is not None),
+        version=template.version,
     )
 
 
@@ -995,18 +1012,17 @@ def list_user_templates(
 def create_user_template(
     data: UserTemplateCreate,
     principal: RoleCreatePrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserTemplateResponse]:
     """Create a job template for this scope."""
-    return ApiResponse(
-        data=_template_response(
-            _service(db, settings).create_user_template(
-                data, _actor_id(principal), _firm_scope(principal, caller_scope)
-            )
-        )
+    template = _service(db, settings).create_user_template(
+        data, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
+    set_etag(response, template)
+    return ApiResponse(data=_template_response(template))
 
 
 @router.get(
@@ -1017,18 +1033,17 @@ def create_user_template(
 def get_user_template(
     template_id: UUID,
     principal: RoleViewPrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserTemplateResponse]:
     """Retrieve one job template."""
-    return ApiResponse(
-        data=_template_response(
-            _service(db, settings).get_user_template(
-                template_id, _firm_scope(principal, caller_scope)
-            )
-        )
+    template = _service(db, settings).get_user_template(
+        template_id, _firm_scope(principal, caller_scope)
     )
+    set_etag(response, template)
+    return ApiResponse(data=_template_response(template))
 
 
 @router.patch(
@@ -1040,21 +1055,23 @@ def update_user_template(
     template_id: UUID,
     data: UserTemplateUpdate,
     principal: RoleUpdatePrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserTemplateResponse]:
-    """Update a job template."""
-    return ApiResponse(
-        data=_template_response(
-            _service(db, settings).update_user_template(
-                template_id,
-                data,
-                _actor_id(principal),
-                _firm_scope(principal, caller_scope),
-            )
-        )
+    """Update a job template; `If-Match` refuses a stale save (D-IDN-15)."""
+    scope = _firm_scope(principal, caller_scope)
+    service = _service(db, settings)
+    assert_version(
+        service.get_user_template(template_id, scope).version, expected_version
     )
+    template = service.update_user_template(
+        template_id, data, _actor_id(principal), scope
+    )
+    set_etag(response, template)
+    return ApiResponse(data=_template_response(template))
 
 
 @router.delete(
@@ -1086,6 +1103,7 @@ def clone_user(
     user_id: UUID,
     data: UserCloneRequest,
     principal: UserRoleAssignmentPrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
@@ -1102,20 +1120,20 @@ def clone_user(
     of roles. `USER_CREATE` alone must not reach it, or an administrator who
     may open accounts but not grant access could copy access instead.
     """
+    user = _service(db, settings).clone_user(
+        user_id,
+        data,
+        _actor_id(principal),
+        _firm_scope(principal, caller_scope),
+        # The same reach a direct membership write is held to
+        # (D-IDN-6): a clone puts somebody in firms. It is also what
+        # keeps a copied firm-tier role inside the caller's reach
+        # (D-IDN-3).
+        allowed_firm_ids=_firms_the_caller_may_staff(principal),
+    )
+    set_etag(response, user)
     return ApiResponse(
-        data=UserResponse.model_validate(
-            _service(db, settings).clone_user(
-                user_id,
-                data,
-                _actor_id(principal),
-                _firm_scope(principal, caller_scope),
-                # The same reach a direct membership write is held to
-                # (D-IDN-6): a clone puts somebody in firms. It is also what
-                # keeps a copied firm-tier role inside the caller's reach
-                # (D-IDN-3).
-                allowed_firm_ids=_firms_the_caller_may_staff(principal),
-            )
-        ),
+        data=UserResponse.model_validate(user),
         message="The new user was created with the same access.",
     )
 
@@ -1156,18 +1174,17 @@ def apply_user_template(
 def get_role(
     role_id: UUID,
     principal: RoleViewPrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[RoleResponse]:
     """Retrieve a system or custom role."""
-    return ApiResponse(
-        data=RoleResponse.model_validate(
-            _service(db, settings).get_role(
-                role_id, _firm_scope(principal, caller_scope)
-            )
-        )
+    role = _service(db, settings).get_role(
+        role_id, _firm_scope(principal, caller_scope)
     )
+    set_etag(response, role)
+    return ApiResponse(data=RoleResponse.model_validate(role))
 
 
 @router.patch(
@@ -1177,21 +1194,24 @@ def update_role(
     role_id: UUID,
     data: RoleUpdate,
     principal: RoleUpdatePrincipal,
+    response: Response,
     caller_scope: IdentityScope = None,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[RoleResponse]:
-    """Update a custom role."""
-    return ApiResponse(
-        data=RoleResponse.model_validate(
-            _service(db, settings).update_role(
-                role_id,
-                data,
-                _actor_id(principal),
-                _firm_scope(principal, caller_scope),
-            )
-        )
-    )
+    """Update a custom role.
+
+    `If-Match` refuses a save aimed at a version another administrator has
+    since moved past, rather than letting the last writer win (D-IDN-15).
+    Sending none is still accepted.
+    """
+    scope = _firm_scope(principal, caller_scope)
+    service = _service(db, settings)
+    assert_version(service.get_role(role_id, scope).version, expected_version)
+    role = service.update_role(role_id, data, _actor_id(principal), scope)
+    set_etag(response, role)
+    return ApiResponse(data=RoleResponse.model_validate(role))
 
 
 @router.delete(

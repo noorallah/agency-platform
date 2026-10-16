@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -200,6 +201,7 @@ def test_the_route_holds_a_platform_operator_to_their_reach() -> None:
             user_id=source.id,
             data=_request("clone@example.com"),
             principal=operator,
+            response=Response(),
             db=session,
             settings=Settings(),
         )
