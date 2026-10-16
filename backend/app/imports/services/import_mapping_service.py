@@ -83,6 +83,13 @@ def _brands(_: Session) -> tuple[Column, ...]:
     return BrandFileImporter.COLUMNS
 
 
+def _principals(_: Session) -> tuple[Column, ...]:
+    """Return the principal import's columns (Swathi G3)."""
+    from app.products.services.principal_import import PrincipalFileImporter
+
+    return PrincipalFileImporter.COLUMNS
+
+
 def _routes(_: Session) -> tuple[Column, ...]:
     """Return the route (beat) import's columns (Swathi G3)."""
     from app.sales.services.route_import import RouteFileImporter
@@ -140,6 +147,8 @@ IMPORT_KINDS: dict[str, ImportKind] = {
     "vendors": ImportKind("Suppliers", "VENDOR_IMPORT", _vendors),
     # Brands are kept under PRODUCT_UPDATE, so their import is too.
     "brands": ImportKind("Brands", "PRODUCT_UPDATE", _brands),
+    # A principal is kept under PRODUCT_UPDATE, as brands are.
+    "principals": ImportKind("Principals", "PRODUCT_UPDATE", _principals),
     # A route is made on the territory form, under TERRITORY_CREATE.
     "routes": ImportKind("Routes", "TERRITORY_CREATE", _routes),
     # A segment is kept under CUSTOMER_MANAGE_SETTINGS, so its import is too.

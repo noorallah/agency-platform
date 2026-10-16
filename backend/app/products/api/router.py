@@ -96,6 +96,13 @@ from app.products.services.price_revisions import (
     PriceRevisionWrite,
     prices_in_force_today,
 )
+from app.products.services.principal_import import PrincipalFileImporter
+from app.products.services.principal_import import (
+    template_csv as principal_template_csv,
+)
+from app.products.services.principal_import import (
+    template_workbook as principal_template_workbook,
+)
 from app.products.services.product_import import template_csv, template_workbook
 from app.products.services.product_service import PRODUCT_DUTIES
 from app.uom.services import Pack
@@ -441,6 +448,72 @@ def create_principal(
             data, firm_id=scope.firm_id, actor_id=scope.actor_id
         )
     )
+
+
+# Declared above `/principals/{principal_id}`: FastAPI matches in declaration order.
+@router.get("/principals/import-template")
+def principal_import_template(
+    scope: ProductUpdateScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the principal import template (Swathi G3).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column,
+    and a lists sheet with this firm's companies and suppliers.
+    """
+    if format == "csv":
+        return StreamingResponse(
+            iter([principal_template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="principal-template.csv"'
+            },
+        )
+    return StreamingResponse(
+        iter([principal_template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="principal-template.xlsx"'
+        },
+    )
+
+
+@router.post(
+    "/principals/import-file", response_model=ApiResponse[ImportReportResponse]
+)
+async def import_principal_file(
+    scope: ProductUpdateScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX principal file, and with ``apply`` import it whole.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``. Principals are kept under ``PRODUCT_UPDATE``, so the
+    file is too, and updating existing principals needs nothing more.
+    """
+    file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "principals"),
+    )
+    report = PrincipalFileImporter(db, BrandService(db)).run(
+        content,
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 @router.put("/principals/{principal_id}", response_model=ApiResponse[PrincipalResponse])
