@@ -397,11 +397,12 @@ void main() {
         '1 Firm settings',
         '2 Financial years',
         '3 Numbering',
-        '4 Goods types',
-        '5 Custom fields',
-        '6 Custom field rules',
-        '7 Messaging',
-        '8 Approval levels',
+        '4 Bill series',
+        '5 Goods types',
+        '6 Custom fields',
+        '7 Custom field rules',
+        '8 Messaging',
+        '9 Approval levels',
       ],
       SettingsSubjects.selling: [
         '1 Sales stages',
@@ -441,6 +442,7 @@ void main() {
             'firm-profile',
             'financial-years',
             'numbering-series',
+            'bill-series',
             'goods-types',
             'custom-fields',
             'custom-field-rules',
@@ -511,7 +513,7 @@ void main() {
       await _pump(
         tester,
         subject: SettingsSubjects.firm,
-        // Tall enough that all eight rows and the links below are built.
+        // Tall enough that all nine rows and the links below are built.
         size: const Size(1366, 1400),
         state: () => stateOf(SettingsSubjects.firm,
             state: 'DONE', todo: {'financial-years'}),

@@ -358,3 +358,69 @@ class NumberingRule {
         isActive: boolValue(json['is_active']),
       );
 }
+
+/// Which series the firm's sales bills take (backlog 157).
+///
+/// `ONE_SERIES` numbers every bill from the firm's one sales-bill rule;
+/// `BY_COMPANY` gives a bill of one company's goods that company's prefix.
+/// The server lists the values it numbers by in [drivers], so a later level
+/// (brand, goods type) appears here without a client change.
+class BillSeriesSettings {
+  const BillSeriesSettings({
+    required this.seriesDriver,
+    required this.drivers,
+    required this.longestPrefix,
+    required this.isConfigured,
+  });
+
+  static const String oneSeries = 'ONE_SERIES';
+  static const String byCompany = 'BY_COMPANY';
+
+  final String seriesDriver;
+  final List<String> drivers;
+
+  /// How many characters a company prefix may have under the firm's present
+  /// sales-bill layout, worked out by the server from the rule.
+  final int longestPrefix;
+
+  /// False until the firm has saved a choice; it reads as one series.
+  final bool isConfigured;
+
+  factory BillSeriesSettings.fromJson(Json json) => BillSeriesSettings(
+        seriesDriver: stringValue(json['series_driver']).isEmpty
+            ? oneSeries
+            : stringValue(json['series_driver']),
+        drivers: stringList(json['drivers']),
+        longestPrefix: (json['longest_prefix'] as num?)?.toInt() ?? 0,
+        isConfigured: boolValue(json['is_configured']),
+      );
+}
+
+/// Which series a bill of some products would take, and its next number.
+///
+/// Asked of the server, never worked out here: the server decides the series
+/// from the lines as it does when the bill is saved, and nothing is used up.
+class BillSeriesPreview {
+  const BillSeriesPreview({
+    required this.seriesDriver,
+    required this.seriesPrefix,
+    required this.reason,
+    required this.number,
+  });
+
+  final String seriesDriver;
+
+  /// `GENERAL` or the company prefix.
+  final String seriesPrefix;
+
+  /// `ONE_SERIES`, `ONE_COMPANY`, `MIXED` or `NO_GOODS`.
+  final String reason;
+  final String number;
+
+  factory BillSeriesPreview.fromJson(Json json) => BillSeriesPreview(
+        seriesDriver: stringValue(json['series_driver']),
+        seriesPrefix: stringValue(json['series_prefix']),
+        reason: stringValue(json['reason']),
+        number: stringValue(json['number']),
+      );
+}

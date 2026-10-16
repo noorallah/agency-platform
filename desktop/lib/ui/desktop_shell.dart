@@ -134,6 +134,7 @@ import 'inventory/physical_count_page.dart';
 import 'reports/reports_workspace.dart';
 import 'settings/financial_years_page.dart';
 import 'settings/numbering_series_page.dart';
+import 'settings/bill_series_settings_page.dart';
 import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import '../phase2/agency_header.dart';
@@ -2871,6 +2872,11 @@ Widget? _settingsStepScreen(
         permissions: permissions,
         hasActiveFirm: hasActiveFirm,
       ),
+    'bill-series' => BillSeriesSettingsPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+      ),
     'goods-types' => ResourceManagementPage<GoodsTypeRecord>(
         api: api,
         definition: goodsTypeDefinition(
@@ -3254,6 +3260,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
         )!,
       // Built in one place: Settings > Firm shows the same (backlog 148).
       'numbering-series' ||
+      'bill-series' ||
       'goods-types' ||
       'firm-custom-fields' ||
       'firm-custom-field-rules' =>
