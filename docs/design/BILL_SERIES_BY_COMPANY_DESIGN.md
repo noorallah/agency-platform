@@ -206,6 +206,9 @@ the same rule as pricing: the server decides, the screen shows.
 The printed bill shows the number as usual. No print layout change is in
 scope.
 
+As built (part 2B-2): the invoice response carries `series_company_name`, and
+the invoice list has a *Company* column that is hidden by default.
+
 ## 8. The 16-character limit
 
 CGST rule 46(b): at most sixteen characters, letters, digits, `-` and `/`.
