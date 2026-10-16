@@ -296,7 +296,8 @@ void main() {
       expect(server.asked.length, before + 1);
       expect(_sentLine(server.asked, 0)['offer_choice'], <String, dynamic>{
         'discount_from': 'pl-city',
-        'offers': <String>['g-tea5'],
+        // D-UI-115: CITY gives the discount, so TEA-5 (a discount) leaves.
+        'offers': <String>[],
         'part_share': null,
       });
       // The other line was not touched and says nothing.
@@ -526,7 +527,8 @@ void main() {
     expect(_sentLine(api.invoicePreviews, 0)['offer_choice'],
         <String, dynamic>{
           'discount_from': 'pl-city',
-          'offers': <String>['g-tea5'],
+          // D-UI-115: CITY gives the discount, so TEA-5 (a discount) leaves.
+          'offers': <String>[],
           'part_share': null,
         });
   });

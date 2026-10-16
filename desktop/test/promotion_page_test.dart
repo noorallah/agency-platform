@@ -50,6 +50,7 @@ PromotionRecord _promotion({
   int version = 4,
   int priority = 10,
   bool allowStacking = true,
+  bool allowPartShare = false,
   List<PromotionActionRecord> actions = const <PromotionActionRecord>[
     PromotionActionRecord(actionType: 'LINE_DISCOUNT_PERCENT', percent: '10'),
   ],
@@ -64,6 +65,7 @@ PromotionRecord _promotion({
       priority: priority,
       status: 'ACTIVE',
       allowStacking: allowStacking,
+      allowPartShare: allowPartShare,
       actions: actions,
       conditions: conditions,
     );
@@ -484,6 +486,40 @@ void main() {
 
     expect(api.savedBody, isNull);
     expect(find.text('A benefit needs a figure.'), findsOneWidget);
+  });
+
+  testWidgets(
+      'an offer giving free goods says on its view whether a part share may '
+      'be billed (D-UI-119)', (tester) async {
+    const List<PromotionActionRecord> free = <PromotionActionRecord>[
+      PromotionActionRecord(
+          actionType: 'FREE_QUANTITY', buyQuantity: '11', freeQuantity: '1'),
+    ];
+    await _pumpPage(
+      tester,
+      _PromotionApi(rows: <PromotionRecord>[
+        _promotion(code: 'TEA11', allowPartShare: true, actions: free),
+      ]),
+      manage: false,
+    );
+    await tester.tap(find.text('TEA11').first);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('promotion-part-share'))).data,
+      startsWith('A part share may be billed'),
+    );
+  });
+
+  testWidgets('a discount offer says nothing of a part share (D-UI-119)',
+      (tester) async {
+    await _pumpPage(
+      tester,
+      _PromotionApi(rows: <PromotionRecord>[_promotion(code: 'TEN')]),
+      manage: false,
+    );
+    await tester.tap(find.text('TEN').first);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('promotion-part-share')), findsNothing);
   });
 
   testWidgets('without the manage permission there is nothing to press',

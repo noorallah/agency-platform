@@ -413,6 +413,8 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
           )
             ..discountEdited = typed
             ..savedOffers = line.offers
+            // D-UI-117: priced again as saved, not from the start.
+            ..offers.hold(line.offers)
             // What the offer holds is what was agreed; re-reading the product
             // master would rewrite a price somebody negotiated.
             ..priceEdited = true,

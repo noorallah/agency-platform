@@ -193,11 +193,18 @@ class _OfferChoiceBlockState extends State<OfferChoiceBlock> {
         : ticked
             ? 'applied'
             : candidate.reason ?? '';
-    final String gives = candidate.gives.discounts
-        ? documentMoney(candidate.worth)
-        : candidate.gives.freeQuantity != null
-            ? '${plainOfferQuantity(candidate.gives.freeQuantity!)} free'
-            : '';
+    // Blank where the offer gives this line nothing -- out of reach, or
+    // short of its first round -- as the design's TEA-24 row (D-UI-116):
+    // "1 free" beside "Nothing earned" read as a gift the line did not get.
+    final bool earns = candidate.available &&
+        (double.tryParse(candidate.worth.trim()) ?? 0) > 0;
+    final String gives = !earns
+        ? ''
+        : candidate.gives.discounts
+            ? documentMoney(candidate.worth)
+            : candidate.gives.freeQuantity != null
+                ? '${plainOfferQuantity(candidate.gives.freeQuantity!)} free'
+                : '';
     final String rowKey = '${widget.keyPrefix}-${candidate.key}';
     return Container(
       key: ValueKey<String>(rowKey),
@@ -280,6 +287,16 @@ List<Map<String, dynamic>> savedOfferRows(Object? offers) {
   rows.sort((Map<String, dynamic> a, Map<String, dynamic> b) =>
       sequence(a).compareTo(sequence(b)));
   return rows;
+}
+
+/// A saved line's rows on one line for a document's view (Open), where no
+/// side panel follows the cursor (D-UI-118): "Offers: Price list CITY ·
+/// 44.00 off · chosen by a person; TEA-5 · passed over". Empty where the
+/// line has none.
+String savedOffersLine(Object? offers) {
+  final List<Map<String, dynamic>> saved = savedOfferRows(offers);
+  if (saved.isEmpty) return '';
+  return 'Offers: ${saved.map(savedOfferWords).join('; ')}';
 }
 
 /// A saved line's offers, read-only, for a line no pricing lists afresh: a
