@@ -49,6 +49,7 @@ void main() {
         'code': 'HUL',
         'name': 'Hindustan Unilever',
         'vendor_id': 'vendor-1',
+        'bill_series_prefix': 'HU',
         'is_active': true,
       },
       true,
@@ -57,6 +58,7 @@ void main() {
       'code': 'HUL',
       'name': 'Hindustan Unilever',
       'vendor_id': 'vendor-1',
+      'bill_series_prefix': 'HU',
       'is_active': true,
     });
     expect(definition.resource, 'products/principals');
@@ -65,6 +67,59 @@ void main() {
       true,
     );
     expect(noSupplier['vendor_id'], isNull);
+    // Blank clears the prefix, so the company's bills take the default.
+    expect(noSupplier.containsKey('bill_series_prefix'), isTrue);
+    expect(noSupplier['bill_series_prefix'], isNull);
+  });
+
+  testWidgets('the principal editor takes a bill series prefix of ten',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _EmptyApi api = _EmptyApi();
+    final definition = principalDefinition(api, PermissionService());
+    final PrincipalRecord row = PrincipalRecord.fromJson(const {
+      'id': 'p-1',
+      'code': 'HUL',
+      'name': 'Hindustan Unilever',
+      'vendor_id': null,
+      'is_active': true,
+      'bill_series_prefix': 'HU',
+    });
+    Map<String, dynamic>? saved;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CrudWorkspaceDialog(
+          title: 'Edit principal',
+          fields: definition.fields,
+          values: definition.initialValues(row),
+          api: api,
+          mode: CrudDialogMode.edit,
+          onSave: (values) async => saved = values,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Letters and digits. Blank takes the default series.'),
+      findsOneWidget,
+    );
+    final Finder prefix =
+        find.widgetWithText(TextFormField, 'Bill series prefix');
+    expect(prefix, findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'HU'), findsOneWidget);
+
+    await tester.enterText(prefix, 'ABCDEFGHIJKLMN');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save & Close'));
+    await tester.pumpAndSettle();
+    expect(saved, isNotNull);
+    expect(saved!['bill_series_prefix'], 'ABCDEFGHIJ');
+    expect(
+      definition.payload(saved!, false)['bill_series_prefix'],
+      'ABCDEFGHIJ',
+    );
   });
 
   test('a brand is written with its name and principal', () {
