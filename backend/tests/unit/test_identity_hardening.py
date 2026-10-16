@@ -40,7 +40,11 @@ from app.identity.models import (
 )
 from app.identity.schemas.api import RoleCreate, UserCreate
 from app.identity.services import IdentityRetentionService, IdentityService
-from app.identity.system_seed import ROLE_PERMISSION_CODES, SYSTEM_PERMISSION_CODES
+from app.identity.system_seed import (
+    PLATFORM_PERMISSION_CODES,
+    ROLE_PERMISSION_CODES,
+    SYSTEM_PERMISSION_CODES,
+)
 
 PASSWORD = "Str0ng-Passw0rd!"
 
@@ -108,6 +112,12 @@ def test_enforced_permission_codes_follow_the_naming_convention() -> None:
         if re.fullmatch(r"[A-Z][A-Z0-9_]*", code) is None
     }
     assert not malformed, f"permission codes must be upper snake case: {malformed}"
+
+
+def test_viewer_holds_no_platform_permission_code() -> None:
+    """The firm's read-only role reads nothing the platform keeps (D-IDN-17)."""
+    held = ROLE_PERMISSION_CODES["VIEWER"] & PLATFORM_PERMISSION_CODES
+    assert not held, f"VIEWER holds platform codes: {sorted(held)}"
 
 
 def test_every_enforced_permission_code_is_seeded() -> None:

@@ -95,6 +95,13 @@ _TABS_NO_FIRM_ROLE_CAN_OPEN = frozenset(
         "Attribute Definitions",
         "Mandatory Attributes",
         "Profile Assignment",
+        # Both are gated on platform codes (`FIRM_VIEW`, `DIAGNOSTICS_VIEW`)
+        # that only the seeded Viewer held, by accident of being `*_VIEW`
+        # codes -- the Firm admin never did (D-IDN-17). Firm Settings edits
+        # the platform's firm record; Diagnostics is error reports kept for
+        # whoever maintains the product, not per firm.
+        "Firm Settings",
+        "Diagnostics",
     }
 )
 
