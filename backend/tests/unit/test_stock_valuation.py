@@ -11,6 +11,7 @@ balance on the same day, and the difference.
 
 from datetime import date, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -40,6 +41,12 @@ def _stocked() -> tuple[Session, Firm]:
     )
     assert report.imported, [issue.describe() for issue in report.issues]
     return session, firm
+
+
+def _cost_scope(firm: Firm) -> object:
+    """Return a scope on ``firm`` whose principal may see cost (D-STK-76)."""
+    principal = SimpleNamespace(has_permission=lambda code: True)
+    return SimpleNamespace(firm_id=firm.id, principal=principal)
 
 
 def test_each_item_is_valued_at_its_average_cost_with_a_grand_total() -> None:
@@ -105,7 +112,7 @@ def test_the_route_answers_as_on_the_to_date_and_never_the_future() -> None:
     from app.inventory.api.router import stock_valuation
 
     session, firm = _stocked()
-    scope = type("Scope", (), {"firm_id": firm.id})()
+    scope = _cost_scope(firm)
     response = stock_valuation(
         scope=scope,  # type: ignore[arg-type]
         to_date=date(2099, 1, 1),
@@ -265,7 +272,7 @@ def test_the_route_carries_both_values() -> None:
     from app.inventory.api.router import stock_valuation
 
     session, firm = _priced()
-    scope = type("Scope", (), {"firm_id": firm.id})()
+    scope = _cost_scope(firm)
     response = stock_valuation(
         scope=scope,  # type: ignore[arg-type]
         to_date=_ON,
@@ -371,7 +378,7 @@ def test_a_period_that_ends_before_it_starts_is_refused() -> None:
     from app.inventory.api.router import stock_statement
 
     session, firm = _stocked()
-    scope = type("Scope", (), {"firm_id": firm.id})()
+    scope = _cost_scope(firm)
     with pytest.raises(ValidationError, match="ends before it starts"):
         stock_statement(
             scope=scope,  # type: ignore[arg-type]

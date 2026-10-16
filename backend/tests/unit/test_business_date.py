@@ -209,7 +209,10 @@ def test_the_stock_valuation_counts_what_came_in_since_midnight() -> None:
         apply=True,
     )
     assert report.imported, [issue.describe() for issue in report.issues]
-    scope = SimpleNamespace(firm_id=firm.id)
+    scope = SimpleNamespace(
+        firm_id=firm.id,
+        principal=SimpleNamespace(has_permission=lambda code: True),
+    )
 
     for asked in (None, THE_6TH, date(2099, 1, 1)):
         response = stock_valuation(

@@ -259,8 +259,11 @@ class StockValuationRecord(BaseModel):
     category: str
     unit: str
     quantity: Decimal | None
+    #: The cost of one unit and the value at cost -- on the closing rows the
+    #: totals and the Inventory account -- sent only to a holder of
+    #: ``PRODUCT_VIEW_COST_PRICE`` (D-STK-76).
     rate: Decimal | None
-    value: Decimal
+    value: Decimal | None
     #: The goods type, General where the product has none; empty on a total.
     goods_type: str = ""
     #: A unit's MRP where every unit on hand carries the same one, and the
@@ -378,7 +381,9 @@ def stock_valuation(
     balance on the same day and the difference. The same stock is stated at
     its MRP beside its cost (backlog 109). ``from_date`` is accepted and
     ignored -- a valuation is as on a day, not over a period -- so the dated
-    report screen can call it like its siblings.
+    report screen can call it like its siblings. Rate and value -- and so
+    the totals, the books and the difference -- go only to a holder of
+    ``PRODUCT_VIEW_COST_PRICE`` (D-STK-76).
     """
     del from_date
     today = firm_today(db, scope.firm_id)
@@ -386,17 +391,17 @@ def stock_valuation(
     rows = StockValuationService(db).valuation(
         scope.firm_id, on=on, warehouse_id=warehouse_id, include_zero=include_zero
     )
+    show_cost = scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
+    records = [
+        StockValuationRecord.model_validate(row, from_attributes=True) for row in rows
+    ]
+    if not show_cost:
+        records = [
+            record.model_copy(update={"rate": None, "value": None})
+            for record in records
+        ]
     window = ReportWindow(None, None, page, page_size)
-    return _with_packs(
-        db,
-        scope.firm_id,
-        window.respond(
-            [
-                StockValuationRecord.model_validate(row, from_attributes=True)
-                for row in rows
-            ]
-        ),
-    )
+    return _with_packs(db, scope.firm_id, window.respond(records))
 
 
 class StockValuationLotRecord(BaseModel):
@@ -574,8 +579,10 @@ class StockAgeingRecord(BaseModel):
     category: str
     unit: str
     quantity: Decimal
-    rate: Decimal
-    value: Decimal
+    #: The cost of one unit and the value at cost, sent only to a holder of
+    #: ``PRODUCT_VIEW_COST_PRICE`` (D-STK-76).
+    rate: Decimal | None
+    value: Decimal | None
     days_0_30: Decimal
     days_31_60: Decimal
     days_61_90: Decimal
@@ -624,16 +631,24 @@ def stock_ageing(
     What is on hand is taken to be the most recently received, as FIFO would
     leave it (``app/inventory/services/stock_ageing.py`` says how); a firm
     costing by lot ages each lot from the day it was received, exactly.
-    ``from_date`` is accepted and ignored, as the valuation's is.
+    ``from_date`` is accepted and ignored, as the valuation's is. Rate and
+    value go only to a holder of ``PRODUCT_VIEW_COST_PRICE`` (D-STK-76).
     """
     del from_date
     today = firm_today(db, scope.firm_id)
     on = min(to_date or today, today)
     rows = StockAgeingService(db).ageing(scope.firm_id, on=on)
+    show_cost = scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
+    records = [
+        StockAgeingRecord.model_validate(row, from_attributes=True) for row in rows
+    ]
+    if not show_cost:
+        records = [
+            record.model_copy(update={"rate": None, "value": None})
+            for record in records
+        ]
     window = ReportWindow(None, None, page, page_size)
-    return window.respond(
-        [StockAgeingRecord.model_validate(row, from_attributes=True) for row in rows]
-    )
+    return window.respond(records)
 
 
 def _slow_stock(
