@@ -12,6 +12,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
+from app.credit_note.models import CreditNote
 from app.customers.models import CustomerReceivableTransaction
 from app.customers.schemas.customer import (
     CustomerReceivableTransactionCreate,
@@ -220,6 +221,123 @@ def test_a_customer_account_away_from_the_bills_is_found() -> None:
         ("Customer C1", Decimal("550.00"), Decimal("750.00"))
     ]
     assert _april(found, RECEIVABLES_LEDGER) == []
+
+
+def _credit_note_on_a_paid_bill(books: _Books, total: str) -> SalesInvoice:
+    """Approve a credit note on a bill paid in full, the way approval does.
+
+    The bill has nothing left to come off, so the whole note is credit on
+    the customer's account: held as an advance, on no open bill.
+    """
+    sale = _sale(books, "SI-9", "1000.00")
+    _settle(books, "1000.00", sale.id, receipt=True)
+    note = CreditNote(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        branch_id=books.branch_id,
+        sales_invoice_id=sale.id,
+        credit_note_number="CN-9",
+        credit_note_date=WHEN,
+        status="APPROVED",
+        total_amount=Decimal(total),
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(note)
+    books.session.flush()
+    CustomerService(books.session).post_receivable_transaction(
+        books.customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
+            transaction_date=WHEN,
+            amount=Decimal(total),
+            reference_type="CREDIT_NOTE",
+            reference_id=note.id,
+            reference_number="CN-9",
+        ),
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+        commit=False,
+    )
+    DocumentPostingService(books.session).post_credit_note_document(
+        firm_id=books.firm.id,
+        credit_note_id=note.id,
+        credit_note_number="CN-9",
+        note_date=WHEN,
+        taxable_amount=Decimal(total),
+        tax_amount=Decimal("0"),
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    return sale
+
+
+def test_credit_no_bill_absorbed_is_not_a_difference() -> None:
+    books = _books()
+    _credit_note_on_a_paid_bill(books, "300.00")
+
+    found = _check(books)
+
+    # The account holds 300.00 for the customer and no bill owes anything:
+    # the note's unused credit is what the account holds, not a difference.
+    assert [row for row in found if row.check == RECEIVABLES_BILLS] == []
+    assert found == []
+
+
+def test_credit_netted_still_leaves_a_real_difference_found() -> None:
+    books = _books()
+    sale = _credit_note_on_a_paid_bill(books, "300.00")
+    sale.grand_total = Decimal("1100.00")  # the bill now owes 100.00 more
+    books.session.commit()
+
+    found = _check(books)
+
+    bills = [row for row in found if row.check == RECEIVABLES_BILLS]
+    # The bill absorbs 100.00 of the note, so 200.00 is credit; the account
+    # still holds 300.00.
+    assert [(row.document_ref, row.expected, row.actual) for row in bills] == [
+        ("Customer C1", Decimal("-300.00"), Decimal("-200.00"))
+    ]
+
+
+def test_without_netting_the_credit_reads_as_a_difference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    books = _books()
+    _credit_note_on_a_paid_bill(books, "300.00")
+    monkeypatch.setattr(money_consistency, "_unused_customer_credit", lambda *_: {})
+
+    found = _check(books)
+
+    # The false positive the netting removes (TEST01, 2026-10-17).
+    assert [
+        (row.document_ref, row.expected, row.actual)
+        for row in found
+        if row.check == RECEIVABLES_BILLS
+    ] == [("Customer C1", Decimal("-300.00"), Decimal("0.00"))]
+
+
+@pytest.mark.parametrize("opening", ["-300.00", "250.00"])
+def test_an_opening_balance_on_the_master_is_not_a_difference(
+    monkeypatch: pytest.MonkeyPatch, opening: str
+) -> None:
+    """A day-one figure typed on the customer agrees with the bills.
+
+    In credit it is held as an advance no receipt holds and no bill carries:
+    TEST01 read four such customers as -300.00 against 0.00 (2026-10-17).
+    In debit the ageing carries it as an "Opening balance" row already.
+    """
+    from app.customers.services import customer_service
+
+    monkeypatch.setattr(customer_service, "firm_today", lambda *_: WHEN)
+    books = _books()
+    _trading(books)
+    CustomerService(books.session)._record_opening_balance_transaction(
+        customer=books.customer, amount=Decimal(opening), actor_id=books.actor_id
+    )
+    books.session.commit()
+
+    assert _check(books) == []
 
 
 def test_a_hand_journal_on_payables_is_found() -> None:
