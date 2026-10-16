@@ -69,6 +69,11 @@ from app.products.services.barcode_labels import (
     BarcodeLabelService,
     LabelRequestItem,
 )
+from app.products.services.brand_import import BrandFileImporter
+from app.products.services.brand_import import template_csv as brand_template_csv
+from app.products.services.brand_import import (
+    template_workbook as brand_template_workbook,
+)
 from app.products.services.brands import (
     BrandResponse,
     BrandService,
@@ -494,6 +499,68 @@ def create_brand(
             data, firm_id=scope.firm_id, actor_id=scope.actor_id
         )
     )
+
+
+# Declared above `/brands/{brand_id}`: FastAPI matches in declaration order.
+@router.get("/brands/import-template")
+def brand_import_template(
+    scope: ProductUpdateScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the brand import template (Swathi G3).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column,
+    and a lists sheet with this firm's companies.
+    """
+    if format == "csv":
+        return StreamingResponse(
+            iter([brand_template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="brand-template.csv"'
+            },
+        )
+    return StreamingResponse(
+        iter([brand_template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="brand-template.xlsx"'},
+    )
+
+
+@router.post("/brands/import-file", response_model=ApiResponse[ImportReportResponse])
+async def import_brand_file(
+    scope: ProductUpdateScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX brand file, and with ``apply`` import it whole.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``. Brands are kept under ``PRODUCT_UPDATE``, so the
+    file is too, and updating existing brands needs nothing more.
+    """
+    file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "brands"),
+    )
+    report = BrandFileImporter(db, BrandService(db)).run(
+        content,
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 @router.put("/brands/{brand_id}", response_model=ApiResponse[BrandResponse])

@@ -63,6 +63,9 @@ _SCREEN_GAP = "a screen gap, recorded in docs/BACKLOG.md §76 (D-GOLIVE-2 triage
 #: These four were judged on 2026-08-23 alongside the packaging-level work that
 #: came off the same audit.
 _ACCEPTED: dict[str, str] = {
+    # Swathi G3: the brand import is built backend-first.
+    "GET /api/v1/products/brands/import-template": "desktop screen follows",
+    "POST /api/v1/products/brands/import-file": "desktop screen follows",
     "GET /api/v1/document-framework/documents/{document_id}/timeline": (
         "duplicates the per-module GET /{resource}/{id}/history, which the "
         "desktop does call and which returns the module's own shape"

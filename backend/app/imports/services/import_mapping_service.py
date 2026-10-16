@@ -76,6 +76,13 @@ def _vendors(_: Session) -> tuple[Column, ...]:
     return VendorFileImporter.COLUMNS
 
 
+def _brands(_: Session) -> tuple[Column, ...]:
+    """Return the brand import's columns (Swathi G3)."""
+    from app.products.services.brand_import import BrandFileImporter
+
+    return BrandFileImporter.COLUMNS
+
+
 def _customer_bills(session: Session) -> tuple[Column, ...]:
     """Return the customer opening-bill import's columns."""
     from app.customers.services.opening_bill_import import (
@@ -117,6 +124,8 @@ IMPORT_KINDS: dict[str, ImportKind] = {
     "products": ImportKind("Products", "PRODUCT_IMPORT", _products),
     "customers": ImportKind("Customers", "CUSTOMER_IMPORT", _customers),
     "vendors": ImportKind("Suppliers", "VENDOR_IMPORT", _vendors),
+    # Brands are kept under PRODUCT_UPDATE, so their import is too.
+    "brands": ImportKind("Brands", "PRODUCT_UPDATE", _brands),
     "customer-opening-bills": ImportKind(
         "Customer opening bills", "CUSTOMER_IMPORT", _customer_bills
     ),

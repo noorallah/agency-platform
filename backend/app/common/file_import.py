@@ -505,6 +505,9 @@ class FileImporter(ABC, Generic[RecordT]):  # noqa: UP046
     COLUMNS: ClassVar[tuple[Column, ...]]
     #: What one row is, for the messages: "product", "customer".
     NOUN: ClassVar[str]
+    #: The column a row is keyed on -- matched upper case, unique in the file.
+    #: A master with no code of its own (a brand) is keyed on its name.
+    KEY_HEADING: ClassVar[str] = "Code"
 
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -554,10 +557,11 @@ class FileImporter(ABC, Generic[RecordT]):  # noqa: UP046
                     report.skipped_blank += 1
                     continue
                 report.rows += 1
-                code = row.cells.get("Code", "").strip().upper()
+                key = self.KEY_HEADING
+                code = row.cells.get(key, "").strip().upper()
                 if not code:
                     report.issues.append(
-                        ImportIssue(row.number, None, "Code", "is required.")
+                        ImportIssue(row.number, None, key, "is required.")
                     )
                     continue
                 if code in seen:
@@ -565,7 +569,7 @@ class FileImporter(ABC, Generic[RecordT]):  # noqa: UP046
                         ImportIssue(
                             row.number,
                             code,
-                            "Code",
+                            key,
                             f"appears again; row {seen[code]} already has it.",
                         )
                     )
@@ -577,7 +581,7 @@ class FileImporter(ABC, Generic[RecordT]):  # noqa: UP046
                         ImportIssue(
                             row.number,
                             code,
-                            "Code",
+                            key,
                             f"is already a {self.NOUN}. Choose to update "
                             f"existing {self.NOUN}s to change it from this file.",
                         )
