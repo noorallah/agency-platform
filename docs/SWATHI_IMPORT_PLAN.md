@@ -72,7 +72,8 @@ hand-written importer.
 - **All or nothing per step**, in one transaction.
 - **Safe to run again.** A record already brought in is recognised by its
   Swathi number and skipped, never duplicated. This needs somewhere to keep
-  the old number against our record (gap G2).
+  the old number against our record (gap G2, built 2026-10-16:
+  `import_source_keys`).
 - **Every Swathi code becomes our code.** Customer `acode`, item `icode` and
   bill number are kept, so a person can still find a record by the number
   they know.
@@ -226,7 +227,7 @@ done; it needs more checking by the firm.
 | # | Gap | Needed for | Status |
 | --- | --- | --- | --- |
 | G1 | Cost and MRP per purchase lot; a sales line names its lot (backlog 101/103) | Step 9, way B, daily billing | Open |
-| G2 | Keep the old software's number against our record, so a second run skips it | Every step | Open |
+| G2 | Keep the old software's number against our record, so a second run skips it | Every step | Built 2026-10-16 (table + service; the converter will call it): `import_source_keys`, with `lookup` and `stage_record` in `app/imports/services/import_source_keys.py` |
 | G3 | Import for routes, segments, salesmen, brands, principals | Step 2 | Open; small enough to create by the converter through the services |
 | G4 | A unit for every item (Swathi has none); pieces per case to a pack | Step 3 | Built 2026-10-15 (L5 step 12): the product import's *PiecesPerPack* column (also read as "pieces per case") makes a new item a piece with a box of that many; *PackUnit* names another box unit; one, or blank, is pieces only, and a blank *Unit* on a new item is the piece in every case (owner, 2026-10-15). Every item still needs a brand (backlog 138) |
 | G5 | Customer import has no beat and no licence columns | Step 4 | Open |

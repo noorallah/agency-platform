@@ -362,6 +362,7 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `import_mappings` | firm store ¹ | How one firm reads one kind of file from one source, by name. |  |
+| `import_source_keys` | firm store ¹ | An old program's number for a record a conversion brought in (source system, subject, source key), so a second run skips it (Swathi plan G2). Live key unique per firm. | `record_id` names our row with no foreign key; the table depends on `subject` |
 
 ### `app/inventory`
 

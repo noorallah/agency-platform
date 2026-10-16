@@ -78,7 +78,10 @@ from app.gst_returns.models import (
     itc_reversal,  # noqa: F401
 )
 from app.identity.models import identity  # noqa: F401
-from app.imports.models import import_mapping  # noqa: F401
+from app.imports.models import (
+    import_mapping,  # noqa: F401
+    import_source_key,  # noqa: F401
+)
 from app.inventory.models import (
     adjustment_approval,  # noqa: F401
     adjustment_reason,  # noqa: F401
