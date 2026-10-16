@@ -90,6 +90,13 @@ def _routes(_: Session) -> tuple[Column, ...]:
     return RouteFileImporter.COLUMNS
 
 
+def _segments(_: Session) -> tuple[Column, ...]:
+    """Return the customer segment import's columns (Swathi G3)."""
+    from app.customers.services.segment_import import SegmentFileImporter
+
+    return SegmentFileImporter.COLUMNS
+
+
 def _customer_bills(session: Session) -> tuple[Column, ...]:
     """Return the customer opening-bill import's columns."""
     from app.customers.services.opening_bill_import import (
@@ -135,6 +142,8 @@ IMPORT_KINDS: dict[str, ImportKind] = {
     "brands": ImportKind("Brands", "PRODUCT_UPDATE", _brands),
     # A route is made on the territory form, under TERRITORY_CREATE.
     "routes": ImportKind("Routes", "TERRITORY_CREATE", _routes),
+    # A segment is kept under CUSTOMER_MANAGE_SETTINGS, so its import is too.
+    "segments": ImportKind("Customer segments", "CUSTOMER_MANAGE_SETTINGS", _segments),
     "customer-opening-bills": ImportKind(
         "Customer opening bills", "CUSTOMER_IMPORT", _customer_bills
     ),

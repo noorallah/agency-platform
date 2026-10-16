@@ -69,6 +69,9 @@ _ACCEPTED: dict[str, str] = {
     # Swathi G3: the route import is built backend-first.
     "GET /api/v1/sales-territories/routes/import-template": "desktop screen follows",
     "POST /api/v1/sales-territories/routes/import-file": "desktop screen follows",
+    # Swathi G3: the customer segment import is built backend-first.
+    "GET /api/v1/customers/groups/import-template": "desktop screen follows",
+    "POST /api/v1/customers/groups/import-file": "desktop screen follows",
     "GET /api/v1/document-framework/documents/{document_id}/timeline": (
         "duplicates the per-module GET /{resource}/{id}/history, which the "
         "desktop does call and which returns the module's own shape"
