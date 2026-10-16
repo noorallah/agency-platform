@@ -426,6 +426,7 @@ class TransactionalDocumentService:
         actor_id: UUID,
         branch_code: str | None = None,
         company_code: str | None = None,
+        series_prefix: str | None = None,
     ) -> str:
         """Return the number a new document is created under.
 
@@ -453,6 +454,8 @@ class TransactionalDocumentService:
             actor_id: The user creating the document.
             branch_code: The branch code, for a series that prints it.
             company_code: The firm code, for a series that prints it.
+            series_prefix: A sales bill's company series (backlog 157);
+                ``None`` is GENERAL. Ignored by every other document type.
 
         Returns:
             The document number.
@@ -494,6 +497,7 @@ class TransactionalDocumentService:
                 company_code=company_code,
                 document_date=document_date,
                 actor_id=actor_id,
+                series_prefix=series_prefix,
             )
             if not self._number_taken(number_column, number, firm_id=firm_id):
                 return number

@@ -38,6 +38,11 @@ class Principal(BaseEntity):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    #: The word this company's sales bills start with when the firm numbers
+    #: bills by company (backlog 157). Upper case, letters and digits, not
+    #: unique: two companies sharing a prefix share one running number.
+    #: Blank means the company's bills take GENERAL.
+    bill_series_prefix: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class Brand(BaseEntity):

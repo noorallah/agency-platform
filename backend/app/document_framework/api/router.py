@@ -43,6 +43,11 @@ from app.document_framework.services import (
     DocumentFrameworkService,
     DocumentPrintTemplateService,
 )
+from app.document_framework.services.bill_series import (
+    BillSeriesService,
+    BillSeriesSettingsResponse,
+    BillSeriesSettingsWrite,
+)
 
 router = APIRouter(
     prefix="/api/v1/document-framework",
@@ -317,6 +322,39 @@ def preview_numbering_rule(
         manual_number=manual_number,
     )
     return ApiResponse(data=preview)
+
+
+@router.get(
+    "/bill-series-settings",
+    response_model=ApiResponse[BillSeriesSettingsResponse],
+)
+def get_bill_series_settings(
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BillSeriesSettingsResponse]:
+    """Return which series the firm's sales bills take (backlog 157)."""
+    return ApiResponse(data=BillSeriesService(db).settings(scope.firm_id))
+
+
+@router.put(
+    "/bill-series-settings",
+    response_model=ApiResponse[BillSeriesSettingsResponse],
+)
+def save_bill_series_settings(
+    data: BillSeriesSettingsWrite,
+    scope: SettingsUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BillSeriesSettingsResponse]:
+    """Choose one series or a series per company for the firm's sales bills.
+
+    Guarded as the numbering series are. Switching at any time is safe:
+    counters are per prefix and year, so nothing is reset or reused.
+    """
+    saved = BillSeriesService(db).save_settings(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(data=saved)
 
 
 @router.get(

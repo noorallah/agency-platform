@@ -64,6 +64,11 @@ class SalesInvoice(BoxAndPieceEntryMixin, BaseEntity):
         UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT")
     )
     invoice_number: Mapped[str] = mapped_column(String(60), nullable=False)
+    #: The bill series the number was issued from -- ``GENERAL`` or a
+    #: company's prefix (backlog 157) -- so a report groups by series without
+    #: parsing the number. Null on a typed number and on bills raised before
+    #: series were recorded.
+    series_prefix: Mapped[str | None] = mapped_column(String(10), nullable=True)
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     customer_invoice_number: Mapped[str | None] = mapped_column(String(120))
     #: Where the goods go: one of the customer's own addresses (backlog 67

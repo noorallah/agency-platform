@@ -36,6 +36,13 @@ from app.document_framework.schemas import (
     DocumentTypeCreate,
     DocumentTypeUpdate,
 )
+from app.document_framework.services.bill_series import (
+    BILL_SERIES_DOCUMENT_TYPE,
+    GENERAL_SERIES,
+    BillSeriesCounters,
+    company_prefixes_in_use,
+    series_key,
+)
 from app.document_framework.services.gst_numbering import (
     GST_NUMBERED_TYPES,
     gst_number_problem,
@@ -669,7 +676,15 @@ class DocumentFrameworkService:
         document_date: date | None = None,
         manual_number: str | None = None,
         actor_id: UUID | None = None,
+        series_prefix: str | None = None,
     ) -> str:
+        """Issue the next number of a series, and move its counter on.
+
+        A sales bill (``SALES_INVOICE``) takes its number from the bill series
+        counters (backlog 157): ``series_prefix`` names a company's series, and
+        ``None`` the firm's GENERAL one. Every other type keeps the rule's own
+        counter and ignores ``series_prefix``.
+        """
         rule = self.get_numbering_rule(firm_id, rule_id, for_update=True)
         if not rule.is_active:
             # An inactive series is never used (D-CFG-6).
@@ -697,6 +712,21 @@ class DocumentFrameworkService:
             company_code=company_code,
             document_date=on,
         )
+        if (
+            document_type is not None
+            and document_type.code == BILL_SERIES_DOCUMENT_TYPE
+            and not (manual_number is not None and rule.manual_allowed)
+        ):
+            return self._reserve_bill_number(
+                rule,
+                label=label,
+                scope_signature=scope_signature,
+                series_prefix=series_prefix,
+                branch_code=branch_code,
+                company_code=company_code,
+                document_date=on,
+                actor_id=actor_id,
+            )
         counter = self._sequence_for(rule, scope_signature, actor_id=actor_id)
         number = self._build_document_number(
             rule,
@@ -717,6 +747,103 @@ class DocumentFrameworkService:
             rule.updated_by = actor_id
             counter.updated_by = actor_id
         return number
+
+    def _reserve_bill_number(
+        self,
+        rule: DocumentNumberingRule,
+        *,
+        label: str,
+        scope_signature: str,
+        series_prefix: str | None,
+        branch_code: str | None,
+        company_code: str | None,
+        document_date: date,
+        actor_id: UUID | None,
+    ) -> str:
+        """Issue a sales bill's number from its bill series (backlog 157).
+
+        GENERAL carries on from the rule's own counter as well as its own, so
+        it never goes back behind a number the rule issued -- before the
+        series existed, or under a layout the firm has since changed -- and
+        the rule's counter is kept in step so its preview stays true. A
+        company's series counts under its prefix and the year alone, so two
+        companies sharing a prefix share one running number.
+        """
+        series = BillSeriesCounters(self._session)
+        key = series_key(rule, series_prefix)
+        if key == GENERAL_SERIES:
+            counter = self._sequence_for(rule, scope_signature, actor_id=actor_id)
+            sequence = series.issue(
+                rule.firm_id,
+                GENERAL_SERIES,
+                label,
+                floor=counter.next_sequence,
+                actor_id=actor_id,
+            )
+            counter.next_sequence = sequence + 1
+            rule.next_sequence = counter.next_sequence
+            rule.last_scope_signature = scope_signature
+            if actor_id is not None:
+                rule.updated_by = actor_id
+                counter.updated_by = actor_id
+            shown: str | None = None
+        else:
+            sequence = series.issue(
+                rule.firm_id, key, label, floor=1, actor_id=actor_id
+            )
+            shown = key
+        return self._format_number(
+            rule,
+            sequence=sequence,
+            financial_year_label=label,
+            branch_code=branch_code,
+            company_code=company_code,
+            document_date=document_date,
+            prefix=shown,
+        )
+
+    def preview_bill_number(
+        self,
+        rule: DocumentNumberingRule,
+        *,
+        series_prefix: str | None,
+        document_date: date,
+        branch_code: str | None = None,
+        company_code: str | None = None,
+    ) -> str:
+        """Return the number a sales bill would take now, writing nothing.
+
+        The same arithmetic `_reserve_bill_number` issues by, so the preview
+        a bill form shows and the number the saved bill gets agree.
+        """
+        label = self._year_label(rule.firm_id, document_date, None)
+        series = BillSeriesCounters(self._session)
+        key = series_key(rule, series_prefix)
+        if key == GENERAL_SERIES:
+            scope_signature = self._scope_signature(
+                rule,
+                financial_year_label=label,
+                branch_code=branch_code,
+                company_code=company_code,
+                document_date=document_date,
+            )
+            sequence = max(
+                series.peek(rule.firm_id, GENERAL_SERIES, label),
+                self._previewed_sequence(rule, scope_signature),
+            )
+            shown: str | None = None
+        else:
+            sequence = series.peek(rule.firm_id, key, label)
+            shown = key
+        return self._format_number(
+            rule,
+            sequence=sequence,
+            financial_year_label=label,
+            branch_code=branch_code,
+            company_code=company_code,
+            document_date=document_date,
+            prefix=shown,
+        )
 
     def _sequence_for(
         self,
@@ -1308,6 +1435,19 @@ class DocumentFrameworkService:
             company_code=company_code,
             document_date=document_date,
         )
+        return self._format_number(
+            rule,
+            sequence=self._previewed_sequence(rule, scope_signature),
+            financial_year_label=financial_year_label,
+            branch_code=branch_code,
+            company_code=company_code,
+            document_date=document_date,
+        )
+
+    def _previewed_sequence(
+        self, rule: DocumentNumberingRule, scope_signature: str
+    ) -> int:
+        """Return the number `_sequence_for` would issue next, writing nothing."""
         counter = self._session.scalar(
             select(DocumentNumberSequence).where(
                 DocumentNumberSequence.numbering_rule_id == rule.id,
@@ -1334,15 +1474,7 @@ class DocumentFrameworkService:
                 self._issued_under(rule, scope_signature),
                 int(retired or 1),
             )
-        sequence = max(sequence, self._carried_on(rule, scope_signature))
-        return self._format_number(
-            rule,
-            sequence=sequence,
-            financial_year_label=financial_year_label,
-            branch_code=branch_code,
-            company_code=company_code,
-            document_date=document_date,
-        )
+        return max(sequence, self._carried_on(rule, scope_signature))
 
     @staticmethod
     def _format_number(
@@ -1353,12 +1485,18 @@ class DocumentFrameworkService:
         branch_code: str | None,
         company_code: str | None,
         document_date: date,
+        prefix: str | None = None,
     ) -> str:
-        """Print one number of ``rule``: its pattern if it has one, else its flags."""
+        """Print one number of ``rule``: its pattern if it has one, else its flags.
+
+        ``prefix`` prints a company's bill series in the rule's layout in
+        place of the rule's own prefix (backlog 157).
+        """
         year = financial_year_label or str(document_date.year)
+        shown = prefix if prefix is not None else rule.prefix
         if rule.format_pattern:
             return rule.format_pattern.format(
-                prefix=rule.prefix or "",
+                prefix=shown or "",
                 suffix=rule.suffix or "",
                 separator=rule.separator,
                 sequence=str(sequence).zfill(rule.sequence_padding),
@@ -1369,8 +1507,8 @@ class DocumentFrameworkService:
                 document_date=document_date.isoformat(),
             )
         parts: list[str] = []
-        if rule.prefix:
-            parts.append(rule.prefix)
+        if shown:
+            parts.append(shown)
         if rule.include_company_code and company_code:
             parts.append(company_code)
         if rule.include_branch_code and branch_code:
@@ -1398,6 +1536,37 @@ class DocumentFrameworkService:
         document_type = self._session.get(DocumentTypeDefinition, rule.document_type_id)
         if document_type is None or document_type.code not in GST_NUMBERED_TYPES:
             return
+        problem = gst_number_problem(self.longest_number(rule))
+        if problem is not None:
+            raise ValidationError(
+                f"{document_type.name} is a GST document, and at its longest "
+                f"this series fails the rule: {problem}. Shorten the prefix, "
+                "print the year as 26-27, leave out the firm or branch code, "
+                "or use fewer digits."
+            )
+        if document_type.code == BILL_SERIES_DOCUMENT_TYPE:
+            # A company's bills print this layout under their own prefix, so
+            # a change to the padding, separator or year is judged against
+            # every prefix in use (backlog 157).
+            for prefix in company_prefixes_in_use(self._session, rule.firm_id):
+                problem = gst_number_problem(self.longest_number(rule, prefix=prefix))
+                if problem is not None:
+                    raise ValidationError(
+                        f"A company's bills are numbered with this layout under "
+                        f"the prefix {prefix}, and at their longest they fail "
+                        f"the rule: {problem}. Shorten that company's prefix, "
+                        "print the year as 26-27, or use fewer digits."
+                    )
+
+    def longest_number(
+        self, rule: DocumentNumberingRule, *, prefix: str | None = None
+    ) -> str:
+        """Return the longest number ``rule`` can print, under ``prefix`` if named.
+
+        Every digit of its padding (or of its counter, once past it) a nine, a
+        full year label, and the firm's own code and its longest branch code
+        where the number carries them.
+        """
         branch_code: str | None = None
         if self._number_carries(rule, "branch_code"):
             # Imported here: branches is a domain this framework otherwise
@@ -1418,22 +1587,15 @@ class DocumentFrameworkService:
                 FirmMetadataReader(self._session).get(rule.firm_id).code or "FIRM"
             ).upper()
         digits = max(rule.sequence_padding, len(str(rule.next_sequence or 1)))
-        longest = self._format_number(
+        return self._format_number(
             rule,
             sequence=10**digits - 1,
             financial_year_label="2026-2027",
             branch_code=branch_code,
             company_code=company_code,
             document_date=date(2026, 4, 1),
+            prefix=prefix,
         )
-        problem = gst_number_problem(longest)
-        if problem is not None:
-            raise ValidationError(
-                f"{document_type.name} is a GST document, and at its longest "
-                f"this series fails the rule: {problem}. Shorten the prefix, "
-                "print the year as 26-27, leave out the firm or branch code, "
-                "or use fewer digits."
-            )
 
     def _scope_signature(
         self,

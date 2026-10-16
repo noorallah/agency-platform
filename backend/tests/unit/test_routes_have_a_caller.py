@@ -63,6 +63,10 @@ _SCREEN_GAP = "a screen gap, recorded in docs/BACKLOG.md §76 (D-GOLIVE-2 triage
 #: These four were judged on 2026-08-23 alongside the packaging-level work that
 #: came off the same audit.
 _ACCEPTED: dict[str, str] = {
+    # Backlog 157: the bill series by company is built server-first.
+    "GET /api/v1/document-framework/bill-series-settings": "desktop screen follows",
+    "PUT /api/v1/document-framework/bill-series-settings": "desktop screen follows",
+    "GET /api/v1/sales-invoices/series-preview": "desktop bill form follows",
     # Swathi G3: the brand import is built backend-first.
     "GET /api/v1/products/brands/import-template": "desktop screen follows",
     "POST /api/v1/products/brands/import-file": "desktop screen follows",

@@ -1,5 +1,9 @@
 """Document lifecycle framework persistence models."""
 
+from app.document_framework.models.bill_series import (
+    BillSeriesCounter,
+    BillSeriesSettings,
+)
 from app.document_framework.models.document_framework import (
     DocumentHeader,
     DocumentLifecycleEvent,
@@ -13,6 +17,8 @@ from app.document_framework.models.document_framework import (
 )
 
 __all__ = [
+    "BillSeriesCounter",
+    "BillSeriesSettings",
     "DocumentPrintTemplate",
     "DocumentHeader",
     "DocumentLifecycleEvent",
