@@ -439,6 +439,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           uom: _labels.unitOf(
             '${item['sales_uom_id'] ?? ''}',
             '${item['product_id'] ?? ''}',
+            stockUnitId: '${item['inventory_uom_id'] ?? ''}',
           ),
           packaging: '${item['packaging_type_id'] ?? ''}',
           quantity: '${item['quantity'] ?? '0'}',

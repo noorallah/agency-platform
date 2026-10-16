@@ -446,6 +446,7 @@ class _SalesInvoiceManagementPageState
           uom: _labels.unitOf(
             '${item['invoice_uom_id'] ?? ''}',
             '${item['product_id'] ?? ''}',
+            stockUnitId: '${item['inventory_uom_id'] ?? ''}',
           ),
           packaging: '${item['packaging_type_id'] ?? ''}',
           // What was typed, in the unit shown beside it, where the line was
