@@ -103,8 +103,18 @@ class DocumentLineLabels {
   /// (D-UI-98). The product's selling unit is the one it was sold in; its
   /// stock unit, then its base unit, then the unit typed on the product as
   /// words stand in where no selling unit is set.
-  String unitOf(String lineUnitId, String productId) {
+  ///
+  /// [stockUnitId] is the stock unit the line itself names. A line that
+  /// names a stock unit and no selling unit was counted in the stock unit --
+  /// a line typed as boxes and pieces is (L5) -- so that unit is shown, not
+  /// the product's selling unit: 41 pieces read as "41 BOX" (D-UI-112).
+  String unitOf(
+    String lineUnitId,
+    String productId, {
+    String stockUnitId = '',
+  }) {
     if (lineUnitId.isNotEmpty) return unit(lineUnitId);
+    if (stockUnitId.isNotEmpty) return unit(stockUnitId);
     for (final Product product in products) {
       if (product.id != productId) continue;
       for (final String id in <String>[

@@ -47,6 +47,19 @@ void main() {
     expect(labels({'base_uom_id': 'u-piece'}).unitOf('', 'p1'), 'PIECE');
   });
 
+  test('a line counted in the stock unit shows it, not the selling unit '
+      '(D-UI-112)', () {
+    // A line typed as boxes and pieces names its stock unit and no selling
+    // unit: 41 pieces, which read as 41 BOX from the product's selling unit.
+    final DocumentLineLabels shown = labels({
+      'sales_uom_id': 'u-box',
+      'inventory_uom_id': 'u-piece',
+    });
+    expect(shown.unitOf('', 'p1', stockUnitId: 'u-piece'), 'PIECE');
+    expect(shown.unitOf('u-box', 'p1', stockUnitId: 'u-piece'), 'BOX');
+    expect(shown.unitOf('', 'p1'), 'BOX');
+  });
+
   test('a product naming no unit by id shows the words typed on it', () {
     expect(labels({'unit': 'Bottle'}).unitOf('', 'p1'), 'Bottle');
     expect(labels({'unit_code': 'STRIP'}).unitOf('', 'p1'), 'STRIP');
