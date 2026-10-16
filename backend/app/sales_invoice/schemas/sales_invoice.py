@@ -644,6 +644,9 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     branch_id: UUID
     business_profile_id: UUID | None
     invoice_number: str
+    #: The bill series the number came from: ``GENERAL`` or a company's
+    #: prefix (backlog 157); null for a typed number or an older bill.
+    series_prefix: str | None = None
     invoice_date: date
     customer_invoice_number: str | None
     #: The state the supply was made in, fixed when the invoice was raised.

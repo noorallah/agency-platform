@@ -75,6 +75,10 @@ from app.document_framework.models import (
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
 )
+from app.document_framework.services.bill_series import (
+    BillSeriesService,
+    series_key,
+)
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
@@ -741,15 +745,27 @@ class SalesInvoiceService(TransactionalDocumentService):
             customer_id=customer_id,
             customer_invoice_number=data.customer_invoice_number,
         )
+        typed_number = (
+            data.invoice_number.strip().upper() if data.invoice_number else None
+        )
+        # The series follows the bill's goods (backlog 157), decided once, on
+        # the server, from the lines as saved. A typed number is in no series.
+        series = BillSeriesService(self._session).resolve(
+            firm_id, self._bill_product_ids(line_specs)
+        )
         invoice_number = self._issue_number(
             numbering_rule,
-            typed=data.invoice_number.strip().upper() if data.invoice_number else None,
+            typed=typed_number,
             number_column=SalesInvoice.invoice_number,
             firm_id=firm_id,
             document_date=data.invoice_date,
             actor_id=actor_id,
             branch_code=self._scope_code(branch_id),
             company_code=self._company_code(firm_id),
+            series_prefix=series.prefix,
+        )
+        series_prefix = (
+            None if typed_number else series_key(numbering_rule, series.prefix)
         )
         # Read once for the two fields below; the customer's terms decide when
         # payment falls due and its billing address decides the place of supply.
@@ -777,6 +793,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             branch_id=branch_id,
             business_profile_id=business_profile_id,
             invoice_number=invoice_number,
+            series_prefix=series_prefix,
             invoice_date=data.invoice_date,
             customer_invoice_number=(
                 data.customer_invoice_number.strip()
@@ -3760,6 +3777,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             branch_id=row.branch_id,
             business_profile_id=row.business_profile_id,
             invoice_number=row.invoice_number,
+            series_prefix=row.series_prefix,
             invoice_date=row.invoice_date,
             customer_invoice_number=row.customer_invoice_number,
             place_of_supply=row.place_of_supply,
@@ -6332,6 +6350,44 @@ class SalesInvoiceService(TransactionalDocumentService):
 
     def _product_id(self, source_line: SourceLine) -> UUID:
         return source_line.product_id
+
+    def _bill_product_ids(self, line_specs: list[dict[str, object]]) -> list[UUID]:
+        """Return the product of every line a bill bills, in two reads.
+
+        A bill line names the note or order line it bills, so its product is
+        that line's -- which is what decides the bill's series (backlog 157).
+        """
+        note_lines: list[UUID] = []
+        order_lines: list[UUID] = []
+        for spec in line_specs:
+            line_id = _optional_uuid(spec.get("source_document_line_id"))
+            if line_id is None:
+                continue
+            if (
+                self._source_type(spec["source_document_type"])
+                == SalesInvoiceSourceType.DELIVERY_NOTE.value
+            ):
+                note_lines.append(line_id)
+            else:
+                order_lines.append(line_id)
+        products: list[UUID] = []
+        if note_lines:
+            products.extend(
+                self._session.scalars(
+                    select(DeliveryNoteLine.product_id).where(
+                        DeliveryNoteLine.id.in_(note_lines)
+                    )
+                ).all()
+            )
+        if order_lines:
+            products.extend(
+                self._session.scalars(
+                    select(SalesOrderLine.product_id).where(
+                        SalesOrderLine.id.in_(order_lines)
+                    )
+                ).all()
+            )
+        return products
 
     def _invoice_unit_price(
         self, *, spec: dict[str, object], source_line: object

@@ -1,8 +1,16 @@
 # A bill series per company: design note
 
-**Status: design note for backlog 157 (PRT-7), written 2026-10-16, for the
-owner's yes. Nothing in it is built.** Section 12 lists what only the owner
-can settle.
+**Status: design note for backlog 157 (PRT-7), written 2026-10-16; section 12
+decided by the owner the same day. The server half is built (2026-10-17):
+migration `20261017_0395`, `app/document_framework/services/bill_series.py`,
+the settings routes, `series-preview` and the principal's prefix. The desktop
+half is not.** Section 12 records what the owner settled.
+
+As built, two points the note left open: the bill is numbered when it is
+saved, as every sales bill already was, so a draft keeps the series its lines
+gave it when first saved; and GENERAL issues the higher of its own counter
+and the sales-bill rule's, keeping the rule's counter in step, so a firm's
+configured starting number and its preview still hold.
 
 ## 1. What it does for the user
 

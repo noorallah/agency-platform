@@ -20,6 +20,10 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.document_framework.services.bill_series import (
+    assert_prefix_fits,
+    normalise_prefix,
+)
 from app.products.models import Product
 from app.products.models.brand import Brand, Principal
 
@@ -39,12 +43,22 @@ class PrincipalWrite(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     vendor_id: UUID | None = None
     is_active: bool = True
+    #: The word this company's sales bills start with when the firm numbers
+    #: bills by company (backlog 157). Blank clears it; absent on a change
+    #: leaves it alone.
+    bill_series_prefix: str | None = None
 
     @field_validator("code", mode="before")
     @classmethod
     def upper_code(cls, value: str) -> str:
         """Match codes regardless of case."""
         return value.strip().upper()
+
+    @field_validator("bill_series_prefix", mode="before")
+    @classmethod
+    def clean_prefix(cls, value: str | None) -> str | None:
+        """Store the prefix upper case, letters and digits only; blank is none."""
+        return normalise_prefix(value)
 
 
 class PrincipalResponse(BaseModel):
@@ -57,6 +71,7 @@ class PrincipalResponse(BaseModel):
     name: str
     vendor_id: UUID | None
     is_active: bool
+    bill_series_prefix: str | None = None
     version: int
 
 
@@ -144,12 +159,17 @@ class BrandService:
         )
         if clash is not None and clash != principal_id:
             raise ConflictError(f"There is already a principal {data.code}.")
+        if data.bill_series_prefix is not None:
+            # Judged when the prefix is saved, not when a bill is issued
+            # (backlog 157): the longest number the series could print.
+            assert_prefix_fits(self._session, firm_id, data.bill_series_prefix)
         if principal_id is None:
             row = Principal(firm_id=firm_id, created_by=actor_id, **data.model_dump())
             self._session.add(row)
         else:
             row = self._principal(principal_id, firm_id)
-            for field, value in data.model_dump().items():
+            # Absent leaves a field alone; an explicit null still clears it.
+            for field, value in data.model_dump(exclude_unset=True).items():
                 setattr(row, field, value)
         row.updated_by = actor_id
         self._session.flush()

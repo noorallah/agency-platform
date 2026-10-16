@@ -45,6 +45,10 @@ from app.document_framework.schemas.bulk_actions import (
     BulkApproveRequest,
     BulkCancelRequest,
 )
+from app.document_framework.services.bill_series import (
+    BillSeriesPreview,
+    BillSeriesService,
+)
 from app.document_framework.services.bulk_actions import run_each
 from app.inventory.api.without_stock import BillWithoutStock
 from app.sales_invoice.models import SalesInvoiceLine
@@ -182,6 +186,25 @@ def list_billable_documents(
         data=SalesInvoiceService(db).billable_documents(
             firm_scope=scope.firm_id, limit=limit, page=page
         )
+    )
+
+
+@router.get("/series-preview", response_model=ApiResponse[BillSeriesPreview])
+def preview_sales_invoice_series(
+    scope: SalesInvoiceViewScope,
+    product_id: Annotated[list[UUID] | None, Query()] = None,
+    invoice_date: Annotated[date | None, Query()] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BillSeriesPreview]:
+    """Say which series a bill of these products takes, and its next number.
+
+    One ``product_id`` per bill line. The server decides and the screen shows,
+    as with pricing (backlog 157). Nothing is written and no number is used
+    up. Declared above `/{invoice_id}`: FastAPI matches in declaration order.
+    """
+    on = invoice_date or firm_today(db, scope.firm_id)
+    return ApiResponse(
+        data=BillSeriesService(db).preview(scope.firm_id, product_id or [], on=on)
     )
 
 
