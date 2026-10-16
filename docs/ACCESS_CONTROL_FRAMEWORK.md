@@ -160,10 +160,12 @@ the customer's administrator:
   the account's sessions. An address held by any other account — an ordinary
   user or a `PLATFORM` operator — is refused rather than promoted.
 - **Holds the `ALL_FIRMS` designation**, so it opens every firm without a
-  membership row. `users.department` reads `Support` so the account is
-  recognisable on the Users screen. Beside the `ALL_FIRMS` designation it
-  also names the account for the switch below, which lets more people turn
-  it **off**; it never widens what the account itself may do.
+  membership row. It is **marked** by `users.is_support_account` (part c,
+  `20261017_0396`), which only `ensure_support_admin` writes — no API schema
+  carries it, so nobody signed in can set it. `users.department` still reads
+  `Support`, for display only. The marker names the account for the switch
+  below, which lets more people turn it **off**, and for the audit flag; it
+  never widens what the account itself may do.
 - **Separate from the customer's own administrator**, who keeps their account
   and their password, and who switches the support account off and on again
   (below).
@@ -186,18 +188,50 @@ support account itself, may change `is_active` on it and nothing else.** A
 body carrying anything more — a rename, an expiry, an unlock — goes through
 the rank rule as before, and its password is still only the command line's.
 An undesignated caller is refused, and so is the support account aiming at
-itself. "The support account" is decided by the server — an `ALL_FIRMS`
-designation **and** `department` reading `Support`, so a customer's own
-Support department is not mistaken for it — and published as
-`is_support_account` on the Users list and the single read.
+itself. "The support account" is decided by the server — the
+`is_support_account` marker **and** a live `ALL_FIRMS` designation, so a
+marked account that has lost its reach gets no exemption, and a customer's
+own administrator in a department called Support is never mistaken for it —
+and published as `is_support_account` on the Users list and the single read.
+Until part c the department was the marker; that stand-in is gone.
 
 On the Users screen the support row's dialog footer has a **Support access**
 switch in place of Reset password, for a platform administrator; it asks for
 the reason in a dialog before anything is sent (`support_access_dialog.dart`).
 
-Still to come (parts c-d): audit rows written by the support account marked
-as support and filterable (which needs a proper marker column and a
-migration), and the tests for that.
+**What it did, marked and filterable (part c).** `audit_logs.by_support`
+(NOT NULL, default false, in **every** store — `20261017_0396` adds it
+wherever the table is, and leaves the append-only trigger and its function
+alone) is true on each row written while the support account was signed in:
+
+- `get_current_principal` reads the user row on every request anyway; when
+  it is the support account it calls `mark_support_actor()`, which sets
+  `RequestContext.actor.by_support`. `record_audit` reads that, so **no
+  module passes anything** and a row lands marked in whichever store the
+  request wrote to. The flag lives on a mutable object the frozen context
+  holds rather than in a `ContextVar` of its own, because FastAPI runs a sync
+  dependency on a *copy* of the context and a variable set there never
+  reaches the handler.
+- The sign-in comes before any token, so `identity.login` passes
+  `by_support=user.is_support_account` itself.
+- A write with nobody signed in — the CLI, a script — is never marked;
+  `identity.support_admin_created` and `_password_reset` are the machine's,
+  not the support person's.
+- Existing rows are not back-filled: they read false, which is what the
+  trail could say about them when they were written.
+
+`GET /api/v1/audit-logs?by_support=true` lists only what the support account
+did, `false` only the rest, absent both; it applies to both stores of a
+firm's merged trail. Each row carries `by_support`. The phase 2 Audit Logs
+screen has a **Support access** filter under "+ filter" (Everybody / Support
+account only / Everybody but support), and a row the support account wrote
+reads "(support)" beside its actor.
+
+The migration marks the account the command created before the column
+existed — department `Support`, a live `ALL_FIRMS` row, still unmarked — so a
+replay changes nothing. Tests: `tests/unit/test_support_audit_marker.py`
+(marker, flag, filter, migration) and the two marker cases in
+`tests/unit/test_support_admin_switch.py`.
 
 ## Tier 2: everybody else
 

@@ -36,6 +36,8 @@ class AuditLogResponse(BaseModel):
     after_data: dict[str, object] | None
     ip_address: str | None
     application_version: str | None
+    #: Written while the support account was signed in (backlog 29s).
+    by_support: bool = False
 
 
 class AuditLogFilters(BaseModel):
@@ -49,6 +51,9 @@ class AuditLogFilters(BaseModel):
     actor_id: UUID | None = None
     date_from: date | None = None
     date_to: date | None = None
+    #: True lists only what the support account did, false only what it did
+    #: not; absent lists both (backlog 29s).
+    by_support: bool | None = None
     #: One box for the whole trail (PLT-8): part of an action, a record type,
     #: or the name or email of who did it or was acted on.
     search: str | None = None

@@ -45,6 +45,10 @@ class _AuditLogPageState extends State<AuditLogPage> {
 
   /// Phase 2's Period over the trail (review, 2026-09-27).
   DatePeriod _period = const DatePeriod.all();
+
+  /// The Support access filter (backlog 29s): true lists only what the
+  /// vendor's support account did, false only what it did not, null both.
+  bool? _bySupport;
   AuditLogEntry? _selected;
   int _page = 1;
   int _total = 0;
@@ -85,6 +89,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
         entityType: _entityType.text.trim(),
         dateFrom: _period.from == null ? null : DatePeriod.iso(_period.from!),
         dateTo: _period.to == null ? null : DatePeriod.iso(_period.to!),
+        bySupport: _bySupport,
       );
       if (!mounted) return;
       // Phase 2 lists pick nothing until the user does; phase 1's side pane
@@ -272,10 +277,12 @@ class _AuditLogPageState extends State<AuditLogPage> {
           onSearch: (_) => unawaited(_load(requestedPage: 1)),
         ),
         filterPanel: FilterPanel(
-          activeFilterCount: _entityType.text.trim().isEmpty ? 0 : 1,
+          activeFilterCount: (_entityType.text.trim().isEmpty ? 0 : 1) +
+              (_bySupport == null ? 0 : 1),
           onApply: () => unawaited(_load(requestedPage: 1)),
           onClear: () {
             _entityType.clear();
+            setState(() => _bySupport = null);
             unawaited(_load(requestedPage: 1));
           },
           children: [
@@ -287,6 +294,33 @@ class _AuditLogPageState extends State<AuditLogPage> {
                   labelText: 'Entity type',
                   hintText: 'customer',
                 ),
+              ),
+            ),
+            SizedBox(
+              key: const ValueKey('audit-support-filter'),
+              width: 220,
+              child: DropdownButtonFormField<String>(
+                // Rebuilt when cleared, since the value is only an initial one.
+                key: ValueKey<bool?>(_bySupport),
+                isExpanded: true,
+                initialValue: switch (_bySupport) {
+                  true => 'support',
+                  false => 'others',
+                  null => 'all',
+                },
+                decoration: const InputDecoration(labelText: 'Support access'),
+                items: const [
+                  DropdownMenuItem(value: 'all', child: Text('Everybody')),
+                  DropdownMenuItem(
+                      value: 'support', child: Text('Support account only')),
+                  DropdownMenuItem(
+                      value: 'others', child: Text('Everybody but support')),
+                ],
+                onChanged: (value) => setState(() => _bySupport = switch (value) {
+                  'support' => true,
+                  'others' => false,
+                  _ => null,
+                }),
               ),
             ),
           ],
@@ -347,7 +381,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
                       row.action,
                       row.entityType,
                       row.entityLabel.isEmpty ? row.entityId : row.entityLabel,
-                      row.actorLabel,
+                      row.bySupport
+                          ? '${row.actorLabel} (support)'
+                          : row.actorLabel,
                     ],
                     onSelect: (row) => setState(() => _selected = row),
                     onOpen: (row) => unawaited(_open(row)),
@@ -429,6 +465,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
             Text(row.entityId, style: Theme.of(context).textTheme.bodySmall),
           Text('By ${row.actorLabel}',
               style: Theme.of(context).textTheme.bodySmall),
+          if (row.bySupport)
+            Text('Through the support account',
+                style: Theme.of(context).textTheme.bodySmall),
           Text(row.createdAt, style: Theme.of(context).textTheme.bodySmall),
           if (row.ipAddress.isNotEmpty)
             Text(

@@ -33,6 +33,7 @@ class _AuditApi extends ApiClient {
   final List<AuditLogEntry> rows;
   String? requestedAction;
   String? requestedSearch;
+  bool? requestedBySupport;
   final List<String?> searches = [];
 
   @override
@@ -44,9 +45,11 @@ class _AuditApi extends ApiClient {
     String? dateFrom,
     String? dateTo,
     String? search,
+    bool? bySupport,
   }) async {
     requestedAction = action;
     requestedSearch = search;
+    requestedBySupport = bySupport;
     searches.add(search);
     return PagedResult<AuditLogEntry>(items: rows, total: rows.length);
   }
@@ -254,5 +257,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);
     expect(find.text('credit_limit'), findsOneWidget);
+  });
+
+  group('support access (backlog 29s)', () {
+    testWidgets('the filter asks for what the support account did',
+        (tester) async {
+      final _AuditApi api = _AuditApi(rows: [_entry()]);
+      await _pump(tester, api, phase2: true);
+      expect(api.requestedBySupport, isNull, reason: 'both, until asked');
+
+      await tester.tap(find.text('+ filter'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('audit-support-filter')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Support account only').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+      expect(api.requestedBySupport, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('audit-support-filter')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Everybody but support').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+      expect(api.requestedBySupport, isFalse);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Clear'));
+      await tester.pumpAndSettle();
+      expect(api.requestedBySupport, isNull);
+    });
+
+    testWidgets('a row the support account wrote says so', (tester) async {
+      final AuditLogEntry row = AuditLogEntry.fromJson({
+        'id': 'a-2',
+        'created_at': '2026-10-17T06:00:00Z',
+        'action': 'customer.updated',
+        'entity_type': 'customer',
+        'entity_id': 'c-1',
+        'actor_id': 'u-9',
+        'actor_name': 'Vendor Support',
+        'actor_email': 'support@vendor.example',
+        'firm_id': 'firm-1',
+        'before_data': const {'credit_limit': '1'},
+        'after_data': const {'credit_limit': '2'},
+        'ip_address': '',
+        'application_version': '',
+        'by_support': true,
+      });
+      expect(row.bySupport, isTrue);
+      expect(_entry().bySupport, isFalse, reason: 'absent reads as not');
+
+      await _pump(tester, _AuditApi(rows: [row]), phase2: true);
+      expect(find.textContaining('(support)'), findsOneWidget);
+    });
   });
 }

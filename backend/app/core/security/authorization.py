@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config.settings import Settings
+from app.core.context import mark_support_actor
 from app.core.database.dependencies import get_platform_db
 from app.core.enums import PlatformAdminScope, TokenType
 from app.core.exceptions import AuthenticationError, AuthorizationError
@@ -160,6 +161,10 @@ def get_current_principal(
         or _session_ended(db, extra_claims.get("sid"))
     ):
         raise AuthenticationError()
+    if user.is_support_account:
+        # Every audit row this request writes is the support account's
+        # doing, whichever store it lands in (backlog 29s, part c).
+        mark_support_actor()
     firm_id = _selected_firm_id(request)
     return Principal(
         subject=subject,

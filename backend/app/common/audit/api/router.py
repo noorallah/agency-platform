@@ -191,6 +191,7 @@ def list_audit_logs(
     actor_id: UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    by_support: bool | None = None,
     search: Annotated[str | None, Query(max_length=100)] = None,
     sort_direction: Annotated[Literal["asc", "desc"], Query()] = "desc",
     db: Session = Depends(get_db),
@@ -205,6 +206,7 @@ def list_audit_logs(
         actor_id=actor_id,
         date_from=date_from,
         date_to=date_to,
+        by_support=by_support,
         search=(search or "").strip() or None,
         search_people=_people_matching(search, platform_db),
     )

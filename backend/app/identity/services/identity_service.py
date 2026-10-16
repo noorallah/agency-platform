@@ -65,7 +65,6 @@ from app.identity.schemas.api import (
     UserTemplateUpdate,
     UserUpdate,
 )
-from app.identity.services.support_admin import SUPPORT_DEPARTMENT
 from app.identity.system_seed import (
     DESIGNATION_ONLY_PERMISSION_CODES,
     FIRM_ROLE_CODES,
@@ -289,6 +288,9 @@ class IdentityService:
             entity_type="user",
             entity_id=user.id,
             actor_id=user.id,
+            # Nobody is signed in yet, so the request cannot say; the account
+            # being signed in to can.
+            by_support=user.is_support_account,
         )
         self._session.commit()
         return response
@@ -3421,9 +3423,10 @@ class IdentityService:
     def _is_support_account(self, user: User) -> bool:
         """Return whether this is the installation's support account (29s).
 
-        The account `create-support-admin` makes: an `ALL_FIRMS` designation
-        on a user whose department reads `SUPPORT_DEPARTMENT`. Both, because a
-        customer may well have a department called Support of their own.
+        The account `create-support-admin` makes: `users.is_support_account`,
+        which only that command writes, **and** a live `ALL_FIRMS`
+        designation -- a marked account that has lost its reach is not
+        reaching anybody, so it gets no exemption either.
         """
         return bool(self.support_account_ids([user.id]))
 
@@ -3440,7 +3443,7 @@ class IdentityService:
                 .join(PlatformAdmin, PlatformAdmin.user_id == User.id)
                 .where(
                     User.id.in_(user_ids),
-                    User.department == SUPPORT_DEPARTMENT,
+                    User.is_support_account.is_(True),
                     PlatformAdmin.scope == PlatformAdminScope.ALL_FIRMS.value,
                     PlatformAdmin.is_deleted.is_(False),
                 )

@@ -247,6 +247,47 @@ def test_another_all_firms_administrator_is_not_the_support_account() -> None:
     }
 
 
+def test_an_all_firms_administrator_in_support_is_not_the_support_account() -> None:
+    """The department was the stand-in; the column is the marker (part c).
+
+    A customer's own top administrator working in a department called Support
+    looked exactly like the support account to the stand-in, so any PLATFORM
+    operator could have switched them off.
+    """
+    service, session = _service()
+    owner = _account(service, session, "owner@example.com", PlatformAdminScope.PLATFORM)
+    namesake = _account(
+        service,
+        session,
+        "head@example.com",
+        PlatformAdminScope.ALL_FIRMS,
+        department="Support",
+    )
+    support = _support(session)
+
+    assert support.is_support_account
+    assert not namesake.is_support_account
+    assert service.support_account_ids([namesake.id, support.id]) == {support.id}
+    with pytest.raises(AuthorizationError, match="reach is wider"):
+        service.update_user(
+            namesake.id, UserUpdate(is_active=False, reason="Off"), owner.id
+        )
+
+
+def test_a_marked_account_without_its_designation_is_not_the_support_account() -> None:
+    """The marker names the account; the ALL_FIRMS row is still its reach."""
+    service, session = _service()
+    support = _support(session)
+    designation = session.scalar(
+        select(PlatformAdmin).where(PlatformAdmin.user_id == support.id)
+    )
+    assert designation is not None
+    designation.is_deleted = True
+    session.commit()
+
+    assert service.support_account_ids([support.id]) == set()
+
+
 def test_an_all_firms_administrator_switches_it_too() -> None:
     """A peer may as well, and still has to say why."""
     service, session = _service()

@@ -23,6 +23,7 @@ class AuditLogEntry {
     required this.afterData,
     required this.ipAddress,
     required this.applicationVersion,
+    this.bySupport = false,
   });
 
   final String id;
@@ -59,6 +60,9 @@ class AuditLogEntry {
   final Map<String, dynamic> afterData;
   final String ipAddress;
   final String applicationVersion;
+
+  /// Written while the vendor's support account was signed in (backlog 29s).
+  final bool bySupport;
 
   /// Whether this row records a change rather than a creation or deletion.
   bool get hasBothSides => beforeData.isNotEmpty && afterData.isNotEmpty;
@@ -97,6 +101,7 @@ class AuditLogEntry {
       afterData: side(json['after_data']),
       ipAddress: stringValue(json['ip_address']),
       applicationVersion: stringValue(json['application_version']),
+      bySupport: json['by_support'] == true,
     );
   }
 }
