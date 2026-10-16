@@ -5,10 +5,15 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.common.file_import import (
+    ImportReportResponse,
+    file_format_of,
+    report_response,
+)
 from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
@@ -126,6 +131,15 @@ from app.finance.services.control_accounts import (
 )
 from app.finance.services.fx_revaluation import FxRevaluationService
 from app.finance.services.journal_engine import assert_manual_reference
+from app.finance.services.ledger_account_import import (
+    LedgerAccountFileImporter,
+)
+from app.finance.services.ledger_account_import import (
+    template_csv as ledger_account_template_csv,
+)
+from app.finance.services.ledger_account_import import (
+    template_workbook as ledger_account_template_workbook,
+)
 from app.finance.services.ledger_attachments import LedgerAttachmentService
 from app.finance.services.opening_balances import (
     OpeningLineInput,
@@ -146,6 +160,7 @@ from app.finance.services.tds_return import (
     return_workbook,
 )
 from app.finance.services.tds_sections import TdsSectionService
+from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -577,6 +592,77 @@ def list_ledger_accounts(
         closed = ControlAccountService(db).closed_to_hand_journals(scope.firm_id)
         rows = [row for row in rows if row.id not in closed]
     return ApiResponse(data=[LedgerAccountResponse.model_validate(r) for r in rows])
+
+
+# Declared above "/ledger-accounts/{account_id}": FastAPI matches in order.
+@router.get("/ledger-accounts/import-template")
+def ledger_account_import_template(
+    scope: MasterManageScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the chart-of-accounts import template (Swathi G6).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column,
+    and a lists sheet with this firm's account groups and ledger accounts.
+    """
+    if format == "csv":
+        return StreamingResponse(
+            iter([ledger_account_template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    'attachment; filename="ledger-account-template.csv"'
+                )
+            },
+        )
+    return StreamingResponse(
+        iter([ledger_account_template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="ledger-account-template.xlsx"'
+            )
+        },
+    )
+
+
+@router.post(
+    "/ledger-accounts/import-file", response_model=ApiResponse[ImportReportResponse]
+)
+async def import_ledger_account_file(
+    scope: MasterManageScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+    mapping: Annotated[str | None, Form()] = None,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX chart-of-accounts file; with ``apply``, import it.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``. The chart is kept under ``ACCOUNT_MANAGE``, so the
+    file is too, and updating existing accounts needs nothing more. Opening
+    balances are the opening trial balance's, not this file's.
+    """
+    file_format = file_format_of(file.filename)
+    # A file mapped on the import screen is read as mapped (decision B3).
+    content, file_format = mapped_content(
+        await file.read(),
+        file_format,
+        parse_mapping(mapping),
+        columns_for_kind(db, "ledger-accounts"),
+    )
+    report = LedgerAccountFileImporter(db, FinanceService(db)).run(
+        content,
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 def _control_account_response(view: ControlAccountView) -> ControlAccountResponse:

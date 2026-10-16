@@ -97,6 +97,15 @@ def _salesmen(_: Session) -> tuple[Column, ...]:
     return SalesmanFileImporter.COLUMNS
 
 
+def _ledger_accounts(_: Session) -> tuple[Column, ...]:
+    """Return the chart-of-accounts import's columns (Swathi G6)."""
+    from app.finance.services.ledger_account_import import (
+        LedgerAccountFileImporter,
+    )
+
+    return LedgerAccountFileImporter.COLUMNS
+
+
 def _routes(_: Session) -> tuple[Column, ...]:
     """Return the route (beat) import's columns (Swathi G3)."""
     from app.sales.services.route_import import RouteFileImporter
@@ -158,6 +167,10 @@ IMPORT_KINDS: dict[str, ImportKind] = {
     "principals": ImportKind("Principals", "PRODUCT_UPDATE", _principals),
     # The salesman list is kept under SALESMAN_MANAGE, so its import is too.
     "salesmen": ImportKind("Salesmen", "SALESMAN_MANAGE", _salesmen),
+    # The chart of accounts is kept under ACCOUNT_MANAGE, so its import is too.
+    "ledger-accounts": ImportKind(
+        "Chart of accounts", "ACCOUNT_MANAGE", _ledger_accounts
+    ),
     # A route is made on the territory form, under TERRITORY_CREATE.
     "routes": ImportKind("Routes", "TERRITORY_CREATE", _routes),
     # A segment is kept under CUSTOMER_MANAGE_SETTINGS, so its import is too.

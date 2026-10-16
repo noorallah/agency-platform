@@ -72,6 +72,9 @@ _ACCEPTED: dict[str, str] = {
     # Swathi G3: the salesman import is built backend-first.
     "GET /api/v1/salesmen/import-template": "desktop screen follows",
     "POST /api/v1/salesmen/import-file": "desktop screen follows",
+    # Swathi G6: the chart-of-accounts import is built backend-first.
+    "GET /api/v1/finance/ledger-accounts/import-template": "desktop screen follows",
+    "POST /api/v1/finance/ledger-accounts/import-file": "desktop screen follows",
     # Swathi G3: the route import is built backend-first.
     "GET /api/v1/sales-territories/routes/import-template": "desktop screen follows",
     "POST /api/v1/sales-territories/routes/import-file": "desktop screen follows",
