@@ -58,7 +58,7 @@ their own firm, through **Roles by firm**.
 - **Expect**
   - Step 1: created, in **no** firm — allowed and deliberate — and **not** in the grid.
   - Step 2: found, not marked as already a member.
-  - Step 3: the form says "Somebody in no firm cannot be given roles here, because roles are held per firm. Save them without roles, then use Add existing user to bring them into this firm and set what they do." — **and no account was created**: the lookup finds no `qa.nofirm2`. Clear Roles and press Save; it saves. Fixed 2026-09-16; see defect **D-20-1**. The message is the form's own; the server, asked directly by a firm administrator, answers 404 *User not found.* for somebody outside their firm (users and roles round 1).
+  - Step 3: the form says "Somebody in no firm cannot be given roles here, because roles are held per firm. Save them without roles, then use Add existing user to bring them into this firm and set what they do." — **and no account was created**: the lookup finds no `qa.nofirm2`. Clear Roles and press Save; it saves. Fixed 2026-09-16; see defect **D-20-1**.
   - *Step 1 failed on 2026-09-15 ("User not found." with the user created anyway) and was fixed in #402. Driven on the API: a firm admin's create lands the user in QA01, clearing the firms leaves none, and the lookup then finds them with `already_a_member: false`. Step 3's order — create, clear firms, then refuse — is read from `saveAssignments`, not seen on screen.*
 ### TC-USER-005 — A platform administrator's New form
 
@@ -93,7 +93,6 @@ their own firm, through **Roles by firm**.
   1. As the prepared **Firm admin**, Settings > Platform > People > Users → New: name, `qa.counter@qa.test`, password, **Job template** Counter Sales, Roles left alone → Save. (`docs/USER_ADMINISTRATION_GUIDE.md` §3 end to end.)
   2. Sign in as them and read the menu bar; open Accounts, then the Sell and Buy menus.
 - **Expect:** **Sell** and **Stock** offered; the only money screens are **Sell > Receipts** and **Buy > Payments**; no Platform part under Settings. No **Accounts** menu at all, so none of Chart of Accounts, Control Accounts, Cost Centres, Profit Centres, Journal Entries, Ledgers, Trial Balance, Profit & Loss, Balance Sheet or Refunds (confirm).
-  - The Refunds *screen* is under Accounts and so not offered, but the server takes a refund from this job: a refund is money out, gated on `PAYMENT_CREATE`, which the till holds so a counter can hand cash back on a return (users and roles round 1; not a defect).
   - **Two opposite failures:** no Receipts or Payments at all means the module gate was reverted and the empty-menu bug is back; the books (Accounts) *offered* means the tabs lost their own codes and the module gate is doing the work alone.
 
 ## Hiring somebody who already has an account
@@ -238,7 +237,7 @@ digit, symbol.
 
 ## User templates — hiring by naming the job
 
-A template is a named bundle of roles. Twelve are seeded and offered to every
+A template is a named bundle of roles. Eleven are seeded and offered to every
 firm; a firm may write its own and may not edit the platform's. Applying one is
 an ordinary role write — nothing on the user records which template they came
 from.
@@ -248,7 +247,7 @@ The eleven: Accounts (`ACCOUNTANT`), Counter Sales (`BILLING_EXECUTIVE`,
 Administrator, Firm Manager, Purchase Manager, Purchasing, Read Only
 (`VIEWER`), Sales Manager and Warehouse (`INVENTORY_MANAGER`). QA01 also
 lists templates earlier runs wrote, and any template a platform administrator
-offered to every firm; cases count only the eleven named here (the twelfth, `bill-collector` with `BILL_COLLECTOR`, came later).
+offered to every firm; cases count only the eleven.
 
 ### TC-TMPL-001 — The platform's templates are listed, and locked
 
@@ -497,8 +496,8 @@ own roles and templates without anybody writing code.
   1. Sign in as the prepared **Firm admin**. Select **QA01** in the firm switcher if it is not already selected.
   2. Click the gear → Platform > People > **Roles**.
 - **Expect**
-  - **Thirteen rows subtitled *System role*:** `ACCOUNTANT`, `BILL_COLLECTOR`, `BILLING_EXECUTIVE`, `CASHIER`, `CUSTOMER_SUPPORT`, `FIRM_ADMIN`, `FIRM_MANAGER`, `INVENTORY_MANAGER`, `PURCHASE_EXECUTIVE`, `PURCHASE_MANAGER`, `SALES_EXECUTIVE`, `SALES_MANAGER`, `VIEWER`.
-  - **None of the platform roles:** `PLATFORM_ADMIN`, `LICENSE_ADMIN`, `SYSTEM_AUDITOR` (`SUPPORT_ADMIN` is hidden from every list, `HIDDEN_SYSTEM_ROLE_CODES`).
+  - **Twelve rows subtitled *System role*:** `ACCOUNTANT`, `BILLING_EXECUTIVE`, `CASHIER`, `CUSTOMER_SUPPORT`, `FIRM_ADMIN`, `FIRM_MANAGER`, `INVENTORY_MANAGER`, `PURCHASE_EXECUTIVE`, `PURCHASE_MANAGER`, `SALES_EXECUTIVE`, `SALES_MANAGER`, `VIEWER`.
+  - **None of the four platform roles:** `PLATFORM_ADMIN`, `SUPPORT_ADMIN`, `LICENSE_ADMIN`, `SYSTEM_AUDITOR`.
   - Rows subtitled *Custom role* may also appear — earlier preparation runs made them. **Do not count those.**
 ### TC-ROLE-002 — Creating a custom role; the platform's codes are never offered
 
@@ -511,7 +510,7 @@ own roles and templates without anybody writing code.
   5. Search the picker for `FIRM_CREATE`, then `PLATFORM_SETTINGS`, `VOID_INVOICE`, `AUDIT_LOG_VIEW`.
   6. Tick `SALES_VIEW` and `CUSTOMER_VIEW`. **Save.**
 - **Expect**
-  - Step 5: **none of those four codes is in the list.** The picker offers **213** codes (2026-10-16); the 28 platform codes are filtered out of a firm caller's read, not merely refused on save.
+  - Step 5: **none of those four codes is in the list.** The picker offers **167** codes; the 22 platform codes are filtered out of a firm caller's read, not merely refused on save.
   - Step 6: the role is created, subtitled **Custom role**, and offers **Edit** (the System roles do not).
 ### TC-ROLE-003 — No role may be named `platform_admin`
 

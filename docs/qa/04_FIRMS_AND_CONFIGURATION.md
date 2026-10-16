@@ -358,7 +358,7 @@ opens any screen by name.
   - Step 8: the note reads **2 steps to do.** and rows 1 and 2 read **To do**, *None yet*.
 ### TC-CONF-011 — Settings > Firm, Selling and Buying open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`). Until D-IDN-17 is settled the Firm admin is not offered* 1 Firm settings *or Business profile rows 1 to 5, which need `FIRM_VIEW` and `PLATFORM_VIEW`; the Viewer is.*
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**; for step 6 a firm with no open financial year)
 - **Steps**
@@ -379,7 +379,7 @@ opens any screen by name.
   - Step 7: the Credit Control window opens on its own, as it always did.
 ### TC-CONF-012 — Settings > Stock, Business profile and Pricing open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`). Until D-IDN-17 is settled the Firm admin is not offered* 1 Firm settings *or Business profile rows 1 to 5, which need `FIRM_VIEW` and `PLATFORM_VIEW`; the Viewer is.*
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**)
 - **Steps**
@@ -388,14 +388,14 @@ opens any screen by name.
   3. Press the **Pricing** card (under SET UP) and read the tabs and Start here.
   4. Go back to Settings, type **Unit Sets** in *Search settings* and press the card found.
 - **Expect**
-  - Step 1: **Start here, 1 Adjustment reasons, 2 Adjustment limits, 3 Batch rules, 4 Costing method**, then **Yours: Inventory settings** set apart. Row 1 reads **Optional**, *8 built in* (and the firm's own count where it has any).
+  - Step 1: **Start here, 1 Adjustment reasons, 2 Adjustment limits, 3 Batch rules**, then **Yours: Inventory settings** set apart. Row 1 reads **Optional**, *8 built in* (and the firm's own count where it has any).
   - Step 2: **1 Profile assignment, 2 Feature management, 3 Module configuration, 4 Attribute definitions, 5 Mandatory attributes, 6 Unit sets**, all **Optional**; row 1 names the firm's profile, rows 2 and 3 read *N of M features on* / *modules on*.
   - Step 3: **1 Price lists, 2 Price levels, 3 Promotions, 4 Loyalty**, all **Optional**, each with what the firm holds or *None yet*.
   - No section shows a **To do**, and the note on top says the section is ready.
   - Step 4: Unit Sets opens on its own, as it always did.
 ### TC-CONF-013 — Settings > Territories & routes, Account structure and Party lists open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`).*
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**)
 - **Steps**
@@ -410,7 +410,7 @@ opens any screen by name.
   - Step 4: Route Builder opens on its own, as it always did.
 ### TC-CONF-014 — Settings > Item lists and Locations open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`).*
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**)
 - **Steps**
@@ -423,7 +423,7 @@ opens any screen by name.
   - Step 3: Product Categories opens on its own, as it always did.
 ### TC-CONF-015 — Settings > People and Firms open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`).*
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer. (, as its **Firm admin**, then as the **platform administrator**)
 - **Steps**

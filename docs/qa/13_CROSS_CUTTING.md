@@ -112,7 +112,7 @@ redo yours."*
 *Added 2026-10-13 (backlog 126). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
-- **Also needs:** a parent customer with three shops under it (TC-CUST-014 makes them), and one approved sales bill on each shop, say for 100.00, 250.00 and 400.00 (with GST at 18% on the product these come out as bill totals such as 118.00, 236.00 and 354.00; use the totals the bills really carry in the steps below).
+- **Also needs:** a parent customer with three shops under it (TC-CUST-014 makes them), and one approved sales bill on each shop, say for 100.00, 250.00 and 400.00.
 - **Steps**
   1. Note what each shop owes on *Customer Statements*.
   2. Open *Sell → Money → Receipts* → **Record receipt**. Choose the parent as the customer.
@@ -127,7 +127,7 @@ redo yours."*
 - **Expect**
   - Step 3: the three shops' bills are listed, each with its shop's code and name under the bill number, and a line above says the bills of the shops under this customer are listed too.
   - Step 4: saved as one receipt in the parent's name for 1,000.00; 750.00 set against bills, 250.00 not.
-  - Step 5: each shop owes nothing, and its statement has one receipt line for its own bill's amount with the parent's receipt number and "Paid by" the parent. The parent's statement has one receipt line for the receipt that reads 0.00 owed and 0.00 paid against bills; the 250.00 held on account is the statement's *held on account* (unapplied advance) figure at the top, not an amount on the line. (Corrected 2026-10-16, collections round 1.)
+  - Step 5: each shop owes nothing, and its statement has one receipt line for its own bill's amount with the parent's receipt number and "Paid by" the parent. The parent's statement has one receipt line of 250.00, held on account.
   - Step 6: each bill is followed by its shop's code and name.
   - Step 7: saved. The receipt has 100.00 left not set against a bill.
   - Step 8: the first shop owes nothing again. The parent holds 100.00 on account.

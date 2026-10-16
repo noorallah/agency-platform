@@ -30,8 +30,6 @@ commission uses `commission-firm`:
 
 *Added 2026-10-14 (backlog 151, row P1). The server was driven over HTTP on a preparation firm; the box on screen is covered by widget tests only and **no screen was clicked**, so those steps are written from the build. Nothing was put through a printer.*
 
-*Clicked 2026-10-16 in part (`sc_prt_test.dart`, `SCREEN_FLOW_CHECK_PRINTING_2026-10-16.md`): steps 1 to 5, 7 and 8, as Firm admin and Viewer (the box names the paper, one print switched to Full page gives A4, the next print opens on Half again, Cancel prints nothing). Not clicked: step 9 (Print selected).*
-
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Also needs:** a product **P** with stock; two customers, **A** (Bill paper: Firm's setting) and **B**. Where the firm types orders and delivery notes, each bill below continues a note.
 - **Steps**
@@ -138,7 +136,7 @@ commission uses `commission-firm`:
   - Step 6: the transfer or voucher prints as before.
 ### TC-SELL-114 — A salesman with no sign-in, picked on a bill
 
-*Added 2026-10-14 (P2, the firm's own list of salesmen). **Clicked 2026-10-16** (`sc_sm_test.dart`, `SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`): the entry and the order were clicked; the bill is one billed off a note, the fixture firm having no counter sale.*
+*Added 2026-10-14 (P2, the firm's own list of salesmen). **No screen was clicked**; the server half is held by unit tests.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Steps:** as the prepared **Firm admin**: Settings > Selling > **Salesmen** → New: name `Phone order`, Signs in as left empty, Earns commission off → Save. Sell > Sales Invoices → New counter bill for `QA-C01`, one line `QA-DET` × 1; open the Salesman box and choose `Phone order` → Save. Open the saved bill.
@@ -146,7 +144,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-115 — What the Salesman box starts on
 
-*Added 2026-10-14 (P2). **Clicked 2026-10-16 in part** (`SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`): the tied user's own entry, an inactive entry, and the bill taking the note's salesman; the account-manager and round choices were not driven (the fixture has no round).*
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** salesman entries `Asha` (tied to the user you sign in as), `Bala` and `Chitra`; `QA-C01` with account manager Bala and on a round whose primary salesman is Chitra and which Bala also covers (not primary); `QA-C02` with no account manager and the same round; a customer with neither.
@@ -155,7 +153,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-116 — "Salesman required" refuses a save without one
 
-*Added 2026-10-14 (P2). **Clicked 2026-10-16 in part** (`SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`): the switch, the order and the bill, on and off; the delivery note and the quotation were not driven.*
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Steps:** as the prepared **Firm admin**: Settings > Selling > Sales Stages → switch **Salesman required** on → Save. Sell > Sales Orders → New Order for a customer with no account manager and no round, Salesman left blank → Create draft. Repeat for a delivery note and a sales bill. Switch the setting off and save each again. Last, with the setting on again, save a quotation with no salesman.
@@ -171,7 +169,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-118 — Two salesmen cannot share a name
 
-*Added 2026-10-14 (P2). **Clicked 2026-10-16** (`SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`).*
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Steps:** Settings > Selling > Salesmen: with `Phone order` present, New → name `phone order` → Save. Then New → name `Phone Order 2` → Save; edit it to read `PHONE ORDER` → Save.
@@ -309,8 +307,6 @@ commission uses `commission-firm`:
 ## Offers chosen on the bill line
 
 While a sales line is typed, the side panel lists every offer and standing discount that could act on it, with what each gives, why it is or is not applied, a "buy N more" hint and, for an offer that allows it, a part share; the bill maker may tick a different set and the server prices the line again. `docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md` (sections 1, 3 and 6) is the reference; what was built is the L7 row of `docs/CUSTOMER_BUILD_TASKS.md`.
-
-*Screens clicked 2026-10-16 (`desktop/integration_test/sc_ofl_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_OFFERS_LINE_2026-10-16.md`): the side panel, hint, refused choice, part share, the third setting, the offer form and the saved rows, as Firm admin and Viewer on the lot-firm fixture; TC-OFR-005, 006 and 012 stay HTTP-only. D-UI-115 to D-UI-119 fixed.*
 
 The kept scripts are `docs/qa/checks/offers/` (`setup.py` once, then `python docs/qa/checks/run.py offers`); each makes a fresh scene, so any case runs alone and twice. Results: `docs/qa/OFFERS_ON_THE_LINE_API_CHECK_2026-10-15.md`. The steps are the HTTP calls the screens make (`POST /api/v1/sales-orders/preview` is what the side panel shows); the screens themselves were not clicked.
 

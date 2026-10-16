@@ -40,7 +40,7 @@ names it.
 | Purchase Manager | PURCHASE_MANAGER | 42 |
 | Accounts | ACCOUNTANT | 55 |
 | Customer Support | CUSTOMER_SUPPORT | 6 |
-| Read Only | VIEWER | 134 |
+| Read Only | VIEWER | 131 |
 
 ## R01. Firm Administrator
 
@@ -752,7 +752,7 @@ Roles: `CUSTOMER_SUPPORT`. 3 permission codes.
 
 ## R11. Read Only
 
-Roles: `VIEWER`. 50 permission codes.
+Roles: `VIEWER`. 48 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
@@ -853,7 +853,6 @@ Roles: `VIEWER`. 50 permission codes.
 | Masters > Compliance > Trade Licences | none beyond viewing | Not run | |
 | Reports > Operational | none beyond viewing | Not run | |
 | Reports > Financial | none beyond viewing | Not run | |
-| Settings > Firm > Firm Settings | none beyond viewing | Not run | |
 | Settings > Firm > Financial Years | none beyond viewing | Not run | |
 | Settings > Firm > Goods Types | none beyond viewing | Not run | |
 | Settings > Firm > Custom Fields | none beyond viewing | Not run | |
@@ -888,10 +887,8 @@ Roles: `VIEWER`. 50 permission codes.
 | Settings > Set up > Locations > Branch Types | none beyond viewing | Not run | |
 | Settings > Set up > Locations > Warehouse Types | none beyond viewing | Not run | |
 | Settings > Set up > Locations > Places | none beyond viewing | Not run | |
-| Settings > Platform > Firms > Firms | none beyond viewing | Not run | |
-| Settings > Platform > System > Diagnostics | none beyond viewing | Not run | |
 
-**Nothing offered under:** Settings > Selling. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
+**Nothing offered under:** Settings > Selling, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
 
 ## The platform administrator
 

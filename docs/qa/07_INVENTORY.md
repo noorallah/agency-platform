@@ -432,8 +432,6 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Also needs:** a firm still on Average (`lot-firm` is already switched); a product with 10 in MAIN and a second product with stock below zero, if the firm allows it; the Firm admin and a user without `INVENTORY_MANAGE_SETTINGS`.
 - **Steps:** (1) As the Firm admin, *Settings > Stock > Costing method*. Read the method shown. Pick today's date and read the preview. (2) Pick a day after today, then a day before the latest stock movement. (3) With the second product below zero, read the preview again. (4) **(HTTP)** as the user without the permission, `GET /api/v1/inventory/lot-settings/switch-preview` and `POST /api/v1/inventory/lot-settings/switch`.
 - **Expect:** (1) The firm shows *Average*. The preview lists items, lots to be made and quantity, and the stock value only to a holder of `PRODUCT_VIEW_COST_PRICE`; with no refusal the switch button is offered. (2) Each is refused and named: a day after today; a day before the latest stock movement. The switch button stays off. (3) The refusal names the item that is below zero. (4) **403** on both; nothing changes.
-
-*Clicked 2026-10-16 in part (`sc_lot_test.dart`, `SCREEN_FLOW_CHECK_LOTS_2026-10-16.md`): steps 1 and 2 (Average shown, preview matches the server, both days refused, switch off).*
 ### TC-LOT-002 — The one-way switch
 
 *Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
@@ -442,8 +440,6 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Also needs:** a firm of its own still on Average, made for this case on the Firms screen -- **never QA01, QA02 or a demo firm**, because the switch cannot be undone and every other case needs them on Average; in it a batch-tracked product with two batches holding stock, a plain product with unbatched stock, and the stock valuation read before the switch.
 - **Steps:** (1) Note *Stock valuation* for both products and the Inventory account balance. (2) *Settings > Stock > Costing method*: pick today, confirm the one-way warning, switch. (3) Reopen the screen. (4) Read *Stock valuation by lot* and *Stock valuation* again. (5) **(HTTP)** `POST /api/v1/inventory/lot-settings/switch` a second time. (6) Try an adjustment dated before the switch day.
 - **Expect:** (2) The switch succeeds. (3) The screen shows *By lot*, the switch day, and the switch *allow billing when no lot holds the stock*; there is no way back. (4) Each batch is a lot, at the item's average (Average kept no cost per batch, so 10 at 40 and 6 at 44 carry as two lots at 41.5); the unbatched stock is one new lot (source *Carried forward*) at the item's average. Totals per item, and the Inventory account, are exactly what they were before; no journal was posted. (5) Refused: already by lot. (6) Refused: dated before the switch.
-
-*Clicked 2026-10-16 in part (`sc_lot_test.dart`, `SCREEN_FLOW_CHECK_LOTS_2026-10-16.md`): step 3 (By lot since the switch day, no way back; the billing switch on and off, disabled for the Viewer).*
 ### TC-LOT-003 — A receipt makes a lot for each line
 
 *Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
@@ -452,8 +448,6 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Also needs:** the batch-tracked product and the untracked product, the supplier, a warehouse MAIN.
 - **Steps:** (1) Buy > Goods Receipts: receive 10 of the batch-tracked product with batch `LOTA`, expiry in 6 months, MRP 60, at cost 40.00, and 5 more on a second line with batch `LOTB`, at cost 42.00. Complete it. (2) Receive 8 of the untracked product with no batch, cost 30.00. (3) Open *Stock valuation by lot*. (4) Try cancelling the receipt of step 1 after selling 1 from `LOTA`.
 - **Expect:** (1) Two lots, one per line, each with its own batch, expiry, MRP, quantity and cost, and the receipt's number and date as its source. (2) One lot, which carries a *LOT...* reference of the firm's *Stock Lot* series and no printed batch. (3) Each lot is one row, at its own cost. (4) Refused: a lot of the receipt has moved. A receipt whose lots are untouched cancels, and its lots go with it.
-
-*Clicked 2026-10-16 in part (`sc_lot_test.dart`, `SCREEN_FLOW_CHECK_LOTS_2026-10-16.md`): steps 1 and 3 (two-batch receipt completed on screen; a lot row each at its own cost, "—" for the Viewer).*
 ### TC-LOT-004 — The picker groups lots and shows a dash for an unprinted lot
 
 *Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
@@ -462,8 +456,6 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Also needs:** the prepared two lots of the batch-tracked product at two costs, and the untracked product with a lot that has no printed batch.
 - **Steps:** (1) Receive 5 more of the batch-tracked product with the same batch, expiry, MRP and prices as one of the lots, at a third cost. (2) Sell > Delivery Notes: add a line for the batch-tracked product and open the batch picker. (3) Type a quantity larger than the first lot of the group holds. (4) Open the picker for the untracked product. (5) Sign in as a user without `PRODUCT_VIEW_COST_PRICE` and open the picker again.
 - **Expect:** (2) The lots that agree on batch, expiry, MRP and prices are one row with their total; other lots are rows of their own, nearest expiry first. (3) The quantity fills the oldest lot, then the next; the rest goes on the last lot, so an over-ask still shows red. (4) The lot shows a **dash** for batch and its received date; our *LOT...* reference is not shown. (5) The cost column is gone.
-
-*Clicked 2026-10-16 in part (`sc_lot_test.dart`, `SCREEN_FLOW_CHECK_LOTS_2026-10-16.md`): steps 2 and 4 (three lots as two rows; the unprinted lot shows a dash); step 5 checked over HTTP only, the Viewer has no editable note.*
 ### TC-LOT-005 — Dispatch takes the nearest-expiry lot and the bill carries its cost
 
 *Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
@@ -528,8 +520,6 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Also needs:** the prepared lots with one sold and one returned, a customer, and the Firm admin.
 - **Steps:** (1) Open *Reports > Stock valuation* and *Stock valuation by lot* for today. (2) Pick a day before the switch. (3) Open *Stock ageing*. (4) Open *Margin by lot* for the month. (5) Raise a bill, approve it, and open the report again.
 - **Expect:** (1) *Stock valuation* is the sum of each item's lots; the lot report lists a row per lot holding stock with reference, batch, received date, expiry, MRP, quantity, cost and value, and its rows add up to the valuation. (2) A day before the switch reads on Average and the lot report is empty. (3) Each lot is aged from its own received date at its own cost. (4) One row per item and lot: quantity sold, sales value, cost and margin, with returns taken back. (5) The new bill is counted once it is approved.
-
-*Clicked 2026-10-16 in part (`sc_lot_test.dart`, `SCREEN_FLOW_CHECK_LOTS_2026-10-16.md`): step 2 and the four lot reports opened without error.*
 ### TC-LOT-013 — Costs are hidden without the cost permission
 
 *Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
@@ -538,8 +528,6 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Also needs:** the Firm admin, and a user holding `INVENTORY_VIEW`, `BATCH_VIEW` and the report permissions but **not** `PRODUCT_VIEW_COST_PRICE`.
 - **Steps:** (1) As the user without the cost permission open *Stock valuation by lot*, *Margin by lot*, *Bills waiting for their cost*, the batch picker and a lot's *Trace*. (2) **(HTTP)** `GET /api/v1/inventory/reports/stock-valuation/lots`, `GET /api/v1/sales-invoices/reports/margin-by-lot`, `GET /api/v1/inventory/lot-shortfalls`, `GET /api/v1/batch-serial/batches/{id}/trail`. (3) Repeat as the Firm admin.
 - **Expect:** (1)-(2) Quantities, dates and references are shown; every cost, value and margin is **left out or blank**, and on the *Trace* the sales bill's amount too. The pages open and do not fail. (3) The Firm admin sees all of them.
-
-*Clicked 2026-10-16 in part (`sc_lot_test.dart`, `SCREEN_FLOW_CHECK_LOTS_2026-10-16.md`): step 1 for the reports and the Trace page; the picker is not reachable as the Viewer; stock valuation and stock ageing still send cost (D-STK-76).*
 ### TC-LOT-014 — A lot's Trace page
 
 *Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
@@ -548,23 +536,17 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Also needs:** the lot `LOTA` received, billed by a supplier, partly sold, partly returned, with one write-off.
 - **Steps:** (1) Inventory > Batch & Serial > Batches: open the batch and press **Trace** in the details. (2) Read the events top to bottom. (3) **(HTTP)** `GET /api/v1/batch-serial/batches/{id}/trail` for the batch, then for a made-up id.
 - **Expect:** (1)-(2) The arrival comes first (the goods receipt, supplier, date, source), then every movement signed in and out (+ into the lot, - out of it), with the supplier's bill and the sales bills, each found by its number. A reservation and its release are not listed. A write-off shows with its own number and date. A bill appears only once APPROVED or CLOSED, at quantity 0. (3) The lot, its reference, whether it carries a printed batch, its unit cost now and the events; **404** for an unknown id.
-
-*Clicked 2026-10-16 in part (`sc_lot_test.dart`, `SCREEN_FLOW_CHECK_LOTS_2026-10-16.md`): steps 1 and 2 (Trace matches the server, cost only for the admin).*
 ### TC-LOT-015 — A goods type hands its margins to a new product
 
-*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1, 2 and 4 on the product form (25 / 12.5 taken, retail 30 kept, -1 and 1000 refused).*
-
-*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_015.py`; screen-only steps were not driven.*
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
-- **Also needs:** a goods type with retail 25 and wholesale 12.5 filed on a category (a product takes its goods type from its category; `goods_type_id` is not a product field), the Firm admin.
-- **Steps:** (1) Create a product in a category of that goods type giving no margins. (2) Create another giving retail 30 only. (3) Change the goods type to 20 and 10 and open the first product. (4) Try a margin of -1, then 1000.
+- **Also needs:** a goods type with retail 25 and wholesale 12.5, the Firm admin.
+- **Steps:** (1) Create a product of that goods type giving no margins. (2) Create another giving retail 30 only. (3) Change the goods type to 20 and 10 and open the first product. (4) Try a margin of -1, then 1000.
 - **Expect:** (1) The product holds 25 and 12.5. (2) Retail 30; wholesale still follows the type (12.5). (3) The first product still holds 25 and 12.5: the type never writes over a product afterwards. (4) Both refused naming the field.
 ### TC-LOT-016 — A receipt line works its prices from the margins, blank or typed
 
-*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 3 on a goods receipt (PTR/PTS 100.00/90.00 and 112.00/90.00, the lot page agreeing).*
-
-*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_016.py`; screen-only steps were not driven.*
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
 - **Also needs:** product LOT-MARGIN (retail 25, wholesale 12.5, GST 18 local, batch-tracked), a supplier.
@@ -572,9 +554,7 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Expect:** (1) The line and its lot carry PTR 100.00 and PTS 90.00 (80 x 1.25, 80 x 1.125), margins 25 and 12.5. (2) PTR 112.00 (80 x 1.40), PTS 90.00; the lot holds margins 40 and 12.5. Nothing is rounded beyond the paisa.
 ### TC-LOT-017 — A typed price wins and its margin is worked back
 
-*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 3 (typed 104.00 stands, margin 30.00 shown; D-UI-109 fixed).*
-
-*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_017.py`; screen-only steps were not driven.*
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
 - **Also needs:** product LOT-MARGIN and a supplier.
@@ -582,29 +562,23 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Expect:** (1) The price stays 104.00 and the line shows retail margin 30.00 (worked back). (2) The price 104.00 stands over the margin 40, and the margin shown is 30.00. Wholesale is worked from the product as usual (90.00).
 ### TC-LOT-018 — Above the MRP warns with tax and is refused before tax
 
-*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): step 1 (the MRP warning on the line, word for word as the server's).*
-
-*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_018.py`; screen-only steps were not driven.*
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
 - **Also needs:** TEST03-M2 (MRP 130, PTR 112.00, GST 18), a supplier.
 - **Steps:** (1) Read the receipt line of TEST03-M2. (2) Receive a line at 80.00 with MRP 100 and a retail margin of 40, so PTR 112.00 is above the MRP before tax. (3) Receive a line at 80.00 with retail margin 10 and wholesale margin 40.
-- **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.16, cut to the paisa below 130 / 1.18). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line and both prices: PTS 112.00 cannot exceed the PTR 88.00 (the message says PTS and PTR, not wholesale and retail).
+- **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.16, cut to the paisa below 130 / 1.18). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line: wholesale (112.00) is above retail (88.00).
 ### TC-LOT-019 — Changing a price on the lot page works the margin back
 
-*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 4 on the lot page (108.00 gives margin 35.00, 85.00 refused, read-only for the Viewer).*
-
-*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_019.py`; screen-only steps were not driven.*
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
-- **Also needs:** TEST03-M1 (cost 80, PTR 100.00, PTS 90.00), a user without `BATCH_UPDATE` (the Viewer). `BATCH_PTR_PTS` is a business feature of the firm, not a permission, so there is no user "holding BATCH_UPDATE but not BATCH_PTR_PTS"; a firm costing by lot needs the feature for neither.
+- **Also needs:** TEST03-M1 (cost 80, PTR 100.00, PTS 90.00), a user holding `BATCH_UPDATE` but not `BATCH_PTR_PTS`, and one holding neither.
 - **Steps:** (1) Open the lot page of TEST03-M1. (2) Change the retail price to 108.00 and save. (3) Change it to 85.00 and save. (4) Repeat step 2 as the user without `BATCH_UPDATE`.
 - **Expect:** (1) Both prices, both margins and any warning show. (2) Saved; the retail margin reads 35.00 (108 over cost 80) and wholesale is unchanged. (3) Refused: the retail price may not be below the wholesale price 90.00. (4) The price boxes are read-only, or the save is refused (403).
 ### TC-LOT-020 — The bill switch: Retail or Wholesale, from the customer's kind
 
-*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 4 (Retail 100.00, Wholesale 90.00, a Wholesaler starts at Wholesale; D-UI-110 fixed).*
-
-*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_020.py`; screen-only steps were not driven.*
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
 - **Also needs:** TEST03-M1 and TEST03-M2 with stock, customers LOT-R (Retailer) and LOT-W (Wholesaler), neither with a level of their own.
@@ -612,23 +586,19 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Expect:** (1) The level box reads Retail and the line is priced at the lot that leaves first, TEST03-M1: 100.00. (2) Every line reprices to 90.00 (its PTS). (3) The box reads Wholesale and the line is 90.00. (4) 100.00. (5) Renaming is accepted; deleting or making it inactive is refused.
 ### TC-LOT-021 — Cost and margin on the line, only with the cost permission, never printed
 
-*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 and 2 on the draft order and bill (cost 160.00, margin 40.00, 25.00 %; no column for the Viewer).*
-
-*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_021.py`; screen-only steps were not driven.*
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
 - **Also needs:** a saved bill of 2 at 100.00 from TEST03-M1 (cost 80), a user with `PRODUCT_VIEW_COST_PRICE`, a user without.
 - **Steps:** (1) As the user with the permission open the saved order and the saved bill. (2) Change the quantity on the screen without saving. (3) **(HTTP)** `GET` the bill as the user without the permission. (4) Print the bill and open its PDF.
-- **Expect:** (1) Cost 160.00 (marked *est.* on an order or an undispatched bill line), margin 40.00 on a taxable value (the line's `gross_amount`) of 200.00, which is 25.00 % of cost, with totals. (2) The figures drop and the total says *as last saved*. (3) No cost or margin fields, and no Cost or Margin column on screen. (4) Neither the print nor the PDF shows cost or margin.
+- **Expect:** (1) Cost 160.00 (marked *est.* on an order or an undispatched bill line), margin 40.00 on a taxable value of 200.00, which is 25.00 % of cost, with totals. (2) The figures drop and the total says *as last saved*. (3) No cost or margin fields, and no Cost or Margin column on screen. (4) Neither the print nor the PDF shows cost or margin.
 ### TC-LOT-022 — A counter bill line over lots at two prices is split
 
-*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1, 2 and 4 on the counter bill (split 10 at 100.00 + 5 at 112.00 from the picker's shares; a typed 105.00 kept).*
-
-*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_022.py`; screen-only steps were not driven.*
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
 - **Also needs:** TEST03-M1 (PTR 100.00) and TEST03-M2 (PTR 112.00) with stock, customer LOT-R, a counter bill open.
-- **Steps:** (1) Add LOT-MARGIN, quantity 15, choosing both lots in the picker. (2) Wait for the picks to settle. (3) **(HTTP)** post a bill line with both lots and no typed price (a firm with the order and delivery-note stages on refuses a bare line first; switch those stages off for this, as the check does, and put them back). (4) Type a rate of 105.00 on the line and repeat.
+- **Steps:** (1) Add LOT-MARGIN, quantity 15, choosing both lots in the picker. (2) Wait for the picks to settle. (3) **(HTTP)** post a bill line with both lots and no typed price. (4) Type a rate of 105.00 on the line and repeat.
 - **Expect:** (1)-(2) After about a second the line is split into two: 10 at 100.00 from M1 and 5 at 112.00 from M2. (3) Refused, naming both prices. (4) A typed rate stays on every part and the server takes nothing from the lots.
 ---
 
