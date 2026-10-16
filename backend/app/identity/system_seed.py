@@ -694,6 +694,12 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             # write-off is not the one that agrees to it (backlog 74 row 2).
             "PARTY_ADJUSTMENT_VIEW",
             "PARTY_ADJUSTMENT_MANAGE",
+            # Reading the firm's years and periods (R-1). Ledgers, the trial
+            # balance, P&L, cash flow, balance sheet and the IT block schedule
+            # all list them first to choose what to show, so without it every
+            # statement the role holds a code for opened on a refusal.
+            # Creating, closing and reopening a year stay out.
+            "FINANCIAL_YEAR_VIEW",
         }
     ),
     "SALES_MANAGER": (
