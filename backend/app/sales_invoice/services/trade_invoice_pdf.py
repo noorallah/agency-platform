@@ -415,8 +415,8 @@ class TradeInvoiceRenderer(InvoicePdfRenderer):
         """Draw the GST by rate on the left and the bill's arithmetic on the right.
 
         Gross is what the lines came to before any discount, so that gross less
-        the discount is the taxable value the GST was charged on, and the rows
-        add down to the net payable as printed.
+        the line discounts and the discount on the bill is the taxable value the
+        GST was charged on, and the rows add down to the net payable as printed.
         """
         by_rate: dict[Decimal, list[Decimal]] = {}
         heads: dict[str, Decimal] = {}
@@ -446,13 +446,20 @@ class TradeInvoiceRenderer(InvoicePdfRenderer):
             )
         )
 
-        discount = sum((line.discount for line in document.lines), ZERO)
-        discount += document.bill_discount
+        # D2 and D1 of the trade's bill, printed apart: what the lines took off,
+        # then the discount typed on the whole bill, both before the GST.
+        line_discount = sum((line.discount for line in document.lines), ZERO)
+        bill_discount = document.bill_discount
         figures: list[list[str]] = [
-            ["Gross", _money(document.taxable_total + discount)],
+            [
+                "Gross",
+                _money(document.taxable_total + line_discount + bill_discount),
+            ],
         ]
-        if discount:
-            figures.append(["Less discount", f"-{_money(discount)}"])
+        if line_discount:
+            figures.append(["Line discounts", f"-{_money(line_discount)}"])
+        if bill_discount:
+            figures.append(["Discount on bill", f"-{_money(bill_discount)}"])
         figures.append(["Taxable value", _money(document.taxable_total)])
         for charge in document.taxed_charges:
             figures.append([charge.name[:24], _money(charge.amount)])
