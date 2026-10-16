@@ -178,6 +178,27 @@ def test_two_companies_sharing_a_prefix_share_one_running_number(shop: _Shop) ->
     assert numbers == ["AS-26-27-000001", "AS-26-27-000002", "AS-26-27-000003"]
 
 
+def test_the_list_names_the_company_behind_each_series(shop: _Shop) -> None:
+    """A list row says whose series numbered it; GENERAL names nobody."""
+    asian = shop.product("A1", shop.company("ASIAN", "AS"))
+    shop.company("ASIANB", "AS")
+    pidi = shop.product("P1", shop.company("PIDI", "PD"))
+    shop.by_company()
+    bills = [shop.bill(asian), shop.bill(pidi), shop.bill(asian, pidi)]
+    rows = [shop.session.get(SalesInvoice, bill.id) for bill in bills]
+
+    answer = SalesInvoiceService(shop.session).invoice_responses(
+        [row for row in rows if row is not None]
+    )
+
+    # Two companies share AS, so both are named.
+    assert [item.series_company_name for item in answer] == [
+        "ASIAN Ltd, ASIANB Ltd",
+        "PIDI Ltd",
+        None,
+    ]
+
+
 # -- 3. resolver --------------------------------------------------------------
 def test_the_series_follows_the_goods_on_the_bill(shop: _Shop) -> None:
     """One company gives its prefix; anything else gives GENERAL."""

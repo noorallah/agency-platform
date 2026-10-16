@@ -100,6 +100,11 @@ class _InvoiceApi extends ApiClient {
 
   Json? created;
 
+  /// Backlog 157: how the firm numbers its bills, as series-preview says,
+  /// and every series-preview path asked for.
+  String seriesDriver = 'ONE_SERIES';
+  final List<String> seriesAsked = <String>[];
+
   /// Which saved bill was asked for as a PDF.
   String? printed;
 
@@ -225,6 +230,18 @@ class _InvoiceApi extends ApiClient {
             'lines': priced,
           },
           'lines': const <Json>[],
+        },
+      };
+    }
+    if (path.startsWith('/api/v1/sales-invoices/series-preview')) {
+      seriesAsked.add(path);
+      final bool byCompany = seriesDriver == 'BY_COMPANY';
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'series_driver': seriesDriver,
+          'series_prefix': byCompany ? 'HU' : 'GENERAL',
+          'reason': byCompany ? 'ONE_COMPANY' : 'ONE_SERIES',
+          'number': byCompany ? 'HU-26-27-0007' : 'SI-2026-2027-000014',
         },
       };
     }
@@ -748,6 +765,59 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
   }
+
+  // Backlog 157: a firm numbering by company is told which series the bill's
+  // goods give it, asked once per set of products.
+  testWidgets('phase 2 says which company series a new bill takes',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()])
+      ..seriesDriver = 'BY_COMPANY';
+    await pumpPhase2(tester, api);
+
+    expect(api.seriesAsked, ['/api/v1/sales-invoices/series-preview?product_id=p-1']);
+    expect(find.byKey(const ValueKey('sales-invoice-series-preview')),
+        findsOneWidget);
+    expect(find.text('This bill will be numbered like HU-26-27-0007'),
+        findsOneWidget);
+
+    // A new quantity is priced again but the products are the same: the
+    // series is answered from what was already asked.
+    final Finder quantity = find
+        .descendant(
+          of: find.byKey(const ValueKey<String>('sales-invoice-line-0')),
+          matching: find.byType(EditableText),
+        )
+        .first;
+    await tester.enterText(quantity, '3');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.length, greaterThan(1));
+    expect(api.seriesAsked, hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('phase 2 on one series says nothing and stops asking',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()]);
+    await pumpPhase2(tester, api);
+
+    expect(api.seriesAsked, hasLength(1));
+    expect(find.byKey(const ValueKey('sales-invoice-series-preview')),
+        findsNothing);
+
+    final Finder quantity = find
+        .descendant(
+          of: find.byKey(const ValueKey<String>('sales-invoice-line-0')),
+          matching: find.byType(EditableText),
+        )
+        .first;
+    await tester.enterText(quantity, '3');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.seriesAsked, hasLength(1));
+    expect(find.byKey(const ValueKey('sales-invoice-series-preview')),
+        findsNothing);
+  });
 
   // D-UI-97: a bill raised off a delivery note, against the server's own
   // pricing of three of the five the note sent -- each with its share of the

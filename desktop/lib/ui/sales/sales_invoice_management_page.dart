@@ -1237,6 +1237,12 @@ class _SalesInvoiceManagementPageState
         cell: (item) => '${item['customer_name'] ?? ''}',
         shownByDefault: true,
       ),
+      // The company whose bill series numbered it (backlog 157); blank for
+      // the firm's own series. Offered, not shown: most firms keep one.
+      ChoosableColumn(
+        column: const GridColumn(key: 'company', label: 'Company'),
+        cell: (item) => '${item['series_company_name'] ?? ''}',
+      ),
       // One date: the invoice's, with the minute it was entered.
       ChoosableColumn(
         column: const GridColumn(key: 'date', label: 'Invoice Date'),

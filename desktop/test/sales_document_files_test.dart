@@ -135,18 +135,31 @@ Future<void> _pumpInvoices(
   _Api api,
   List<String> codes, {
   Size size = const Size(1600, 1100),
+  List<String>? columns,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final Directory temp = Directory.systemTemp.createTempSync('sg6-invoices');
   addTearDown(() => temp.deleteSync(recursive: true));
+  final DesktopPreferencesService preferences =
+      DesktopPreferencesService(directory: temp);
+  if (columns != null) {
+    // The columns as the Columns button would have remembered them.
+    File('${temp.path}${Platform.pathSeparator}desktop_preferences.json')
+        .writeAsStringSync(jsonEncode(<String, dynamic>{
+      'workspace_state': <String, dynamic>{
+        'sales-invoices.grid': <String, dynamic>{'columns': columns},
+      },
+    }));
+    await tester.runAsync(preferences.load);
+  }
   await tester.pumpWidget(MaterialApp(
     builder: (context, child) => Phase2Scope(child: child!),
     home: Scaffold(
       body: SalesInvoiceManagementPage(
         api: api,
-        preferences: DesktopPreferencesService(directory: temp),
+        preferences: preferences,
         permissions: _permissions(codes),
         hasActiveFirm: true,
       ),
@@ -222,6 +235,37 @@ void main() {
 
     expect(find.text('Files'), findsOneWidget);
     expect(find.textContaining('\u{1F4CE}'), findsNothing);
+  });
+
+  // Backlog 157: the company whose series numbered the bill, offered by the
+  // Columns button and blank for the firm's own series.
+  testWidgets('the invoice list can show the Company of the bill series',
+      (tester) async {
+    await _pumpInvoices(
+      tester,
+      _Api(rows: [
+        {..._invoice(), 'series_prefix': 'HU', 'series_company_name': 'Hindustan Unilever'},
+        {..._invoice(), 'id': 'si-2', 'invoice_number': 'INV-0002', 'series_prefix': 'GENERAL'},
+      ]),
+      writer,
+      columns: const ['number', 'company', 'customer'],
+    );
+
+    expect(find.text('Company'), findsOneWidget);
+    expect(find.text('Hindustan Unilever'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the Company column is not shown until chosen', (tester) async {
+    await _pumpInvoices(
+      tester,
+      _Api(rows: [
+        {..._invoice(), 'series_company_name': 'Hindustan Unilever'},
+      ]),
+      writer,
+    );
+
+    expect(find.text('Hindustan Unilever'), findsNothing);
   });
 
   testWidgets('the order list shows the Files column with the count',

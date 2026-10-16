@@ -77,6 +77,7 @@ from app.document_framework.schemas import (
 )
 from app.document_framework.services.bill_series import (
     BillSeriesService,
+    company_names_by_prefix,
     series_key,
 )
 from app.document_framework.services.transactional_document_service import (
@@ -3724,9 +3725,15 @@ class SalesInvoiceService(TransactionalDocumentService):
         offers = offers_behind(
             self._session, order_lines_behind(self._session, every_line)
         )
+        # The company behind each bill's series (backlog 157), one read for
+        # the page and none when every bill is GENERAL.
+        companies = company_names_by_prefix(
+            self._session, rows[0].firm_id, (row.series_prefix for row in rows)
+        )
         for response in answer:
             response.attributes = fields.get(response.id, [])
             response.attached_file_count = files.get(response.id, 0)
+            response.series_company_name = companies.get(response.series_prefix or "")
             if response.id in typed_on_own_order:
                 response.bill_discount_source = "typed"
             for line_response in response.lines:
