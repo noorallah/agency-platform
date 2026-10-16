@@ -807,7 +807,7 @@ warehouse rename its capability flags.
 
 - **Preconditions:** a customer `QA-HO` with GSTIN `29AAACP1234C1Z5`.
 - **Steps:** Masters > Customers → **New**: code `QA-KA2`, GSTIN `29AAACP1234C1Z5` → Save; on the question, **Cancel**; then Save again → **Save anyway**. New again: code `QA-TN`, GSTIN `33AAACP1234C1Z9` → Save → Save anyway. Then New with code `QA-HO` again.
-- **Expect:** the first save asks "Same GSTIN or PAN on another customer", naming **QA-HO** for both the GSTIN and the PAN; Cancel keeps everything typed and saves nothing; Save anyway saves. `QA-TN` is asked about the PAN only, and its PAN box holds `AAACP1234C` (filled from the GSTIN, no longer left blank). A second `QA-HO` is refused: "Customer code QA-HO already exists in this firm."
+- **Expect:** *(corrected 2026-10-16, masters round 1: backlog 125 made a repeated GSTIN a shop, not a second account)* the first save is **refused**, naming **QA-HO** as the holder of that GSTIN and saying to add the new account as one of its shops; Save anyway is not offered for a GSTIN, and nothing is saved. `QA-TN` (same PAN, another GSTIN) is asked about the PAN only, Save anyway saves it, and its PAN box holds `AAACP1234C` (filled from the GSTIN, no longer left blank). A second `QA-HO` is refused: "Customer code QA-HO already exists in this firm."
 
 ### TC-MAST-010 — Mapping another software's export on import
 
@@ -824,8 +824,8 @@ warehouse rename its capability flags.
 
 - **Covers:** backlog MST-1 (A118), MST-2 (A119)
 - **Fixture:** `product-master`
-- **Steps:** as the fixture's **Firm admin**: Settings > Set up > Item lists > **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters > Products → `<SUFFIX>-PM` → pick the brand → Save. Sell > Insight > **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price changes** → add a revision with a price **dated next week** and another dated yesterday; import revisions from a file (one bad row). Quote the product today and with next week's date.
-- **Expect:** principals and brands are masters with their own screens; the product carries a brand (text brands that existed are carried over); sales analysis offers Brand and Principal as dimensions and filters. A price revision is the price **in force on the document's date**: today's quote takes yesterday's revision, a quote dated next week takes the later one; the unit-price resolver and a blank price on a purchase order read it. The import checks every row and writes nothing if one is bad.
+- **Steps:** as the prepared **Firm admin**: Settings > Set up > Item lists > **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters > Products → `QA-PM` → pick the brand → Save. Sell > Insight > **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price changes** → add a revision with a price **dated next week** and another dated **today** (a revision dated back is refused: new rates start today or later); import revisions from a file (one bad row). Quote the product today and with next week's date.
+- **Expect:** principals and brands are masters with their own screens; the product carries a brand (text brands that existed are carried over); sales analysis offers Brand and Principal as dimensions and filters. A price revision is the price **in force on the document's date**: today's quote takes today's revision, a quote dated next week takes the later one; the unit-price resolver and a blank price on a purchase order read it. The import checks every row and writes nothing if one is bad; the bad row is named by its line in the file, the heading being row 1.
 - **Leaves:** a principal, a brand, revisions.
 
 ### TC-MAST-012 — A duplicate warning, and merging two customers
@@ -847,7 +847,7 @@ warehouse rename its capability flags.
 - **Fixture:** `customer-master`
 - **Also needs:** a sales manager and an accountant; a PDF.
 - **Steps:** as the fixture's **Firm admin**: Masters > Customers → `QA-CM` → **Bank accounts** → add an account (name, number `1234567890123456`, IFSC) → Save. Open **Files** → add the PDF; delete it. Sign in as the **Sales manager** and open the same tabs. Look at the customer's audit trail.
-- **Expect:** the list of accounts is replaced as a whole on save. The administrator sees the number whole; the sales manager and accountant, who do not hold CUSTOMER_MANAGE_BANK_DETAILS, see only the last four digits; the audit trail shows it masked. Files are references (name, type, path, caption); a delete is soft and audited.
+- **Expect:** the list of accounts is replaced as a whole on save. The administrator sees the number whole; the sales manager and accountant, who do not hold CUSTOMER_MANAGE_BANK_DETAILS, see only the last four digits (`XXXXXXXXXXXX3456`); the audit trail shows it masked. Files are references (name, type, path, caption); a delete is soft and audited.
 - **Leaves:** a bank account, a file reference.
 
 ### TC-MAST-014 — A customer who is also a supplier
@@ -877,7 +877,7 @@ warehouse rename its capability flags.
 
 - **Covers:** backlog PLT-11, A53
 - **Fixture:** `customer-master`
-- **Also needs:** one customer with no PAN and one with a malformed PAN (import it through the customer import); a vendor with the same two faults.
+- **Also needs:** one customer with no PAN and one with a good PAN; a vendor of each. *(Corrected 2026-10-16: a malformed PAN can no longer be saved or imported -- both refuse it as "not a PAN" -- so only a missing PAN can be listed today.)*
 - **Steps:** as the fixture's **Firm admin**: Reports > Financial → **Customer PAN check**; then **Supplier PAN check**. As a role without CUSTOMER_VIEW open the first.
 - **Expect:** each report lists the live parties whose PAN is missing or fails the format, with six columns; a party with a good PAN is not listed. The customer report needs CUSTOMER_VIEW and the supplier report VENDOR_VIEW.
 - **Leaves:** unchanged.
@@ -1226,7 +1226,7 @@ opens any screen by name.
 
 ### TC-CONF-011 — Settings > Firm, Selling and Buying open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`). Until D-IDN-17 is settled the Firm admin is not offered* 1 Firm settings *or Business profile rows 1 to 5, which need `FIRM_VIEW` and `PLATFORM_VIEW`; the Viewer is.*
 
 - **Covers:** the Firm, Selling and Buying cards on the Settings page; Start here and the numbered steps of each; the one read of the states; the old items still found by search
 - **Fixture:** `ready-firm`, as its **Firm admin**; for step 6 a firm with no open financial year
@@ -1250,7 +1250,7 @@ opens any screen by name.
 
 ### TC-CONF-012 — Settings > Stock, Business profile and Pricing open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`). Until D-IDN-17 is settled the Firm admin is not offered* 1 Firm settings *or Business profile rows 1 to 5, which need `FIRM_VIEW` and `PLATFORM_VIEW`; the Viewer is.*
 
 - **Covers:** the Stock, Business profile and Pricing cards on the Settings page; Start here and the numbered steps of each; Inventory settings set apart as the person's own; the old items still found by search
 - **Fixture:** `ready-firm`, as its **Firm admin**
@@ -1269,7 +1269,7 @@ opens any screen by name.
 
 ### TC-CONF-013 — Settings > Territories & routes, Account structure and Party lists open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`).*
 
 - **Covers:** the three SET UP cards on the Settings page; Start here and the numbered steps of each; Control accounts as the one step that reads To do on a firm with an unmapped purpose; Customer Groups opening inside its subject; the old items still found by search
 - **Fixture:** `ready-firm`, as its **Firm admin**
@@ -1287,7 +1287,7 @@ opens any screen by name.
 
 ### TC-CONF-014 — Settings > Item lists and Locations open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`).*
 
 - **Covers:** the two SET UP cards on the Settings page; Start here and the numbered steps of each; Units of Measure as the one step that can read To do; Storage areas waiting on a warehouse; the old items still found by search
 - **Fixture:** `ready-firm`, as its **Firm admin**
@@ -1303,7 +1303,7 @@ opens any screen by name.
 
 ### TC-CONF-015 — Settings > People and Firms open as one screen each
 
-*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+*Added 2026-10-14 (customer task T2, backlog 148). Clicked 2026-10-16 (`desktop/integration_test/sc_set_test.dart`, `docs/qa/SCREEN_FLOW_CHECK_SETTINGS_2026-10-16.md`).*
 
 - **Covers:** the two PLATFORM cards People and Firms; Start here and the numbered steps of each; the counts read from the platform store, scoped to who asks; User-firm assignments offered to a platform administrator only; System still a list of cards; the old items still found by search
 - **Fixture:** `ready-firm`, as its **Firm admin**, then as the **platform administrator**
@@ -1515,7 +1515,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 
 - **Preconditions:** an approved supplier bill of 1,180.00 (1,000 + 18% GST), **paid in full**, and a second approved bill of the same supplier for 500.00.
 - **Steps:** Buy > **Debit Notes** → New against the paid bill: 100 on its line, reason *Price difference* → Save → **Approve**. Pay → New payment for the supplier: look at the supplier credits. Set the debit note's credit against the second bill. Then cancel the debit note. Then raise and approve it again, record a supplier **refund** of 50 against its credit, and try to cancel it.
-- **Expect:** approval succeeds (it used to refuse "still owes only 0"). The payment screen lists a credit of **118.00** marked as a debit note; set against the second bill, that bill owes **382.00**. Cancelling the debit note withdraws it -- the second bill owes 500.00 again and the credit is gone. With the refund standing, the cancel is refused ("Reverse that refund…"). A return dated today can be refunded today at any hour. A refund dated tomorrow is refused, "A refund cannot be received on a future date."; one dated before the return, "A refund is received on or after the return, <date>."
+- **Expect:** approval succeeds (it used to refuse "still owes only 0"). The payment screen lists a credit of **118.00** marked as a debit note; set against the second bill, that bill owes **472.00**. Cancelling the debit note withdraws it -- the second bill owes 590.00 again and the credit is gone. With the refund standing, the cancel is refused ("Reverse that refund…"). A return dated today can be refunded today at any hour. A refund dated tomorrow is refused, "A refund cannot be received on a future date."; one dated before the return, "A refund is received on or after the return, <date>."
 
 ### TC-BUY-018 — Reorder orders from the preferred supplier
 
@@ -2089,7 +2089,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Fixture:** `buy-ready`
 - **Also needs:** no other active scheme on `<SUFFIX>-B` for `<SUFFIX>-V` (switch off one left by an earlier run).
 - **Steps:** as the fixture's **Firm admin**, Buy > Documents > **Supplier schemes** → New (**New supplier scheme**): **Supplier** `<SUFFIX>-V`, product `<SUFFIX>-B`, **Buy quantity** `10`, **Free quantity** `2`, **Free product** blank ("Blank: the same product is given free."), Valid from today → Save. Buy > Purchase Orders → New for `<SUFFIX>-V`: `<SUFFIX>-B`, quantity `25`, price `100`, the **Free** box left blank → Save. Submit, Approve, receive in full and Complete. Stock > Stock > Inventory.
-- **Expect:** the scheme lists as **10+2**, *In force*. The order line's Free reads **4** (two free for each full ten: 25 buys two tens) and the side panel says "Line 1: Scheme 10+2 applied" under **Supplier schemes**. The line is still charged 25 x 100 = 2,500.00 before tax. The receipt offers 25 accepted and 4 free; after Complete **29** are on hand. The receipt's journal is Dr 1200 Inventory 2,500.00 / Cr 2300 Goods Received Not Invoiced 2,500.00: free goods add units, not value, so each of the 29 costs 86.21. The free units can go back: a purchase return of all 29 off the receipt line is accepted and prices the 25 bought; 30 is refused with "…line 1 can still send back 25 bought and 4 free." (TC-BUY-093 has the whole of it).
+- **Expect:** the scheme lists as **10+2**, *In force*. The order line's Free reads **4** (two free for each full ten: 25 buys two tens) and the side panel says "Line 1: Scheme 10+2 applied" under **Supplier schemes**. The line is still charged 25 x 100 = 2,500.00 before tax. The receipt offers 25 accepted and 4 free; after Complete **29** are on hand. The receipt's journal is Dr 1200 Inventory 2,500.00 / Cr 2300 Goods Received Not Invoiced 2,500.00: free goods add units, not value, so each of the 29 costs 86.21. The free units can go back: a purchase return of all 29 off the receipt line is accepted and prices the 25 bought; 30 is refused with "…line 1 can still send back 25 PIECE bought and 4 free." (TC-BUY-093 has the whole of it).
 - **Leaves:** a scheme, 29 on hand.
 
 ### TC-BUY-067 — A typed free quantity is kept, and 0 refuses the scheme
@@ -2398,7 +2398,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Fixture:** `buy-ready`
 - **Also needs:** two approved orders for `<SUFFIX>-B` from `<SUFFIX>-V`, each **10** at 100 with **Free** `2`, each received in full (10 accepted, 2 free) and completed: 24 on hand. Neither is billed.
 - **Steps:** as the fixture's **Firm admin**: (1) Buy > Purchase Returns → **New** off the **first receipt**: Returning **13** → Save Return. (2) Returning **12** → Save Return → Approve → Complete. Open the return; Inventory; Accounts > Journal Entries; Reports > Operational → **Purchase return reconciliation**. (3) **(HTTP)** `POST /api/v1/purchase-returns` off the **second receipt's** line with `current_return_quantity` 2 and `free_quantity` 2; approve and complete it. (4) Buy > Purchase Invoices → bill the second receipt (10 at 100) and **Approve**. Purchase Returns → New off that **bill**: Returning **11** → Save Return.
-- **Expect:** (1) refused: "Return quantity exceeds the available source quantity: line 1 can still send back 10 bought and 2 free." (2) accepted: the gross is **1,000.00**, on the 10 bought only; the 2 free are credited nothing; total **1,180.00**. After Complete **12** are on hand and the journal is Dr 2300 Goods Received Not Invoiced 1,000.00 / Cr 1200 Inventory 1,000.00. The reconciliation counts the free goods: the row reads received **12**, returning **12**, pending 0. (3) a return of only the free units totals **0.00**: the supplier is credited nothing, stock falls by 2 (10 on hand), and the journal is Cr 1200 Inventory / Dr 5400 at the moving average. A receipt line that brought only free goods (a gift line) goes back the same way. (4) refused: off a bill line only what was billed can go back, "…line 1 can still send back 10; free goods go back off the goods receipt that brought them in."
+- **Expect:** (1) refused: "Return quantity exceeds the available source quantity: line 1 can still send back 10 PIECE bought and 2 free." (2) accepted: the gross is **1,000.00**, on the 10 bought only; the 2 free are credited nothing; total **1,180.00**. After Complete **12** are on hand and the journal is Dr 2300 Goods Received Not Invoiced 1,000.00 / Cr 1200 Inventory 1,000.00. The reconciliation counts the free goods: the row reads received **12**, returning **12**, pending 0. (3) a return of only the free units totals **0.00**: the supplier is credited nothing, stock falls by 2 (10 on hand), and the journal is Cr 1200 Inventory / Dr 5400 at the moving average. A receipt line that brought only free goods (a gift line) goes back the same way. (4) refused: off a bill line only what was billed can go back, "…line 1 can still send back 10; free goods go back off the goods receipt that brought them in."
 - **Leaves:** two completed returns, an approved bill, 10 on hand.
 
 ### TC-BUY-094 — The same goods go back once, whichever document the return names
@@ -2409,7 +2409,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Fixture:** `po-invoiced`
 - **Also needs:** as *po-invoiced* (the receipt of 6 billed at 708.00, the receipt of 4 not billed). A second order of the case's own for **10** `<SUFFIX>-B` at 100, approved, received on **one** receipt and billed in full (1,180.00, approved): 20 on hand, so stock is never what refuses.
 - **Steps:** as the fixture's **Firm admin**: (1) Purchase Returns → New off the fixture's **bill**: Returning **6** → Save → Approve → Complete. (2) New off the **receipt of 6** that bill billed: Returning **4** → Save. Masters > Vendors → `<SUFFIX>-V` → statement. (3) On the second order: New off its **bill**: Returning **6** → Save → Approve → Complete. (4) New off its **receipt**: Returning **5** → Save. (5) Returning **4** → Save, and leave it a draft; New off the bill: Returning **1** → Save. (6) Approve and Complete the return of 4. (7) **Cancel** the completed return of 4 with a reason; then New off the **bill**: Returning **4** → Save.
-- **Expect:** (1) completes: Dr 2100 Trade Payables 708.00 / Cr 1200 Inventory 600.00 / Cr 1320 Input CGST 54.00 / Cr 1330 Input SGST 54.00. (2) refused at Save: "Return quantity exceeds the available source quantity: line 1 can still send back 0 bought and 0 free. 6 of these goods have already gone back against the supplier bill for them." The statement shows the bill of 708.00 and one return of 708.00 against it, never two. (3) completes at 708.00. (4) refused: "…line 1 can still send back 4 bought and 0 free. 6 of these goods have already gone back against the supplier bill for them." (5) 4 is accepted (472.00), and a **draft** already holds its quantity: 1 more off the bill is refused, "…can still send back 0; free goods go back off the goods receipt that brought them in. 4 of these goods have already gone back against the goods receipt that brought them in, or another bill for it." (6) completes; all 10 of the second order have gone back and its bill's 1,180.00 is credited once. (7) cancelling a return frees its quantity: the journal is mirrored, the 4 are on hand again, and 4 off the bill is then accepted (5 would be refused, "…can still send back 4…").
+- **Expect:** (1) completes: Dr 2100 Trade Payables 708.00 / Cr 1200 Inventory 600.00 / Cr 1320 Input CGST 54.00 / Cr 1330 Input SGST 54.00. (2) refused at Save: "Return quantity exceeds the available source quantity: line 1 can still send back 0 PIECE bought and 0 free. 6 PIECE of these goods have already gone back against the supplier bill for them." The statement shows the bill of 708.00 and one return of 708.00 against it, never two. (3) completes at 708.00. (4) refused: "…line 1 can still send back 4 PIECE bought and 0 free. 6 PIECE of these goods have already gone back against the supplier bill for them." (5) 4 is accepted (472.00), and a **draft** already holds its quantity: 1 more off the bill is refused, "…can still send back 0; free goods go back off the goods receipt that brought them in. 4 PIECE of these goods have already gone back against the goods receipt that brought them in, or another bill for it." (6) completes; all 10 of the second order have gone back and its bill's 1,180.00 is credited once. (7) cancelling a return frees its quantity: the journal is mirrored, the 4 are on hand again, and 4 off the bill is then accepted (5 would be refused, "…can still send back 4…").
 - **Leaves:** completed returns, one cancelled return, a draft return.
 
 ### TC-BUY-095 — After the bought units go back off the bill, the free ones go back off the receipt
@@ -2420,7 +2420,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Fixture:** `buy-ready`
 - **Also needs:** one approved order for **10** `<SUFFIX>-B` at 100 with **Free** `2` from `<SUFFIX>-V`, received in full (10 accepted, 2 free), completed, and billed (1,180.00, approved): 12 on hand.
 - **Steps:** as the fixture's **Firm admin**: (1) Purchase Returns → New off the **bill**: Returning **10** → Save → Approve → Complete. (2) New off the **receipt**: Returning **3** → Save. (3) Returning **2** → Save; open the draft; Approve → Complete. (4) Reports > Operational → **Purchase return reconciliation**; the supplier's statement; Inventory.
-- **Expect:** (1) completes at 1,180.00. (2) refused: "…line 1 can still send back 0 bought and 2 free. 10 of these goods have already gone back against the supplier bill for them." (3) nobody has to say the two are free: with every bought unit already returned, the 2 save as **2 free** at total **0.00**, credit the supplier nothing and take 2 out of stock. (4) the receipt-line row reads received **12**, already returned **10**, returning **2**, pending **0**; the bill-line row reads received 10, returning 10, pending 0. The statement closes 0.00 and nothing is on hand.
+- **Expect:** (1) completes at 1,180.00. (2) refused: "…line 1 can still send back 0 PIECE bought and 2 free. 10 PIECE of these goods have already gone back against the supplier bill for them." (3) nobody has to say the two are free: with every bought unit already returned, the 2 save as **2 free** at total **0.00**, credit the supplier nothing and take 2 out of stock. (4) the receipt-line row reads received **12**, already returned **10**, returning **2**, pending **0**; the bill-line row reads received 10, returning 10, pending 0. The statement closes 0.00 and nothing is on hand.
 - **Leaves:** two completed returns, nothing on hand.
 
 ### TC-BUY-096 — A return takes its receipt line's batch, and no other
@@ -4363,7 +4363,9 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 
 ### TC-SELL-099 — A short bill prints on half a page, a long one on a full page, and a customer has his own paper
 
-*Added 2026-10-13 (backlog 118). **Driven over HTTP** that day on a fixture firm (38 checks); the screens were not clicked and nothing was put through a printer.*
+*Added 2026-10-13 (backlog 118). **Driven over HTTP** that day on a preparation firm (38 checks); the screens were not clicked and nothing was put through a printer.*
+
+*Clicked 2026-10-16 in part (`sc_prt_test.dart`, `SCREEN_FLOW_CHECK_PRINTING_2026-10-16.md`): steps 1 to 4, 6 and 7 (half and full page read from the printed PDF; a long bill on A4 by itself; an A4 firm does not read the customer's half page). Not clicked: steps 5 and 8, the half page's column list and GST summary.*
 
 - **Covers:** backlog 118 (customer task S13)
 - **Fixture:** `ready-firm`
@@ -4660,7 +4662,9 @@ commission uses `commission-firm`:
 
 ### TC-SELL-109 — Print says which paper the bill needs, and one print can be switched between half and full
 
-*Added 2026-10-14 (backlog 151, row P1). The server was driven over HTTP on a fixture firm; the box on screen is covered by widget tests only and **no screen was clicked**, so those steps are written from the build. Nothing was put through a printer.*
+*Added 2026-10-14 (backlog 151, row P1). The server was driven over HTTP on a preparation firm; the box on screen is covered by widget tests only and **no screen was clicked**, so those steps are written from the build. Nothing was put through a printer.*
+
+*Clicked 2026-10-16 in part (`sc_prt_test.dart`, `SCREEN_FLOW_CHECK_PRINTING_2026-10-16.md`): steps 1 to 5, 7 and 8, as Firm admin and Viewer (the box names the paper, one print switched to Full page gives A4, the next print opens on Half again, Cancel prints nothing). Not clicked: step 9 (Print selected).*
 
 - **Covers:** backlog 151 (customer task P1, PRT-2)
 - **Fixture:** `ready-firm`
@@ -4783,7 +4787,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-114 — A salesman with no sign-in, picked on a bill
 
-*Added 2026-10-14 (P2, the firm's own list of salesmen). **No screen was clicked**; the server half is held by unit tests.*
+*Added 2026-10-14 (P2, the firm's own list of salesmen). **Clicked 2026-10-16** (`sc_sm_test.dart`, `SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`): the entry and the order were clicked; the bill is one billed off a note, the fixture firm having no counter sale.*
 
 - **Fixture:** `selling-firm`
 - **Steps:** as the prepared **Firm admin**: Settings > Selling > **Salesmen** → New: name `Phone order`, Signs in as left empty, Earns commission off → Save. Sell > Sales Invoices → New counter bill for `<SUFFIX>-C01`, one line `<SUFFIX>-DET` × 1; open the Salesman box and choose `Phone order` → Save. Open the saved bill.
@@ -4791,7 +4795,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-115 — What the Salesman box starts on
 
-*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+*Added 2026-10-14 (P2). **Clicked 2026-10-16 in part** (`SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`): the tied user's own entry, an inactive entry, and the bill taking the note's salesman; the account-manager and round choices were not driven (the fixture has no round).*
 
 - **Fixture:** `selling-firm`
 - **Also needs:** salesman entries `Asha` (tied to the user you sign in as), `Bala` and `Chitra`; `<SUFFIX>-C01` with account manager Bala and on a round whose primary salesman is Chitra and which Bala also covers (not primary); `<SUFFIX>-C02` with no account manager and the same round; a customer with neither.
@@ -4800,7 +4804,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-116 — "Salesman required" refuses a save without one
 
-*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+*Added 2026-10-14 (P2). **Clicked 2026-10-16 in part** (`SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`): the switch, the order and the bill, on and off; the delivery note and the quotation were not driven.*
 
 - **Fixture:** `selling-firm`
 - **Steps:** as the prepared **Firm admin**: Settings > Selling > Sales Stages → switch **Salesman required** on → Save. Sell > Sales Orders → New Order for a customer with no account manager and no round, Salesman left blank → Create draft. Repeat for a delivery note and a sales bill. Switch the setting off and save each again. Last, with the setting on again, save a quotation with no salesman.
@@ -4816,7 +4820,7 @@ commission uses `commission-firm`:
 
 ### TC-SELL-118 — Two salesmen cannot share a name
 
-*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+*Added 2026-10-14 (P2). **Clicked 2026-10-16** (`SCREEN_FLOW_CHECK_SALESMEN_2026-10-16.md`).*
 
 - **Fixture:** `selling-firm`
 - **Steps:** Settings > Selling > Salesmen: with `Phone order` present, New → name `phone order` → Save. Then New → name `Phone Order 2` → Save; edit it to read `PHONE ORDER` → Save.
@@ -5551,7 +5555,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `selling-invoiced`
 - **Also needs:** a bank ledger account; a payment to a supplier by cheque; a cashier user (PAYMENT_CREATE) and an accountant (ACCOUNT_VIEW only); a sheet of paper or the PDF preview.
 - **Steps:** as the fixture's **Firm admin**: Accounts > Tax filing > **Bank Details** → the bank account → name, number, IFSC, branch, UPI ID; mark **print on documents**; try marking a second account. Print an invoice and a quotation. As the accountant open the screen. Then Buy > **Payments** → the cheque payment → **Cheque layout** → adjust the offsets → **Test print**; **Print cheque** with a payee override. Try a cash payment, a bank-transfer payment and a reversed one.
-- **Expect:** one set of details per bank ledger account (asset accounts only) and at most one marked to print: its details fill an empty bank block, and an empty UPI ID, on every print that has one (text typed on a template still wins). The full number is shown to ACCOUNT_MANAGE or PAYMENT_CREATE; everybody else reads the last four; the audit entry masks it. The cheque leaf is a CTS-2010 layout — date boxes, payee, amount in words on two lines, `**12,34,567.00/-`, A/c Payee crossing — moved by the bank account's offsets and dated on the cheque's own date; cash, non-cheque and reversed payments are refused.
+- **Expect:** one set of details per bank ledger account (asset accounts only) and at most one marked to print (marking a second account is not refused: the mark moves to it from the first): its details fill an empty bank block, and an empty UPI ID, on every print that has one (text typed on a template still wins). The full number is shown to ACCOUNT_MANAGE or PAYMENT_CREATE; everybody else reads the last four; the audit entry masks it. The cheque leaf is a CTS-2010 layout — date boxes, payee, amount in words on two lines, `**12,34,567.00/-`, A/c Payee crossing — moved by the bank account's offsets and dated on the cheque's own date; cash, non-cheque and reversed payments are refused.
 - **Leaves:** bank details, a cheque layout.
 
 ### TC-FIN-016 — Checks before closing a month, and the ageing bands
@@ -5860,7 +5864,7 @@ redo yours."*
 
 - **Covers:** backlog 126 (customer task M8)
 - **Fixture:** `ready-firm`
-- **Also needs:** a parent customer with three shops under it (TC-CUST-014 makes them), and one approved sales bill on each shop, say for 100.00, 250.00 and 400.00.
+- **Also needs:** a parent customer with three shops under it (TC-CUST-014 makes them), and one approved sales bill on each shop, say for 100.00, 250.00 and 400.00 (with GST at 18% on the product these come out as bill totals such as 118.00, 236.00 and 354.00; use the totals the bills really carry in the steps below).
 - **Steps**
   1. Note what each shop owes on *Customer Statements*.
   2. Open *Sell → Money → Receipts* → **Record receipt**. Choose the parent as the customer.
@@ -8627,18 +8631,22 @@ These cases use the fixture `lot-firm` (firm TEST03, *Test Fixtures Lot Firm*, a
 
 ### TC-LOT-015 — A goods type hands its margins to a new product
 
-*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1, 2 and 4 on the product form (25 / 12.5 taken, retail 30 kept, -1 and 1000 refused).*
+
+*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_015.py`; screen-only steps were not driven.*
 
 - **Covers:** L3 step 1; decision 1
 - **Fixture:** `lot-firm`
-- **Also needs:** a goods type with retail 25 and wholesale 12.5, the Firm admin.
-- **Steps:** (1) Create a product of that goods type giving no margins. (2) Create another giving retail 30 only. (3) Change the goods type to 20 and 10 and open the first product. (4) Try a margin of -1, then 1000.
+- **Also needs:** a goods type with retail 25 and wholesale 12.5 filed on a category (a product takes its goods type from its category; `goods_type_id` is not a product field), the Firm admin.
+- **Steps:** (1) Create a product in a category of that goods type giving no margins. (2) Create another giving retail 30 only. (3) Change the goods type to 20 and 10 and open the first product. (4) Try a margin of -1, then 1000.
 - **Expect:** (1) The product holds 25 and 12.5. (2) Retail 30; wholesale still follows the type (12.5). (3) The first product still holds 25 and 12.5: the type never writes over a product afterwards. (4) Both refused naming the field.
 - **Leaves:** a goods type and two products; keep apart from other cases using LOT-MARGIN.
 
 ### TC-LOT-016 — A receipt line works its prices from the margins, blank or typed
 
-*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 3 on a goods receipt (PTR/PTS 100.00/90.00 and 112.00/90.00, the lot page agreeing).*
+
+*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_016.py`; screen-only steps were not driven.*
 
 - **Covers:** L3 step 2; decisions 3, 4
 - **Fixture:** `lot-firm`
@@ -8649,7 +8657,9 @@ These cases use the fixture `lot-firm` (firm TEST03, *Test Fixtures Lot Firm*, a
 
 ### TC-LOT-017 — A typed price wins and its margin is worked back
 
-*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 3 (typed 104.00 stands, margin 30.00 shown; D-UI-109 fixed).*
+
+*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_017.py`; screen-only steps were not driven.*
 
 - **Covers:** L3 step 2; decision 4
 - **Fixture:** `lot-firm`
@@ -8660,29 +8670,35 @@ These cases use the fixture `lot-firm` (firm TEST03, *Test Fixtures Lot Firm*, a
 
 ### TC-LOT-018 — Above the MRP warns with tax and is refused before tax
 
-*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): step 1 (the MRP warning on the line, word for word as the server's).*
+
+*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_018.py`; screen-only steps were not driven.*
 
 - **Covers:** L3 step 2; decisions 5, 24
 - **Fixture:** `lot-firm`
 - **Also needs:** TEST03-M2 (MRP 130, PTR 112.00, GST 18), a supplier.
 - **Steps:** (1) Read the receipt line of TEST03-M2. (2) Receive a line at 80.00 with MRP 100 and a retail margin of 40, so PTR 112.00 is above the MRP before tax. (3) Receive a line at 80.00 with retail margin 10 and wholesale margin 40.
-- **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.16, cut to the paisa below 130 / 1.18). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line: wholesale (112.00) is above retail (88.00).
+- **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.16, cut to the paisa below 130 / 1.18). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line and both prices: PTS 112.00 cannot exceed the PTR 88.00 (the message says PTS and PTR, not wholesale and retail).
 - **Leaves:** TEST03-M2 unchanged; the refused receipts leave nothing.
 
 ### TC-LOT-019 — Changing a price on the lot page works the margin back
 
-*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 4 on the lot page (108.00 gives margin 35.00, 85.00 refused, read-only for the Viewer).*
+
+*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_019.py`; screen-only steps were not driven.*
 
 - **Covers:** L3 step 5; decisions 13, 24
 - **Fixture:** `lot-firm`
-- **Also needs:** TEST03-M1 (cost 80, PTR 100.00, PTS 90.00), a user holding `BATCH_UPDATE` but not `BATCH_PTR_PTS`, and one holding neither.
+- **Also needs:** TEST03-M1 (cost 80, PTR 100.00, PTS 90.00), a user without `BATCH_UPDATE` (the Viewer). `BATCH_PTR_PTS` is a business feature of the firm, not a permission, so there is no user "holding BATCH_UPDATE but not BATCH_PTR_PTS"; a firm costing by lot needs the feature for neither.
 - **Steps:** (1) Open the lot page of TEST03-M1. (2) Change the retail price to 108.00 and save. (3) Change it to 85.00 and save. (4) Repeat step 2 as the user without `BATCH_UPDATE`.
 - **Expect:** (1) Both prices, both margins and any warning show. (2) Saved; the retail margin reads 35.00 (108 over cost 80) and wholesale is unchanged. (3) Refused: the retail price may not be below the wholesale price 90.00. (4) The price boxes are read-only, or the save is refused (403).
 - **Leaves:** TEST03-M1 at PTR 108.00; set it back to 100.00 afterwards.
 
 ### TC-LOT-020 — The bill switch: Retail or Wholesale, from the customer's kind
 
-*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 to 4 (Retail 100.00, Wholesale 90.00, a Wholesaler starts at Wholesale; D-UI-110 fixed).*
+
+*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_020.py`; screen-only steps were not driven.*
 
 - **Covers:** L3 step 3; decisions 10 to 14
 - **Fixture:** `lot-firm`
@@ -8693,23 +8709,27 @@ These cases use the fixture `lot-firm` (firm TEST03, *Test Fixtures Lot Firm*, a
 
 ### TC-LOT-021 — Cost and margin on the line, only with the cost permission, never printed
 
-*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1 and 2 on the draft order and bill (cost 160.00, margin 40.00, 25.00 %; no column for the Viewer).*
+
+*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_021.py`; screen-only steps were not driven.*
 
 - **Covers:** L3 step 4 and 5; decisions 17 to 20, 22
 - **Fixture:** `lot-firm`
 - **Also needs:** a saved bill of 2 at 100.00 from TEST03-M1 (cost 80), a user with `PRODUCT_VIEW_COST_PRICE`, a user without.
 - **Steps:** (1) As the user with the permission open the saved order and the saved bill. (2) Change the quantity on the screen without saving. (3) **(HTTP)** `GET` the bill as the user without the permission. (4) Print the bill and open its PDF.
-- **Expect:** (1) Cost 160.00 (marked *est.* on an order or an undispatched bill line), margin 40.00 on a taxable value of 200.00, which is 25.00 % of cost, with totals. (2) The figures drop and the total says *as last saved*. (3) No cost or margin fields, and no Cost or Margin column on screen. (4) Neither the print nor the PDF shows cost or margin.
+- **Expect:** (1) Cost 160.00 (marked *est.* on an order or an undispatched bill line), margin 40.00 on a taxable value (the line's `gross_amount`) of 200.00, which is 25.00 % of cost, with totals. (2) The figures drop and the total says *as last saved*. (3) No cost or margin fields, and no Cost or Margin column on screen. (4) Neither the print nor the PDF shows cost or margin.
 - **Leaves:** nothing.
 
 ### TC-LOT-022 — A counter bill line over lots at two prices is split
 
-*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+*Clicked 2026-10-16 in part (`sc_mrg_test.dart`, `SCREEN_FLOW_CHECK_MARGINS_2026-10-16.md`): steps 1, 2 and 4 on the counter bill (split 10 at 100.00 + 5 at 112.00 from the picker's shares; a typed 105.00 kept).*
+
+*Driven over HTTP 2026-10-16 (round 11) by `checks/lots/tc_lot_022.py`; screen-only steps were not driven.*
 
 - **Covers:** L3 step 3 and 5; decisions 15, 23
 - **Fixture:** `lot-firm`
 - **Also needs:** TEST03-M1 (PTR 100.00) and TEST03-M2 (PTR 112.00) with stock, customer LOT-R, a counter bill open.
-- **Steps:** (1) Add LOT-MARGIN, quantity 15, choosing both lots in the picker. (2) Wait for the picks to settle. (3) **(HTTP)** post a bill line with both lots and no typed price. (4) Type a rate of 105.00 on the line and repeat.
+- **Steps:** (1) Add LOT-MARGIN, quantity 15, choosing both lots in the picker. (2) Wait for the picks to settle. (3) **(HTTP)** post a bill line with both lots and no typed price (a firm with the order and delivery-note stages on refuses a bare line first; switch those stages off for this, as the check does, and put them back). (4) Type a rate of 105.00 on the line and repeat.
 - **Expect:** (1)-(2) After about a second the line is split into two: 10 at 100.00 from M1 and 5 at 112.00 from M2. (3) Refused, naming both prices. (4) A typed rate stays on every part and the server takes nothing from the lots.
 - **Leaves:** nothing; discard the bill.
 
