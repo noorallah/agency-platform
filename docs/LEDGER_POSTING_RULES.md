@@ -1932,3 +1932,28 @@ cost onto the lot").
 
 A firm on Average posts exactly as before: the whole difference to variance,
 and a landed cost judged on the item's quantity on hand.
+
+## Checking that the books agree with themselves (item 30, part 1, 2026-10-17)
+
+`backend/scripts/check_money_consistency.py` prints, for one firm or every
+firm, each place the books disagree, month by month; the work is
+`check_money_consistency` in `backend/app/finance/services/money_consistency.py`,
+which returns one `Difference` (check, period, document, expected, actual, note)
+per disagreement. It is **read-only** -- it never writes, flushes or commits --
+and reads the figures the product already shows rather than working any
+balance out a new way:
+
+| Check | Compares |
+| --- | --- |
+| `TRIAL_BALANCE`, `JOURNAL_UNBALANCED` | Posted journal lines dated in the month, debit against credit, and each journal on its own; the stored trial balance's movement and closing columns |
+| `RECEIVABLES_LEDGER_VS_CUSTOMERS` | The receivables account at the month's end against the customer sub-ledger to that day, owing less advances |
+| `RECEIVABLES_CUSTOMER_VS_BILLS` | Each customer's account against the ageing's open bills less receipts held on account -- as at today |
+| `PAYABLES_LEDGER_VS_SUPPLIERS` | The payables account at the month's end against the suppliers' statements to that day |
+| `PAYABLES_SUPPLIER_VS_BILLS` | Each supplier's statement against Record Payment's open bills less payments on account and unused credit -- as at today |
+| `DOCUMENT_WITHOUT_JOURNAL` | An approved document with a value that no standing journal names; a settlement whose journal does not stand |
+| `JOURNAL_WITHOUT_DOCUMENT` | A journal whose document is missing, deleted, or cancelled while the journal was never reversed |
+
+Stock against inventory, GST, TCS/TDS, loyalty and commission are later parts;
+the module docstring lists them.
+
+    ./.venv/Scripts/python.exe scripts/check_money_consistency.py WHOLE01 --from 2026-04 --to 2026-06
