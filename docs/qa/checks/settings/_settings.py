@@ -88,7 +88,8 @@ ORDER: dict[str, list[str]] = {
         "tds-purchases",
     ],
     "firm": [
-        "firm-profile", "financial-years", "numbering-series", "goods-types",
+        "firm-profile", "financial-years", "numbering-series", "bill-series",
+        "goods-types",
         "custom-fields", "custom-field-rules", "messaging", "approval-levels",
     ],
     "selling": [
