@@ -16,8 +16,8 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, func, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import create_engine, event, func, select
+from sqlalchemy.orm import ORMExecuteState, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.common.audit.models import AuditLog
@@ -275,6 +275,60 @@ def test_an_allocation_cannot_exceed_what_the_invoice_still_owes() -> None:
 
     assert "SI-1" in str(error.value)
     assert "300.00" in str(error.value)
+
+
+def test_a_receipt_locks_the_bill_before_reading_what_it_owes() -> None:
+    """D-CONC-2: a second receipt for one bill hears what is left, not a 409.
+
+    The bill row is read ``FOR UPDATE`` with ``populate_existing`` before any
+    allocation is summed, so under PostgreSQL the loser waits for the winner
+    and then reads the winner's money. SQLite drops the lock clause, so the
+    order of statements is what is asserted here, beside the refusal itself.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("1000.00")
+    invoice = books.sales_invoice("SI-1", "300.00")
+    _receipt(
+        books,
+        "200.00",
+        [SettlementAllocationWrite(invoice_id=invoice.id, amount=Decimal("200.00"))],
+    )
+    books.session.commit()
+
+    seen: list[tuple[bool, str]] = []
+
+    def _record(state: ORMExecuteState) -> None:
+        """Note each select's SQL and whether it refreshes the identity map."""
+        if state.is_select:
+            seen.append(
+                (
+                    bool(state.execution_options.get("populate_existing")),
+                    str(state.statement),
+                )
+            )
+
+    event.listen(books.session, "do_orm_execute", _record)
+    with pytest.raises(ValidationError, match="SI-1 has 100.00 outstanding"):
+        _receipt(
+            books,
+            "200.00",
+            [
+                SettlementAllocationWrite(
+                    invoice_id=invoice.id, amount=Decimal("200.00")
+                )
+            ],
+        )
+    event.remove(books.session, "do_orm_execute", _record)
+
+    lock = next(
+        index
+        for index, (refreshes, sql) in enumerate(seen)
+        if refreshes and "FROM sales_invoices" in sql and "FOR UPDATE" in sql
+    )
+    first_sum = next(
+        index for index, (_, sql) in enumerate(seen) if "settlement_allocations" in sql
+    )
+    assert lock < first_sum
 
 
 def test_allocations_cannot_exceed_the_money_that_arrived() -> None:
