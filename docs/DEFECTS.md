@@ -424,6 +424,15 @@ Cases TC-COMP-001 to 010, 018, 021, 022 and 023 (server halves) and five probes 
 
 Case text corrected in the check file for TC-COMP-006 (a consumer's bill raises its e-way bill from the invoice itself; the refusal to register first is for an unregistered B2B bill once the firm has an e-invoicing date; the vehicle-number wording), TC-COMP-007 (the TCS settings named belong to another preparation; on `compliance-firm` the policy reads off), TC-COMP-009 (registering without a GSP returns a FAILED registration with directions, not a refusal) and TC-COMP-010 / 018 (the lists are empty until the e-invoicing date is set).
 
+### Concurrency round 1 -- found firing one action from several users at once over HTTP, 2026-10-17
+
+Item 30m part 1; results in `docs/qa/CONCURRENCY_CHECK_ROUND_1_2026-10-17.md`, kept script `docs/qa/checks/concurrency/run_concurrency.py`. Receipts past a bill's outstanding, approving one order twice and saving one customer with one ETag each had exactly one winner; the money check on TEST01 agrees.
+
+| Id | Severity | Summary | Evidence |
+| --- | --- | --- | --- |
+| D-CONC-1 | Medium | Bills (and sales orders) created at the same moment by different users: one 201, the rest 409 "This record changed since you loaded it", even with different customers and items. No number repeated, books agree, but a busy counter is refused new bills. Probably the number-series row is identity-mapped before its `with_for_update` read, so the waiter keeps a stale `version` (needs `populate_existing`). | Live |
+| D-CONC-2 | Low | A receipt that loses the race for a bill's outstanding is refused "This record changed since you loaded it" instead of the "has 18.00 outstanding" message a one-at-a-time clerk gets. Outcome correct. | Live |
+
 ### Buying round 1 -- found driving order to receipt to bill to return over HTTP, 2026-10-15
 
 Cases TC-BUY-001 to 102 (twenty-six of them) and seven probes; results in `docs/qa/BUYING_API_CHECK_ROUND_1_2026-10-15.md`, kept scripts in `docs/qa/checks/buying/` (33 checks). Nothing is open: D-BUY-77 is under Fixed and D-BUY-78 under Not a defect.
