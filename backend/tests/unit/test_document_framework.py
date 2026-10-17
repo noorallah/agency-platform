@@ -270,6 +270,58 @@ def test_every_number_a_rule_issues_is_unique() -> None:
     assert len(set(issued)) == len(issued), f"duplicate numbers issued: {issued}"
 
 
+def test_the_locked_counter_is_reread_not_taken_from_the_identity_map() -> None:
+    """D-CONC-1: parallel bills got one 201 and the rest 409.
+
+    The counter was already in the session's identity map when the locking
+    read ran, so the waiter was granted the lock and kept the version it had
+    read before -- its UPDATE then matched no row and was reported as "changed
+    since you loaded it". The locking reads carry ``populate_existing``; here
+    a second session moves the counter while the first still holds its copy.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    service = DocumentFrameworkService(session)
+    document_type = service.create_type(
+        firm.id, DocumentTypeCreate(code="SALES_ORDER", name="Sales Order"), actor_id
+    )
+    rule = service.create_numbering_rule(
+        firm.id,
+        DocumentNumberingRuleCreate(
+            document_type_id=document_type.id,
+            code="DEFAULT",
+            name="Default Numbering",
+            prefix="SO",
+            include_financial_year=True,
+        ),
+        actor_id,
+    )
+    on = date(2026, 8, 1)
+    first = service.reserve_number(
+        rule.id, firm_id=firm.id, document_date=on, actor_id=actor_id
+    )
+    session.commit()
+
+    # Another request issues a number meanwhile; this session's copies of the
+    # rule and the counter are now a version behind.
+    other = factory()
+    other_service = DocumentFrameworkService(other)
+    second = other_service.reserve_number(
+        rule.id, firm_id=firm.id, document_date=on, actor_id=actor_id
+    )
+    other.commit()
+    other.close()
+
+    third = service.reserve_number(
+        rule.id, firm_id=firm.id, document_date=on, actor_id=actor_id
+    )
+    session.commit()
+
+    assert len({first, second, third}) == 3, (first, second, third)
+
+
 def test_a_preview_shows_the_number_the_document_would_actually_get() -> None:
     """Found by building the numbering screen and reading its output.
 
