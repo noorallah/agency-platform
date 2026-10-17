@@ -455,7 +455,12 @@ def journal(api: Api, reference: str) -> list[dict]:
         f"/api/v1/finance/journal-entries?search={reference}&page_size=50"
     )
     rows = data(body) if status == 200 else []
-    return [e for e in rows if reference in str(e.get("reference_number"))]
+    return [
+        e
+        for e in rows
+        if reference in str(e.get("reference_number"))
+        and e.get("source_module") != "loyalty"
+    ]
 
 
 def new_order(
