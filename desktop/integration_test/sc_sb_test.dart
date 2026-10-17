@@ -128,18 +128,42 @@ void main() {
 
       await log.step('SC-SB-020 a billed note is not offered under Choose notes',
           () async {
-        await newBillFor('Vijaya Stores');
+        // The note belongs to the customer of the newest order, not
+        // necessarily Vijaya Stores: open the bill for its own customer.
+        final Json noteCustomer = await admin.one(
+            'customers', '${(noteA['order'] as Json)['customer_id']}');
+        await newBillFor(
+            '${noteCustomer['name'] ?? noteCustomer['display_name']}');
         await tapKey(tester, 'sales-invoice-choose-notes');
         await pumpFor(tester, const Duration(seconds: 2));
         final String billed = docNumber(approved['note'] as Json);
         final String waiting = docNumber(noteA);
-        final bool billedOffered = screenHas(tester, billed);
-        final bool waitingOffered = screenHas(tester, waiting);
+        // The picker is a lazy list, oldest first, so the new note is off
+        // screen: scroll, checking both numbers at each step.
+        bool billedOffered = screenHas(tester, billed);
+        bool waitingOffered = screenHas(tester, waiting);
+        final Finder pickerList = find
+            .descendant(
+                of: find.byType(Dialog), matching: find.byType(Scrollable))
+            .first;
+        for (int i = 0; i < 60 && !waitingOffered; i++) {
+          await tester.drag(pickerList, const Offset(0, -300));
+          await pumpFor(tester, const Duration(milliseconds: 300));
+          if (screenHas(tester, billed)) billedOffered = true;
+          waitingOffered = screenHas(tester, waiting);
+        }
         log.saw = 'billed note $billed offered=$billedOffered; unbilled '
             '$waiting offered=$waitingOffered';
+        if (!waitingOffered) {
+          log.saw = '${log.saw}; last on screen: ${<String>[
+            for (final Text t in tester.widgetList<Text>(find.descendant(
+                of: find.byType(Dialog), matching: find.byType(Text))))
+              t.data ?? '',
+          ].where((String t) => t.isNotEmpty).join(' | ')}';
+        }
         await closeOpenEditor(tester);
         if (billedOffered) throw StateError('a billed note is offered');
-        if (!waitingOffered) throw StateError('an unbilled note is not offered');
+        if (!waitingOffered) throw StateError('an unbilled note is not offered: ${log.saw}');
       });
       await closeOpenEditor(tester);
 
