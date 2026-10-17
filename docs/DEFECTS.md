@@ -466,6 +466,7 @@ All 31 checks passed; results in `docs/qa/RCM_GTA_CHECK_ROUND_1_2026-10-17.md`. 
 | D-RCM-2 | Low | Freight inward is debited to 5000 Purchases with goods; there is no freight-inward account. | RCM01 round 1 |
 | D-RCM-3 | Low | A service bill with the goods-receipt stage off still consumes a GRN number though no stock moved. | RCM01 round 1 |
 | D-RCM-4 | Low | A debit note cut the period's RCM cash from 1,000 to 800 after 1,000 was paid; nothing flags the 200 overpaid. | RCM01 round 1 |
+| D-IDN-19 | Low | `GET /api/v1/roles?search=<code>` as a platform admin working inside firm A (`X-Firm-ID`) also lists a same-coded role owned by firm B (seen: two `buyappr` rows, firm_ids differ); the firm administrator's own list shows one. Harmless to a firm (assigning the wrong one is refused 422 "Platform or cross-firm roles cannot be assigned"), but the list is not firm-scoped for a platform admin, and a helper taking the first match by code picked the wrong role. Confirm whether a platform admin is meant to see every firm's roles. | Buying module test 2026-10-17 (T1016VSH1-S) |
 
 ---
 
