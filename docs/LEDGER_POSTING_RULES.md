@@ -1952,7 +1952,7 @@ balance out a new way:
 | `PAYABLES_SUPPLIER_VS_BILLS` | Each supplier's statement against Record Payment's open bills less payments on account and unused credit -- as at today |
 | `DOCUMENT_WITHOUT_JOURNAL` | An approved document with a value that no standing journal names; a settlement whose journal does not stand |
 | `JOURNAL_WITHOUT_DOCUMENT` | A journal whose document is missing, deleted, or cancelled while the journal was never reversed |
-| `STOCK_VALUE_VS_INVENTORY_ACCOUNT` | The Inventory control account against the *Stock valuation* report's grand total (`StockValuationService.valuation`), beyond 0.01 -- as at today (part 3a) |
+| `STOCK_VALUE_VS_INVENTORY_ACCOUNT` | The Inventory control account against the *Stock valuation* report's grand total (`StockValuationService.valuation`), beyond 0.01 plus 0.01 per item on hand at an average of more than two decimals (D-STK-20) -- as at today (part 3a) |
 
 Credit on a customer's account that sits on no bill is netted on the bills'
 side rather than reported (part 2b): a return's or credit note's credit its
