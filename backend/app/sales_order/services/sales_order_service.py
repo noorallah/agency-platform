@@ -1251,12 +1251,30 @@ class SalesOrderService(TransactionalDocumentService):
 
         A draft bill that raised its own order withdraws it inside the bill's
         own cancel, so the two stand or fall together (D-SELL-54).
+
+        The order row is locked before its status is read. Three people
+        cancelling one order at once all read it unlocked, so one loser
+        released the reservation a second time and was refused by inventory
+        ("Reserved quantity cannot become negative.") and another hit a stale
+        version 409 (D-CONC-4). ``populate_existing`` re-reads a row already
+        in the identity map, or a waiter granted the lock would keep the
+        status it read before the winner committed.
         """
-        row = self.get_order(order_id, firm_scope=firm_scope)
-        if row.status in {
-            SalesOrderStatus.CANCELLED.value,
-            SalesOrderStatus.CLOSED.value,
-        }:
+        row = self._session.scalar(
+            select(SalesOrder)
+            .where(
+                SalesOrder.id == order_id,
+                SalesOrder.firm_id == firm_scope,
+                SalesOrder.is_deleted.is_(False),
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            raise ResourceNotFoundError("Sales order not found.")
+        if row.status == SalesOrderStatus.CANCELLED.value:
+            raise ValidationError("Sales order is already cancelled.")
+        if row.status == SalesOrderStatus.CLOSED.value:
             raise ValidationError("Sales order is already closed for updates.")
         self._refuse_if_documents_raised(row)
         from_status = row.status
