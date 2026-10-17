@@ -157,3 +157,23 @@ Places (MST-GE), Settings > Locations > "1 Places" (it is not in the Masters men
         LIMIT=580 bash integration_test/run.sh sc_mst_test.dart; done; done
 
 Run from a checkout whose path is short enough for the Windows build.
+
+## MST-VN-013 searched-list row click (added step, main e77efe0c)
+
+New step in `desktop/integration_test/sc_mst_test.dart` (part `editors`, both users):
+on Vendors, type "MST Screen Vendor" in the search box, tap the single resulting
+row without clearing the search, and assert the row is selected (Open or Edit
+enabled, or the status bar reads "1 selected" for a VIEWER, who has neither
+button beside a vendor). It shares the id MST-VN-013 with the earlier phone step.
+Run from `D:\ws\mq` against localhost:8000, firm `T1016VSH1-S`.
+
+| User | Result |
+| --- | --- |
+| t1016vsh1.tradeadmin | **pass**: after the click Edit enabled; whole `editors` part 10 passed, 0 failed (1 start-up death, exit 79, retried) |
+| t1016vsh1.qro (VIEWER) | **pass**: "1 selected", Open and Edit absent as for VN-020; `editors` part 3 passed, 0 failed |
+
+Flow mistake on the first two runs (both users "failed"): the step tapped
+`selectRow(...)`, whose `find.textContaining(text).first` matched the search box
+itself, which holds the same text, so no row was clicked. The step now taps the
+first `Text` widget carrying the name; that is a flow fix, the app was not at fault.
+No RenderFlex overflow was logged in these runs (they run at 1600x1000 only).

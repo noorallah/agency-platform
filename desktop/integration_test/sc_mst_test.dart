@@ -450,6 +450,38 @@ void main() {
       log.info('API: a write to /vendors by this user answered', '$status');
     }
 
+    if (part('editors')) {
+      await log.step('MST-VN-013 searched list, row click selects', () async {
+        await open('masters/vendors');
+        await searchList(tester, vendorName);
+        if (!screenHas(tester, vendorName)) {
+          throw StateError('searched "$vendorName", not on screen. ${shown()}');
+        }
+        final String before = '${buttonState(tester, 'Open')}/'
+            '${buttonState(tester, 'Edit')}';
+        // The search stays as typed: the row is tapped in the searched list.
+        // The search box holds the same text, so take the list's own Text.
+        final Finder rowText = find.byWidgetPredicate(
+            (Widget w) => w is Text && (w.data ?? '').contains(vendorName));
+        await pumpUntil(tester, rowText, waitingFor: 'the searched row');
+        await tester.tap(rowText.first);
+        await pumpFor(tester, const Duration(seconds: 1));
+        final String openState = buttonState(tester, 'Open');
+        final String edit = buttonState(tester, 'Edit');
+        log.saw = 'Open/Edit before $before; after Open $openState, '
+            'Edit $edit; ${shown()}';
+        // A VIEWER has no Open/Edit beside a vendor, so the status bar's
+        // "1 selected" counts as the row being selected too.
+        if (openState != 'enabled' &&
+            edit != 'enabled' &&
+            !screenHas(tester, '1 selected')) {
+          throw StateError('row not selected after a click in the searched '
+              'list. ${log.saw}');
+        }
+        await searchList(tester, '');
+      });
+    }
+
     log.finish();
   });
 }
