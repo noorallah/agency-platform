@@ -1952,6 +1952,7 @@ balance out a new way:
 | `PAYABLES_SUPPLIER_VS_BILLS` | Each supplier's statement against Record Payment's open bills less payments on account and unused credit -- as at today |
 | `DOCUMENT_WITHOUT_JOURNAL` | An approved document with a value that no standing journal names; a settlement whose journal does not stand |
 | `JOURNAL_WITHOUT_DOCUMENT` | A journal whose document is missing, deleted, or cancelled while the journal was never reversed |
+| `STOCK_VALUE_VS_INVENTORY_ACCOUNT` | The Inventory control account against the *Stock valuation* report's grand total (`StockValuationService.valuation`), beyond 0.01 -- as at today (part 3a) |
 
 Credit on a customer's account that sits on no bill is netted on the bills'
 side rather than reported (part 2b): a return's or credit note's credit its
@@ -1962,7 +1963,7 @@ what TEST01's four `RECEIVABLES_CUSTOMER_VS_BILLS` rows were (-300.00 against
 already carries it as an "Opening balance" row. Still open: an opening credit
 later paid back by a refund that names no source.
 
-Stock against inventory, GST, TCS/TDS, loyalty and commission are later parts;
+Stock against inventory at each month's end, GST, TCS/TDS, loyalty and commission are later parts;
 the module docstring lists them.
 
     ./.venv/Scripts/python.exe scripts/check_money_consistency.py WHOLE01 --from 2026-04 --to 2026-06
