@@ -1,6 +1,6 @@
 # Module test: Masters (item 35) -- 2026-10-17
 
-Status: **(a) API done, (b) screen clicks done (D-MST-1 fixed), (c) money check done on the fixture firm; one open item (MST-VN-013) so not yet marked clean.**
+Status: **CLEAN 2026-10-17: (a) API, (b) screen clicks (D-MST-1 fixed; MST-VN-013 and the VIEWER round pass, #1714), (c) money check done. One Low item stays open (below).**
 
 ## (a) API -- round 2 (39 kept checks, `python docs/qa/checks/run.py masters`)
 
@@ -23,8 +23,6 @@ supplier ledgers, stock valuation) is exercised in Buying, Inventory and Selling
 where it is compared on screen. Not compared on screen here: the fixture firm
 holds no Masters-driven balances, so a screen comparison would be vacuous.
 
-## Still to do for this module
+## Still open (Low)
 
-MST-VN-013 (row click in a searched vendor list selects the row) is untested;
-VIEWER (qro) screen round not re-run; platform-admin toolbar 14px overflow at
-~700px wide is unfixed. Then mark Masters clean and go to Buying.
+Platform-admin toolbar 14px overflow at ~700px wide: unconfirmed (runs were 1600x1000 only; 800x600 not rerun for it). Everything else in Masters is closed. Next module: Buying.
