@@ -189,6 +189,18 @@ Future<void> _select(WidgetTester tester, String code) async {
 }
 
 void main() {
+  // A reader is told the register is empty, not which permission he lacks;
+  // whoever may write keeps the hint on how.
+  testWidgets('an empty register reads as empty to a reader', (tester) async {
+    await _pump(tester, _Api(), manage: false);
+    expect(find.text('None recorded yet.'), findsOneWidget);
+    expect(find.textContaining('permission'), findsNothing);
+
+    await _pump(tester, _Api());
+    expect(find.text('None recorded yet.'), findsNothing);
+    expect(find.textContaining('Record a volume rebate'), findsOneWidget);
+  });
+
   testWidgets('the grid shows progress up the ladder', (tester) async {
     await _pump(tester, _Api(rebates: [_rebate('ACTIVE')]));
     expect(find.text('RB-r-1'), findsOneWidget);

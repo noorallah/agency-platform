@@ -55,7 +55,7 @@ Json _scheme(String id, {String? vendor = 'v-1', bool active = true}) => {
     };
 
 class _Api extends ApiClient {
-  _Api({this.suggestions = const <Json>[]})
+  _Api({this.suggestions = const <Json>[], this.empty = false})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -65,6 +65,9 @@ class _Api extends ApiClient {
 
   /// What every preview answers in `scheme_suggestions`.
   List<Json> suggestions;
+
+  /// Whether the list of schemes answers with none.
+  final bool empty;
   final List<Json> previews = <Json>[];
   final Map<String, Json?> bodies = <String, Json?>{};
 
@@ -82,6 +85,9 @@ class _Api extends ApiClient {
     bodies[call] = body;
     switch (call) {
       case 'GET /api/v1/supplier-schemes':
+        if (empty) {
+          return {'data': <Json>[], 'pagination': {'total_records': 0}};
+        }
         return {
           'data': [
             _scheme('1'),
@@ -168,7 +174,11 @@ Json _suggestion({int? existing, String product = 'product-2'}) => {
       'existing_line_number': existing,
     };
 
-Future<void> _pumpList(WidgetTester tester, _Api api) async {
+Future<void> _pumpList(
+  WidgetTester tester,
+  _Api api, {
+  List<String> perms = const ['SUPPLIER_SCHEME_VIEW', 'SUPPLIER_SCHEME_MANAGE'],
+}) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -181,8 +191,7 @@ Future<void> _pumpList(WidgetTester tester, _Api api) async {
       body: SupplierSchemePage(
         api: api,
         preferences: preferences,
-        permissions:
-            _permissions(['SUPPLIER_SCHEME_VIEW', 'SUPPLIER_SCHEME_MANAGE']),
+        permissions: _permissions(perms),
         hasActiveFirm: true,
       ),
     ),
@@ -314,6 +323,19 @@ bool _readOnly(WidgetTester tester, Finder box) => tester
 List<dynamic> _sentLines(Json body) => body['lines'] as List<dynamic>;
 
 void main() {
+  // A reader is told the list is empty, not how to fill it; whoever may
+  // record one keeps the hint.
+  testWidgets('an empty list reads as empty to a reader', (tester) async {
+    await _pumpList(tester, _Api(empty: true),
+        perms: const ['SUPPLIER_SCHEME_VIEW']);
+    expect(find.text('None recorded yet.'), findsOneWidget);
+    expect(find.textContaining('Record the free goods'), findsNothing);
+
+    await _pumpList(tester, _Api(empty: true));
+    expect(find.text('None recorded yet.'), findsNothing);
+    expect(find.textContaining('Record the free goods'), findsOneWidget);
+  });
+
   testWidgets('the list shows the label, supplier and status', (tester) async {
     await _pumpList(tester, _Api());
 

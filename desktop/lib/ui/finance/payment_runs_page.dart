@@ -359,7 +359,7 @@ class _PaymentRunsPageState extends State<PaymentRunsPage> {
         title: 'No payment runs yet',
         message: _mayWrite
             ? 'Start a run to pay the bills falling due in one go.'
-            : 'Starting one needs the create permission for payments.',
+            : 'None recorded yet.',
       );
     }
     return EnterpriseDataGrid<PaymentRun>(

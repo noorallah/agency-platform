@@ -20,13 +20,13 @@ import 'package:flutter_test/flutter_test.dart';
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
-PermissionService _permissions() => PermissionService()
+PermissionService _permissions({bool create = true}) => PermissionService()
   ..applyAccessToken(_accessToken({
     'roles': <String>['user'],
     'permissions': <String>[
       'PAYMENT_VIEW',
-      'PAYMENT_CREATE',
-      'PAYMENT_RUN_APPROVE',
+      if (create) 'PAYMENT_CREATE',
+      if (create) 'PAYMENT_RUN_APPROVE',
     ],
   }));
 
@@ -142,6 +142,7 @@ Future<void> _pump(
   WidgetTester tester,
   _Api api, {
   Future<void> Function(String, List<int>)? save,
+  bool create = true,
 }) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
@@ -152,7 +153,7 @@ Future<void> _pump(
       body: PaymentRunsPage(
         api: api,
         preferences: _preferences(),
-        permissions: _permissions(),
+        permissions: _permissions(create: create),
         hasActiveFirm: true,
         saveBytesOverride: save,
       ),
@@ -168,6 +169,18 @@ Future<void> _select(WidgetTester tester) async {
 }
 
 void main() {
+  // A reader is told the register is empty, not which permission he lacks;
+  // whoever may start a run keeps the hint on how.
+  testWidgets('an empty register reads as empty to a reader', (tester) async {
+    await _pump(tester, _Api(), create: false);
+    expect(find.text('None recorded yet.'), findsOneWidget);
+    expect(find.textContaining('permission'), findsNothing);
+
+    await _pump(tester, _Api());
+    expect(find.text('None recorded yet.'), findsNothing);
+    expect(find.textContaining('Start a run'), findsOneWidget);
+  });
+
   testWidgets('the dialog loads the proposal and posts only ticked bills',
       (tester) async {
     final _Api api = _Api();

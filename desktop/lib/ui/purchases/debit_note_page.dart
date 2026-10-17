@@ -502,7 +502,7 @@ class _DebitNotePageState extends State<DebitNotePage> {
         message: _mayManage
             ? 'Raise one against an approved supplier bill to claim a price '
                 'difference or a short supply.'
-            : 'Raising one needs the manage debit notes permission.',
+            : 'None recorded yet.',
       );
     }
     return EnterpriseDataGrid<DebitNoteRecord>(

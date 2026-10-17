@@ -337,7 +337,7 @@ class _SupplierGiftsPageState extends State<SupplierGiftsPage> {
         title: 'No gifts recorded yet',
         message: _mayManage
             ? 'Record a gift a supplier gave the firm.'
-            : 'Recording one needs the manage supplier gifts permission.',
+            : 'None recorded yet.',
       );
     }
     return EnterpriseDataGrid<SupplierGift>(

@@ -246,6 +246,19 @@ Future<void> _pump(
 }
 
 void main() {
+  // A reader is told the register is empty, not which permission he lacks;
+  // whoever may raise one keeps the hint on how.
+  testWidgets('an empty register reads as empty to a reader', (tester) async {
+    await _pump(tester, _DebitNoteApi(),
+        permissions: _permissions(perms: const ['DEBIT_NOTE_VIEW']));
+    expect(find.text('None recorded yet.'), findsOneWidget);
+    expect(find.textContaining('permission'), findsNothing);
+
+    await _pump(tester, _DebitNoteApi());
+    expect(find.text('None recorded yet.'), findsNothing);
+    expect(find.textContaining('Raise one against'), findsOneWidget);
+  });
+
   testWidgets('the list shows the tax, the bill and the reason',
       (tester) async {
     final _DebitNoteApi api = _DebitNoteApi(notes: <Json>[_note()]);

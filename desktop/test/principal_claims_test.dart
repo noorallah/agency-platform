@@ -252,6 +252,18 @@ Future<void> _pickDay(WidgetTester tester, String key, String day) async {
 }
 
 void main() {
+  // A reader is told the register is empty, not which permission he lacks;
+  // whoever may write keeps the hint on how.
+  testWidgets('an empty register reads as empty to a reader', (tester) async {
+    await _pump(tester, _Api(), manage: false);
+    expect(find.text('None recorded yet.'), findsOneWidget);
+    expect(find.textContaining('permission'), findsNothing);
+
+    await _pump(tester, _Api());
+    expect(find.text('None recorded yet.'), findsNothing);
+    expect(find.textContaining('Raise a claim'), findsOneWidget);
+  });
+
   testWidgets('a claim shows its free goods as a total and a group of lines',
       (tester) async {
     final Json claim = <String, dynamic>{
