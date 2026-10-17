@@ -32,11 +32,10 @@ void main() {
     Future<String> statusOf(String id) async =>
         '${(await admin.one('purchase-invoices', id))['status']}';
 
-    Future<void> newBillFromSupplier() async {
+    Future<void> newBillFromSupplier([String supplier = 'Principal supplier']) async {
       await openBills();
       await tapNew(tester);
-      await chooseIn(
-          tester, 'purchase-invoice-receipt-supplier', 'Principal supplier');
+      await chooseIn(tester, 'purchase-invoice-receipt-supplier', supplier);
       await tester.enterText(
           find.byWidgetPredicate((Widget w) =>
               w is TextField && w.decoration?.hintText == 'as printed'),
@@ -134,18 +133,33 @@ void main() {
       await closeOpenEditor(tester);
 
       await log.step('SC-PB-017 a billed receipt is not offered', () async {
-        await newBillFromSupplier();
-        await tapKey(tester, 'purchase-invoice-choose-receipts');
-        await pumpFor(tester, const Duration(seconds: 2));
+        // The receipts were raised for their own supplier, not the principal.
+        await newBillFromSupplier('${waitingGr['vendor_name']}');
         final String billedNo = docNumber(billed['receipt'] as Json);
         final String waitingNo = docNumber(waitingGr);
+        // Open the picker, close it and open it again, so the list is read
+        // after the new receipt exists and not from an earlier load.
+        await tapKey(tester, 'purchase-invoice-choose-receipts');
+        await pumpFor(tester, const Duration(seconds: 2));
+        await tapButton(tester, 'Cancel');
+        await pumpFor(tester, const Duration(seconds: 1));
+        await tapKey(tester, 'purchase-invoice-choose-receipts');
+        await pumpFor(tester, const Duration(seconds: 2));
         // The picker is a lazy list of every receipt, oldest first, so the
         // new one is off screen: scroll, checking both numbers at each step.
         bool b = screenHas(tester, billedNo);
         bool w = screenHas(tester, waitingNo);
+        final String firstText = dialogText(tester).toString();
+        log.info('SC-PB-017',
+            'waiting=$waitingNo billed=$billedNo '
+            'vendor=${waitingGr['vendor_name']} FIRST VIEW: $firstText');
         final Finder pickerList = find
             .descendant(
-                of: find.byType(Dialog), matching: find.byType(Scrollable))
+                of: find
+                    .descendant(
+                        of: find.byType(Dialog), matching: find.byType(ListView))
+                    .first,
+                matching: find.byType(Scrollable))
             .first;
         for (int i = 0; i < 60 && !w; i++) {
           await tester.drag(pickerList, const Offset(0, -300));
@@ -153,11 +167,14 @@ void main() {
           if (screenHas(tester, billedNo)) b = true;
           w = screenHas(tester, waitingNo);
         }
+        final String pickerText = dialogText(tester).toString();
         log.saw = 'billed receipt $billedNo offered=$b; unbilled $waitingNo '
             'offered=$w';
+        log.info('SC-PB-017', 'picker text: $pickerText');
         await closeOpenEditor(tester);
         if (b) throw StateError('a billed receipt is offered');
-        if (!w) throw StateError('an unbilled receipt is not offered');
+        if (!w) throw StateError(
+            'an unbilled receipt is not offered; picker shows: $pickerText');
       });
       await closeOpenEditor(tester);
 
