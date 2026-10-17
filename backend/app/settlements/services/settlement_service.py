@@ -1002,6 +1002,27 @@ class SettlementService(TransactionalDocumentService):
             )
         return records
 
+    def _lock_customers(self, data: SettlementCreate, *, firm_id: UUID) -> None:
+        """Lock every customer a receipt or refund will move, before anything.
+
+        The payer, the customer it pays for (row P5) and the owner of each bill
+        it names -- a parent's receipt moves its shops' balances too (backlog
+        126). The owners are read unlocked: a bill's customer never changes.
+        A payment faces a supplier and moves no customer balance.
+        """
+        if self.DIRECTION == SettlementDirection.PAYMENT:
+            return
+        ids: set[UUID | None] = {data.party_id, data.paid_for_customer_id}
+        bill_ids = [allocation.invoice_id for allocation in data.allocations]
+        if bill_ids:
+            for model in (SalesInvoice, CustomerOpeningBill):
+                ids.update(
+                    self._session.scalars(
+                        select(model.customer_id).where(model.id.in_(bill_ids))
+                    ).all()
+                )
+        self._customers.lock_balances(ids, firm_id=firm_id)
+
     def _lock_bills(self, ids: Sequence[UUID]) -> None:
         """Lock the bills money is about to be set against, in id order.
 
@@ -1438,6 +1459,10 @@ class SettlementService(TransactionalDocumentService):
                 "ahead goes in the post-dated cheques register and is recorded "
                 "the day it is banked."
             )
+        # Every customer whose balance this moves is locked before any other
+        # row -- bill, number series or journal -- in the order an approval
+        # takes the same lock, or the two deadlock on the customer (D-CONC-6).
+        self._lock_customers(data, firm_id=firm_id)
         _, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
