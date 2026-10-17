@@ -21,7 +21,7 @@ from app.business.models import AttributeDefinition, BusinessProfile
 from app.common.scope import optional_firm_scope, required_firm_scope
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.firms.models import Firm
@@ -326,3 +326,59 @@ def test_a_preferred_supplier_must_be_the_firms_and_active() -> None:
         product.id, _three_fields(brand="Other"), firm_scope=firm.id, actor_id=uuid4()
     )
     assert again.preferred_vendor_id == mine.id
+
+
+def test_a_save_behind_another_is_refused_not_applied_over_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-CONC-3: two saves sent with one If-Match cannot both succeed.
+
+    Both saves read version 1 and both passed the router's check; the second
+    then wrote over the first against the row as the first had left it, so the
+    pair answered 200 twice and moved the product from version 1 to 3. The
+    version the caller sent is compared with the row the write is applied to,
+    so the save that comes second is refused.
+    """
+    session = _session()
+    firm = _firm(session, "PPU7")
+    product = _full_product(session, firm)
+    user_id = uuid4()
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    sent = product.version
+    principal = _principal(user_id, {"PRODUCT_VIEW", "PRODUCT_UPDATE"})
+
+    def save(db: Session, name: str) -> None:
+        """Send one save carrying the version both callers read."""
+        scope = required_firm_scope(
+            optional_firm_scope(principal=principal, db=db, x_firm_id=firm.id)
+        )
+        update_product(
+            product.id, _three_fields(name=name), scope, Response(), db, sent
+        )
+
+    first = sessionmaker(bind=session.get_bind())()
+    second = sessionmaker(bind=session.get_bind())()
+    # The first save lands after the second caller passed the router's check
+    # and before it writes -- the window two parallel requests share.
+    write = ProductService.update_product
+
+    def first_lands_meanwhile(
+        self: ProductService, *args: object, **kwargs: object
+    ) -> Product:
+        """Complete the first save, then carry on with the second."""
+        monkeypatch.setattr(ProductService, "update_product", write)
+        save(first, "First")
+        return write(self, *args, **kwargs)
+
+    monkeypatch.setattr(ProductService, "update_product", first_lands_meanwhile)
+
+    with pytest.raises(ConflictError):
+        save(second, "Second")
+    second.rollback()
+
+    session.expire_all()
+    stored = session.get(Product, product.id)
+    assert stored is not None
+    assert stored.name == "First"
+    assert stored.version == sent + 1

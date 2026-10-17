@@ -28,7 +28,6 @@ from app.common.file_import import template_csv as columns_template_csv
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import (
     ExpectedVersion,
-    assert_version,
     publish_version,
     set_etag,
 )
@@ -927,10 +926,8 @@ def update_product(
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[ProductResponse]:
     service = ProductService(db, withheld_duties=_withheld_duties(scope))
-    assert_version(
-        service.get_product(product_id, firm_scope=scope.firm_id).version,
-        expected_version,
-    )
+    # The version is checked against the row the write is applied to, not
+    # a read taken here beforehand (D-CONC-3).
     row = service.update_product(
         product_id,
         data,
@@ -939,6 +936,7 @@ def update_product(
         # Somebody who cannot see the cost is served null and sends it back;
         # their save must not clear what they were never shown (D-MST-5).
         may_write_cost_price=_can_view_cost(scope),
+        expected_version=expected_version,
     )
     set_etag(response, row)
     return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))
