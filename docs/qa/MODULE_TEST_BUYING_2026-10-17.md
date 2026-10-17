@@ -48,3 +48,45 @@ No application code was changed. App defects: none certain; one possible (Viewer
 
 ## (c) Money check
 `check_money_consistency.py T1016VSH1-S` printed "the books agree" on 2026-10-17.
+
+## (b2) Screens re-run -- fixture set up, 2026-10-17 (evening)
+
+Why the first screen round was partial was fixture state only. Fixed over the API before this run, nothing else touched:
+
+- Seven users created on T1016VSH1-S with the check helper `ensure_user` (password Fixture@2026pw, one role each): `qsexe` SALES_EXECUTIVE, `qsmgr` SALES_MANAGER, `qstore` INVENTORY_MANAGER, `qacct` ACCOUNTANT, `qpexe` PURCHASE_EXECUTIVE, `qpmgr` PURCHASE_MANAGER, `qro` VIEWER; plus `readyadmin` FIRM_ADMIN and `readyviewer` VIEWER for the printing flow (PRT).
+- Principal "Principal t1016vsh1" (code QAPRN) created over `/api/v1/products/principals`.
+- One cash RECEIPT of 200,000.00 (RC-2026-2027-000054, from customer Anand Agencies t1016vsh1, instrument reference "QA FIXTURE opening cash") so payments are no longer refused.
+- Money check after the receipt, before the flows: `check_money_consistency.py T1016VSH1-S` printed "the books agree".
+
+Flows run with `integration_test/run.sh` from a short-path copy of `desktop/` (the worktree path was too long for MSBuild), main at b07f9769, `IT_EMAIL=t1016vsh1.<handle>@fixtures.local`. Start-up exit 79 retried up to 5 times per flow and handle.
+
+| Flow | tradeadmin | Role handles |
+| --- | --- | --- |
+| PO | **did not complete**: 5 of 5 starts exited 79 after SC-PO-020 (5 pass, nothing failed) | qpexe, qpmgr, qsexe, qro: 1 pass each; qstore **1 fail** (SC-PO-034) |
+| PR | 14 pass, 0 fail, 9 not run (skipped with reasons) | qpexe, qpmgr, qstore, qro: 1 pass each |
+| PC | 5 pass, **1 fail** (SC-PC-001), 16 not run; first start exited 79, second ran | qpmgr, qpexe, qacct, qro: 1 pass each |
+| PB | 15 pass, **1 fail** (SC-PB-017), 12 not run; first start exited 79, second ran | qpexe, qpmgr, qstore, qro: 1 pass each; qacct 2 pass, **1 fail** (SC-PB-031) |
+| PY | 13 pass, 0 fail, 10 skipped with reasons | qacct, qro, qpexe, buyexec: 1 pass each; viewer **1 fail** (SC-PY-022) |
+| GR | 14 pass, 0 fail, 11 not run (exit 0; the exit 79 of the first round did not recur) | qstore, qsexe, qro: 1 pass each; qpexe **1 fail** (SC-GR-024), qpmgr **1 fail** (SC-GR-025) |
+| PRT | not a tradeadmin flow; run as readyadmin: 15 pass, 0 fail, 2 not run | readyviewer 3 pass, 0 fail |
+
+The 401s and the cash refusal of the first round are gone; SC-PB-035/036 (stale approve and stale save with a second user), SC-PC-012/016/020 (principal picker) and SC-PY (payments) now pass. SC-PO-021 onward and SC-PO-038..040 were not reached because the PO tradeadmin run dies first.
+
+### Failures still open (no application code changed)
+
+| Step | What the flow saw | Reading |
+| --- | --- | --- |
+| PO tradeadmin, after SC-PO-020 | App process exits with code 79 about 90 s in, five starts out of five; SC-PO-021 onward never ran | Runner/host or app crash, unexplained. Same place as the first round. Not retried beyond the cap. |
+| SC-GR-024 (qpexe), SC-GR-025 (qpmgr) | "New not offered": `+ New` is disabled for Purchase Executive and Purchase Manager; Complete and Cancel enabled. Warehouse (qstore) has `+ New` enabled (SC-GR-023 passes) | Probably intended: raising a receipt belongs to the warehouse role (D-ROLE-3), so the case text (PU and PM are offered New) may be out of step with the role design. Owner to confirm which is right. |
+| SC-PO-034 (qstore) | Menu does not offer Purchase Orders but the server answers the list with 200 | Same family as the Viewer question below: menu and server disagree. Possible app defect, Low. |
+| SC-PY-022 (viewer) | "Payments is offered" for the Viewer; buyexec is not offered it (list 403) | Unchanged from the first round: the open Viewer Buy-menu wording question (QUESTION 2026-10-17). |
+| SC-PB-017 (tradeadmin) | "an unbilled receipt is not offered": the picker did not offer a receipt the flow expected to be unbilled | Needs a look by hand; may be fixture state (receipts billed by the earlier API round). |
+| SC-PB-031 (qacct) | "error on screen: [SUP-1792252403366654]" when Purchase Invoices opens | The flagged text is a supplier invoice number from a row, not an error message; probably the flow's error detector matching row text. Flow issue, to confirm. |
+| SC-PC-001 (tradeadmin) | `not on screen: [Number, Period, Status, Total]`: the grid shows "No claims yet" | Empty state; the flow wants a claim to exist. Fixture, not an app defect. |
+
+### Money check after the flows
+
+`check_money_consistency.py T1016VSH1-S` printed **1 difference**: `STOCK_VALUE_VS_INVENTORY_ACCOUNT` Account 1200 expected 334,988.96, found 334,988.94 (two paise; "a journal on the account no stock movement made"). The books agreed immediately before the flows, so one of the Buying flows (PB, PY, GR, PO) caused it. Candidate real defect (rounding of a purchase bill or return against stock value); not diagnosed here, no id assigned. Needs the owner's ruling and an id in DEFECTS.md.
+
+### Summary
+Real application defects: none certain. Open for a ruling: the 0.02 inventory difference above, PO tradeadmin exit 79, GR New for PU/PM, and menu-versus-server disagreement for Warehouse (Purchase Orders) and Viewer (Payments).
