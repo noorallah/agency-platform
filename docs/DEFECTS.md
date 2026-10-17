@@ -449,6 +449,17 @@ Item 30m part 2b; results in `docs/qa/CONCURRENCY_CHECK_ROUND_3_2026-10-17.md`, 
 
 Cases TC-BUY-001 to 102 (twenty-six of them) and seven probes; results in `docs/qa/BUYING_API_CHECK_ROUND_1_2026-10-15.md`, kept scripts in `docs/qa/checks/buying/` (33 checks). Nothing is open: D-BUY-77 is under Fixed and D-BUY-78 under Not a defect.
 
+### Reverse charge on transport bills -- found driving RCM01 over HTTP, 2026-10-17
+
+All 31 checks passed; results in `docs/qa/RCM_GTA_CHECK_ROUND_1_2026-10-17.md`. Four low observations.
+
+| Id | Severity | Summary | Evidence |
+| --- | --- | --- | --- |
+| D-RCM-1 | Low | A debit note on a service bill credits 5400 Purchase Price Variance, not 5000 Purchases; profit is right (both EXPENSE), the split between the two is wrong. | RCM01 round 1 |
+| D-RCM-2 | Low | Freight inward is debited to 5000 Purchases with goods; there is no freight-inward account. | RCM01 round 1 |
+| D-RCM-3 | Low | A service bill with the goods-receipt stage off still consumes a GRN number though no stock moved. | RCM01 round 1 |
+| D-RCM-4 | Low | A debit note cut the period's RCM cash from 1,000 to 800 after 1,000 was paid; nothing flags the 200 overpaid. | RCM01 round 1 |
+
 ---
 
 ## Fixed
