@@ -1,4 +1,4 @@
-"""Fire the same action from several TEST01 users at once at the running backend.
+﻿"""Fire the same action from several TEST01 users at once at the running backend.
 
     python docs/qa/checks/concurrency/setup.py --adopt CM SM ACC   # once
     python docs/qa/checks/concurrency/run_concurrency.py           # every scenario
@@ -14,6 +14,10 @@ refused with a 4xx and a message (never a 500), no document number repeated.
     b  four receipts of 100.00 against one 118.00 bill: one accepted
     c  one order approved by three users at once: one winner, stock reserved once
     d  one customer saved by three users with the same If-Match: one 200
+    e  one order cancelled by three users at once: one winner, no 500
+    f  one product saved by three users with the same If-Match: one 200
+    g  two delivery notes of the same ordered pieces dispatched at once:
+       stock leaves once (no more than was ordered)
 
 Exits non-zero when any scenario fails; prints one line per finding.
 """
@@ -198,6 +202,7 @@ class Firm:
         }
         # A second session of the admin: another desk signed in as the same person.
         self.users["admin_b"] = client("admin", MODULE)
+        self.users["admin_c"] = client("admin", MODULE)
         self.admin = self.users["admin"]
         self.branch = by_code(self.admin, "/api/v1/branches", "HO")
         self.warehouse = by_code(self.admin, "/api/v1/warehouses", "MAIN")
@@ -452,11 +457,164 @@ def scenario_d(firm: Firm) -> Result:
     return res
 
 
+def make_order(firm: Firm, buyer: dict, product: dict, quantity: str) -> dict:
+    """Make a draft sales order of one line."""
+    return must(
+        firm.admin.post(
+            SO,
+            {
+                "customer_id": buyer["id"],
+                "order_date": today().isoformat(),
+                "branch_id": firm.branch["id"],
+                "warehouse_id": firm.warehouse["id"],
+                "lines": [
+                    {
+                        "line_number": 1,
+                        "product_id": product["id"],
+                        "quantity": quantity,
+                    }
+                ],
+            },
+        ),
+        "order",
+    )
+
+
+def scenario_e(firm: Firm) -> Result:
+    """One sales order cancelled by three users at once: one winner, no 500."""
+    res = Result("e", "1 order cancelled by 3 users at once")
+    tag = suffix(5)
+    product = firm.product(tag)
+    buyer = firm.customer(tag)
+    order = make_order(firm, buyer, product, "7")
+    must(firm.admin.post(f"{SO}/{order['id']}/approve", {}), "order approve")
+    callers = ["admin", "manager", "admin_b"]
+    answers = race(
+        [
+            (
+                lambda u=u: firm.users[u].post(
+                    f"{SO}/{order['id']}/cancel", {"reason": f"race {u}"}
+                )
+            )
+            for u in callers
+        ]
+    )
+    judge_one_winner(res, answers)
+    rows = all_rows(firm.admin, f"{INV}?product_id={product['id']}")
+    reserved = sum((D(r["reserved_quantity"]) for r in rows), Decimal(0))
+    res.ok(reserved == D("0"), "the reservation is given back once, to zero", reserved)
+    after = must(firm.admin.get(f"{SO}/{order['id']}"), "order reread")
+    res.ok(
+        str(after.get("status", "")).upper().startswith("CANCEL"),
+        "the order ends cancelled",
+        after.get("status"),
+    )
+    res.note(f"answers {summarise(answers)}; reserved {reserved}")
+    return res
+
+
+def scenario_f(firm: Firm) -> Result:
+    """One product saved by three users with one If-Match: one 200."""
+    res = Result("f", "1 product saved by 3 users with the same If-Match")
+    tag = suffix(5)
+    held = firm.product(tag)
+    read = must(firm.admin.get(f"/api/v1/products/{held['id']}"), "product read")
+    version = int(read["version"])
+    editors = ["admin", "admin_b", "admin_c"]
+
+    def save(n: int, user: str) -> Callable[[], Answer]:
+        """Return one save renaming the product."""
+        body = {**{k: read[k] for k in ("code", "name", "product_type", "base_uom_id")}}
+        body["name"] = f"{held['name']} by {user}{n}"
+        return lambda: put_if_match(
+            firm.users[user], f"/api/v1/products/{held['id']}", body, version
+        )
+
+    answers = race([save(n, u) for n, u in enumerate(editors)])
+    judge_one_winner(res, answers)
+    losers = [s for s, _ in answers if s not in (200, 201)]
+    res.ok(all(s in (409, 412) for s in losers), "every loser is a 409/412", losers)
+    after = must(firm.admin.get(f"/api/v1/products/{held['id']}"), "product reread")
+    res.ok(
+        int(after["version"]) == version + 1, "the version moved once", after["version"]
+    )
+    res.note(f"answers {summarise(answers)}; version {version} -> {after['version']}")
+    return res
+
+
+def scenario_g(firm: Firm) -> Result:
+    """Two notes for the same 7 ordered pieces dispatched at once: stock leaves once.
+
+    A delivery note is made from the order's line by two users, approved, and
+    dispatched together. Whatever the guard, no more than the 7 ordered may
+    leave the warehouse, and a refusal names its reason.
+    """
+    res = Result(
+        "g", "2 delivery notes of the same 7 ordered pieces dispatched at once"
+    )
+    tag = suffix(5)
+    product = firm.product(tag, stock="100")
+    buyer = firm.customer(tag)
+    order = make_order(firm, buyer, product, "7")
+    must(firm.admin.post(f"{SO}/{order['id']}/approve", {}), "order approve")
+    line = must(firm.admin.get(f"{SO}/{order['id']}"), "order read")["lines"][0]
+
+    def note_body() -> dict:
+        """Return a delivery note taking all 7 ordered pieces."""
+        return {
+            "sales_order_id": order["id"],
+            "delivery_date": today().isoformat(),
+            "lines": [
+                {
+                    "line_number": 1,
+                    "sales_order_line_id": line["id"],
+                    "current_delivery_quantity": "7",
+                    "warehouse_id": firm.warehouse["id"],
+                }
+            ],
+        }
+
+    made = []
+    for user in ("admin", "admin_b"):
+        status, body = firm.users[user].post("/api/v1/delivery-notes", note_body())
+        said = message(body)[:100] if status > 299 else ""
+        res.note(f"note by {user}: {status} {said}")
+        if status in (200, 201):
+            made.append(data(body))
+    for note in made:
+        path = f"/api/v1/delivery-notes/{note['id']}/approve"
+        status, body = firm.admin.post(path, {})
+        res.note(f"approve {note['id'][:8]}: {status} {message(body)[:100]}")
+    calls = []
+    for note in made:
+        for user in ("admin", "manager"):
+            calls.append(
+                lambda u=user, n=note: firm.users[u].post(
+                    f"/api/v1/delivery-notes/{n['id']}/dispatch", {}
+                )
+            )
+    answers = race(calls) if calls else []
+    no_server_errors(res, answers)
+    for status, body in answers:
+        if 400 <= status < 500:
+            res.ok(bool(message(body).strip()), f"a {status} refusal names a reason")
+    wins = [a for a in answers if a[0] in (200, 201)]
+    res.ok(len(wins) <= len(made), "no note dispatches twice", summarise(answers))
+    rows = all_rows(firm.admin, f"{INV}?product_id={product['id']}")
+    on_hand = sum((D(r["current_quantity"]) for r in rows), Decimal(0))
+    res.ok(on_hand >= D("93"), "no more than the 7 ordered left stock", on_hand)
+    res.note(f"answers {summarise(answers)}; on hand {on_hand} of 100")
+    return res
+
+
 SCENARIOS: dict[str, Callable[[Firm], Result]] = {
     "a": scenario_a,
     "b": scenario_b,
     "c": scenario_c,
     "d": scenario_d,
+    "e": scenario_e,
+    "f": scenario_f,
+    "g": scenario_g,
 }
 
 
