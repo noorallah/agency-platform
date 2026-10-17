@@ -29,6 +29,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine, JournalLineData
 from app.finance.services.money_consistency import (
     DOCUMENT_WITHOUT_JOURNAL,
+    GST_VS_RETURN,
     JOURNAL_UNBALANCED,
     JOURNAL_WITHOUT_DOCUMENT,
     PAYABLES_BILLS,
@@ -575,6 +576,127 @@ def test_stock_that_moved_with_no_journal_is_found(
 
     # The books hold 1,050.00; the shelf now holds two more at 50.00.
     assert _stock_rows(found) == [("2026-08", Decimal("1050.00"), Decimal("1150.00"))]
+
+
+def _taxed_month(books: _Books) -> None:
+    """Sell 100 + CGST 9 + SGST 9, and buy 200 + IGST 36, in April."""
+    sale = books.sales_invoice("SI-T", "118.00")
+    DocumentPostingService(books.session).post_sales_invoice(
+        firm_id=books.firm.id,
+        invoice_id=sale.id,
+        invoice_number="SI-T",
+        invoice_date=WHEN,
+        taxable_amount=Decimal("100.00"),
+        tax_amount=Decimal("18.00"),
+        total_amount=Decimal("118.00"),
+        actor_id=books.actor_id,
+        tax_by_component={"CGST": Decimal("9.00"), "SGST": Decimal("9.00")},
+    )
+    bill = books.purchase_invoice("PI-T", "236.00")
+    DocumentPostingService(books.session).post_purchase_invoice(
+        firm_id=books.firm.id,
+        invoice_id=bill.id,
+        invoice_number="PI-T",
+        invoice_date=WHEN,
+        goods_amount=Decimal("200.00"),
+        tax_amount=Decimal("36.00"),
+        total_amount=Decimal("236.00"),
+        actor_id=books.actor_id,
+        tax_by_component={"IGST": Decimal("36.00")},
+    )
+    books.session.commit()
+
+
+def _return_says(
+    monkeypatch: pytest.MonkeyPatch, *, cgst: str = "9.00", igst_credit: str = "36"
+) -> None:
+    """Make GSTR-3B report April's figures, whatever the store holds."""
+    from app.gst_returns.services.gstr_service import GstReturnService
+
+    def gstr3b(_self: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "outward_taxable_supplies": {
+                "integrated_tax": 0.0,
+                "central_tax": float(cgst),
+                "state_tax": 9.0,
+            },
+            "zero_rated_supplies": {"integrated_tax": 0.0},
+            "net_itc": {
+                "integrated_tax": float(igst_credit),
+                "central_tax": 0.0,
+                "state_tax": 0.0,
+            },
+        }
+
+    monkeypatch.setattr(GstReturnService, "gstr3b", gstr3b)
+
+
+def _gst_rows(found: list[Difference]) -> list[tuple[str, Decimal, Decimal]]:
+    return [
+        (row.document_ref, row.expected, row.actual)
+        for row in _april(found, GST_VS_RETURN)
+    ]
+
+
+def test_gst_accounts_and_the_return_agree(monkeypatch: pytest.MonkeyPatch) -> None:
+    books = _books()
+    _taxed_month(books)
+    _return_says(monkeypatch)
+
+    assert _gst_rows(_check(books)) == []
+
+
+def test_a_gst_head_away_from_the_return_is_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    books = _books()
+    _taxed_month(books)
+    _return_says(monkeypatch, cgst="10.00", igst_credit="30")
+
+    rows = _gst_rows(_check(books))
+
+    assert [(expected, actual) for _, expected, actual in rows] == [
+        (Decimal("9.00"), Decimal("10.00")),
+        (Decimal("36.00"), Decimal("30.00")),
+    ]
+    assert "OUTPUT_TAX_CGST" in rows[0][0]
+    assert "INPUT_TAX_IGST" in rows[1][0]
+
+
+def test_the_gst_payment_is_not_counted(monkeypatch: pytest.MonkeyPatch) -> None:
+    books = _books()
+    _taxed_month(books)
+    _return_says(monkeypatch)
+    posting = DocumentPostingService(books.session)
+    context = posting.context_for(books.firm.id, WHEN)
+    engine = JournalEntryEngine(books.session)
+    # The month settled: output CGST cleared from the bank.
+    entry = engine.create_entry(
+        firm_id=books.firm.id,
+        journal_type_id=context.journal_type_id,
+        voucher_type_id=context.voucher_type_id,
+        accounting_period_id=context.accounting_period_id,
+        journal_date=WHEN,
+        reference_number="GSTPAY-1",
+        description="GST paid",
+        lines=[
+            JournalLineData(
+                ledger_account_id=books.account(ControlAccountPurpose.OUTPUT_TAX_CGST),
+                debit_amount=Decimal("9.00"),
+            ),
+            JournalLineData(
+                ledger_account_id=books.account(ControlAccountPurpose.BANK),
+                credit_amount=Decimal("9.00"),
+            ),
+        ],
+        source_module=money_consistency.GST_PAYMENT_MODULE,
+        source_id=uuid4(),
+        actor_id=books.actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    assert _gst_rows(_check(books)) == []
 
 
 def test_months_outside_the_range_are_not_read() -> None:

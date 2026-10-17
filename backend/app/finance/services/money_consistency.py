@@ -51,6 +51,14 @@ Checks, per month (an accounting period of the firm):
    quantity owned times the moving-average cost, or each lot's value for a
    firm costing by lot) equals the Inventory control account's balance, as
    at today only.
+6. **The GST accounts agree with GSTR-3B.** For each month, each output-tax
+   head's account (IGST, CGST, SGST) is credited, net of debits, by what
+   3.1(a) reports for that head after credit and debit notes -- plus, for
+   IGST, the tax paid on zero-rated supplies in 3.1(b) -- and each input-tax
+   head's account is debited, net, by the net credit of table 4(C). The
+   month's GST payment (``gst_payment``) is left out of the account's side:
+   it clears the month's liability and uses its credit, so it is a payment
+   of the return, not a document the return reports.
 
 ``check_money_consistency`` returns one ``Difference`` per disagreement;
 ``scripts/check_money_consistency.py`` prints them for a firm or every firm.
@@ -59,7 +67,11 @@ TODO, later parts of item 30 (not built here):
 
 * Stock value against the inventory control account at each month's end;
   check 5 asks it as at today only.
-* GST: output and input tax accounts against GSTR-1 / GSTR-3B for the month.
+* GST beyond the three heads check 6 compares: cess (which posts to the
+  single ``OUTPUT_TAX`` / ``INPUT_TAX`` account with sales from before the
+  split), reverse charge payable (3.1(d)), amendments to earlier returns,
+  and a firm with more than one GSTIN (3B is read for the firm's own GSTIN
+  while the account holds every branch's).
 * TCS collected against TCS payable; TDS deducted against TDS payable and
   the challans paid.
 * Loyalty points held against loyalty payable; commission accrued against
@@ -121,6 +133,13 @@ STOCK_VS_INVENTORY = "STOCK_VALUE_VS_INVENTORY_ACCOUNT"
 #: so the grand total may stand a paisa away from the account without either
 #: being wrong.
 STOCK_TOLERANCE = Decimal("0.01")
+GST_VS_RETURN = "GST_LEDGER_VS_RETURN"
+#: The return rounds each head once, the journals line by line, so a head may
+#: stand a paisa away without either being wrong.
+GST_TOLERANCE = Decimal("0.01")
+#: The journal that settles a month's GST: it debits output tax and credits
+#: input tax by the return's own figures, so it is left out of the movement.
+GST_PAYMENT_MODULE = "gst_payment"
 
 
 @dataclass(frozen=True)
@@ -169,6 +188,7 @@ def check_money_consistency(
     receivable = controls.get(ControlAccountPurpose.ACCOUNTS_RECEIVABLE.value)
     payable = controls.get(ControlAccountPurpose.ACCOUNTS_PAYABLE.value)
     inventory = controls.get(ControlAccountPurpose.INVENTORY.value)
+    gst_heads = _gst_head_accounts(controls)
     for period in months:
         label = f"{period.starts_on:%Y-%m}"
         found += _trial_balance(session, firm_id, period, label)
@@ -176,6 +196,8 @@ def check_money_consistency(
             found += _receivables(session, firm_id, receivable, period, label)
         if payable is not None:
             found += _payables(session, firm_id, payable, period, label)
+        if gst_heads:
+            found += _gst_ledger_vs_return(session, firm_id, gst_heads, period, label)
     today = firm_today(session, firm_id)
     if months[-1].ends_on >= today:
         if receivable is not None:
@@ -881,6 +903,157 @@ def _stock_vs_inventory_account(
             ),
         )
     ]
+
+
+# ---- 6. GST against GSTR-3B ------------------------------------------------
+
+#: Each head compared: its control account, the 3B sections whose tax for the
+#: head the account should hold for the month, the 3B key, and whether the
+#: account is a liability (credit-normal) rather than an asset.
+_GST_HEADS: tuple[tuple[ControlAccountPurpose, tuple[str, ...], str, bool], ...] = (
+    (
+        ControlAccountPurpose.OUTPUT_TAX_IGST,
+        ("outward_taxable_supplies", "zero_rated_supplies"),
+        "integrated_tax",
+        True,
+    ),
+    (
+        ControlAccountPurpose.OUTPUT_TAX_CGST,
+        ("outward_taxable_supplies",),
+        "central_tax",
+        True,
+    ),
+    (
+        ControlAccountPurpose.OUTPUT_TAX_SGST,
+        ("outward_taxable_supplies",),
+        "state_tax",
+        True,
+    ),
+    (ControlAccountPurpose.INPUT_TAX_IGST, ("net_itc",), "integrated_tax", False),
+    (ControlAccountPurpose.INPUT_TAX_CGST, ("net_itc",), "central_tax", False),
+    (ControlAccountPurpose.INPUT_TAX_SGST, ("net_itc",), "state_tax", False),
+)
+
+
+def _gst_head_accounts(
+    controls: dict[str, UUID],
+) -> dict[UUID, list[tuple[ControlAccountPurpose, tuple[str, ...], str, bool]]]:
+    """Return the mapped GST head accounts, each with the heads it holds.
+
+    A head with no account mapped is skipped. Two heads mapped to one account
+    are compared together, since the account cannot tell them apart.
+    """
+    accounts: dict[
+        UUID, list[tuple[ControlAccountPurpose, tuple[str, ...], str, bool]]
+    ] = {}
+    for head in _GST_HEADS:
+        account_id = controls.get(head[0].value)
+        if account_id is not None:
+            accounts.setdefault(account_id, []).append(head)
+    return accounts
+
+
+def _gst_ledger_vs_return(
+    session: Session,
+    firm_id: UUID,
+    accounts: dict[
+        UUID, list[tuple[ControlAccountPurpose, tuple[str, ...], str, bool]]
+    ],
+    period: AccountingPeriod,
+    label: str,
+) -> list[Difference]:
+    """Check each GST head account's movement in the month against GSTR-3B.
+
+    The return is ``GstReturnService.gstr3b`` for the month, the figure the
+    GSTR-3B screen and the GST payment read. The account side is the month's
+    counted journal lines on the account, less the GST payment's: a payment
+    debits output tax and credits input tax by the return's own figures, so
+    counting it would set every settled month a month's tax apart.
+
+    Left out deliberately: cess (no head account of its own), reverse charge
+    (its own payable accounts), amendments to earlier returns (3B states them
+    beside the month), credit held back awaiting GSTR-2B (the bill debited
+    the account, 3B claims it later) and, for a firm with several GSTINs, the
+    branches filing under another. A firm with no GSTIN files no return and
+    is not checked.
+    """
+    from app.core.exceptions import ValidationError
+    from app.gst_returns.services.gstr_service import GstReturnService
+
+    try:
+        summary = GstReturnService(session).gstr3b(
+            firm_scope=firm_id, from_date=period.starts_on, to_date=period.ends_on
+        )
+    except ValidationError:
+        return []
+    movement = {
+        account_id: (str(code), _money(net))
+        for account_id, code, net in session.execute(
+            select(
+                JournalLine.ledger_account_id,
+                LedgerAccount.code,
+                func.coalesce(
+                    func.sum(JournalLine.debit_amount - JournalLine.credit_amount), 0
+                ),
+            )
+            .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+            .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
+            .where(
+                *_in_month(firm_id, period),
+                JournalLine.is_deleted.is_(False),
+                JournalLine.ledger_account_id.in_(list(accounts)),
+                or_(
+                    JournalEntry.source_module.is_(None),
+                    JournalEntry.source_module != GST_PAYMENT_MODULE,
+                ),
+            )
+            .group_by(JournalLine.ledger_account_id, LedgerAccount.code)
+        ).all()
+    }
+    found: list[Difference] = []
+    for account_id, heads in accounts.items():
+        code, net = movement.get(account_id, ("", ZERO))
+        if not code:
+            code = str(
+                session.scalar(
+                    select(LedgerAccount.code).where(LedgerAccount.id == account_id)
+                )
+                or account_id
+            )
+        liability = heads[0][3]
+        ledger = -net if liability else net
+        returned = ZERO
+        for _purpose, sections, key, _ in heads:
+            for section in sections:
+                values = summary.get(section)
+                if isinstance(values, dict):
+                    returned += _money(values.get(key))
+        if abs(ledger - returned) <= GST_TOLERANCE:
+            continue
+        names = ", ".join(head[0].value for head in heads)
+        found.append(
+            Difference(
+                GST_VS_RETURN,
+                label,
+                f"Account {code} ({names})",
+                ledger,
+                returned,
+                (
+                    "output tax credited in the month, net, against GSTR-3B "
+                    "3.1(a) after credit and debit notes (and 3.1(b) for IGST)"
+                    if liability
+                    else "input tax debited in the month, net, against "
+                    "GSTR-3B table 4(C) net credit"
+                )
+                + ", the GST payment left out -- "
+                + (
+                    "the books carry tax the return does not report"
+                    if ledger > returned
+                    else "the return reports tax no journal carried"
+                ),
+            )
+        )
+    return found
 
 
 __all__ = ["Difference", "check_money_consistency"]
