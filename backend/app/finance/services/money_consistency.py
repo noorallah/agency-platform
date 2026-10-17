@@ -149,8 +149,11 @@ STOCK_VS_INVENTORY = "STOCK_VALUE_VS_INVENTORY_ACCOUNT"
 
 #: The stock valuation rounds each item to the paisa before adding them up,
 #: so the grand total may stand a paisa away from the account without either
-#: being wrong.
+#: being wrong. That is the base; D-STK-20 widens it by the same again for
+#: each item held at an average of more than two decimals, because an issue
+#: at such an average leaves up to half a paisa in the account.
 STOCK_TOLERANCE = Decimal("0.01")
+_PAISA = Decimal("0.01")
 GST_VS_RETURN = "GST_LEDGER_VS_RETURN"
 #: The return rounds each head once, the journals line by line, so a head may
 #: stand a paisa away without either being wrong.
@@ -908,18 +911,29 @@ def _stock_vs_inventory_account(
     """
     from app.inventory.services.stock_valuation import StockValuationService
 
-    stock = next(
-        (
-            row.value
-            for row in StockValuationService(session).valuation(firm_id, on=today)
-            if row.row_type == "TOTAL"
-        ),
-        ZERO,
+    rows = StockValuationService(session).valuation(firm_id, on=today)
+    stock = next((row.value for row in rows if row.row_type == "TOTAL"), ZERO)
+    # D-STK-20: an item averaged to more than two decimals may leave up to
+    # half a paisa in the account per issue, so each one widens the paisa.
+    uneven = sum(
+        1
+        for row in rows
+        if row.row_type == "ITEM"
+        and row.quantity
+        and row.rate is not None
+        and row.rate != row.rate.quantize(_PAISA)
     )
+    tolerance = STOCK_TOLERANCE + _PAISA * uneven
     code, ledger = _account_balance(session, firm_id, account_id, today)
     stock = _money(stock)
-    if abs(stock - ledger) <= STOCK_TOLERANCE:
+    if abs(stock - ledger) <= tolerance:
         return []
+    allowance = (
+        f" (beyond the {tolerance} D-STK-20 allows for {uneven} "
+        f"item{'s' if uneven != 1 else ''} averaged to more than two decimals)"
+        if uneven
+        else ""
+    )
     return [
         Difference(
             STOCK_VS_INVENTORY,
@@ -934,7 +948,8 @@ def _stock_vs_inventory_account(
                 if stock > ledger
                 else "the books above the stock: a journal on the account no "
                 "stock movement made"
-            ),
+            )
+            + allowance,
         )
     ]
 
