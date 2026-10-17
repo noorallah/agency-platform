@@ -232,7 +232,11 @@ class JournalEntryEngine:
         if not entry.is_balanced:
             raise ValidationError("An unbalanced entry cannot be posted.")
         # Re-check at posting time: the period may have closed since creation.
-        self._require_open_period(entry.accounting_period_id, firm_id=firm_id)
+        # Under a shared row lock, so a close that commits first is seen here
+        # and one that starts after waits for this posting (D-CONC-5).
+        self._require_open_period(
+            entry.accounting_period_id, firm_id=firm_id, lock=True
+        )
 
         self._lock_balances(entry, firm_id=firm_id, actor_id=actor_id)
         posted_at = utc_now()
@@ -1064,16 +1068,23 @@ class JournalEntryEngine:
         )
 
     def _require_open_period(
-        self, accounting_period_id: UUID, *, firm_id: UUID
+        self, accounting_period_id: UUID, *, firm_id: UUID, lock: bool = False
     ) -> AccountingPeriod:
-        """Return the period only when it still accepts postings."""
-        period = self._session.scalar(
-            select(AccountingPeriod).where(
-                AccountingPeriod.id == accounting_period_id,
-                AccountingPeriod.firm_id == firm_id,
-                AccountingPeriod.is_deleted.is_(False),
-            )
+        """Return the period only when it still accepts postings.
+
+        ``lock`` takes a shared row lock and re-reads the row, so the answer
+        cannot be overtaken by a close running at the same moment.
+        """
+        statement = select(AccountingPeriod).where(
+            AccountingPeriod.id == accounting_period_id,
+            AccountingPeriod.firm_id == firm_id,
+            AccountingPeriod.is_deleted.is_(False),
         )
+        if lock:
+            statement = statement.with_for_update(read=True).execution_options(
+                populate_existing=True
+            )
+        period = self._session.scalar(statement)
         if period is None:
             raise ValidationError("Accounting period not found for the active firm.")
         if period.status != PeriodStatus.OPEN.value:
