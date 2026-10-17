@@ -748,6 +748,11 @@ class DocumentFrameworkService:
         ``None`` the firm's GENERAL one. Every other type keeps the rule's own
         counter and ignores ``series_prefix``.
         """
+        # A request session does not autoflush, and the locking reads below
+        # re-read their rows (populate_existing, D-CONC-1): without this, a
+        # number stepped over because it was taken would lose its increment
+        # and the same number would be offered again, fifty times.
+        self._session.flush()
         rule = self.get_numbering_rule(firm_id, rule_id, for_update=True)
         if not rule.is_active:
             # An inactive series is never used (D-CFG-6).

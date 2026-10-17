@@ -10,7 +10,7 @@ is kept as typed, and the counter steps over one somebody typed ahead of it.
 from uuid import uuid4
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.customers.services import CustomerService
 from app.document_framework.models import DocumentNumberingRule
@@ -91,3 +91,22 @@ def test_blank_supplier_and_product_codes_have_their_own_series() -> None:
         actor_id=actor,
     )
     assert typed.code == "TAB-500"
+
+
+def test_stepping_over_a_taken_code_works_in_a_request_session() -> None:
+    """A request does not autoflush; the step-over must still move the counter."""
+    session, firm = _setup()
+    request = sessionmaker(bind=session.get_bind(), autoflush=False)()
+    service = CustomerService(request)
+    actor = uuid4()
+    codes = []
+    for code in ("", "CUS-00002", ""):
+        made = service.create(
+            _customer_data(code=code).model_copy(update={"gst_number": None}),
+            firm_id=firm.id,  # type: ignore[attr-defined]
+            actor_id=actor,
+            may_set_standing_discount=True,
+        )
+        codes.append(made.code)
+        request.commit()
+    assert codes == ["CUS-00001", "CUS-00002", "CUS-00003"]
