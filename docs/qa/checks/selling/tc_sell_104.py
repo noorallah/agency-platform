@@ -10,7 +10,7 @@ sc = Scene(a, stock="5000")
 
 def incl(qty: str, rate: str, includes: bool = True) -> dict:
     """Raise an order of the item with the switch as given; return it read back."""
-    made = new_order(sc, qty, line={"unit_price": rate}, rate_includes_tax=includes)
+    made = new_order(sc, qty, line={"unit_price": rate, "discount_percent": "0"}, rate_includes_tax=includes)
     return must(a.get(f"{SO}/{made['id']}"), "order")
 
 
@@ -32,7 +32,7 @@ q = must(a.post(QT, {
     "customer_id": sc.customer["id"], "quotation_date": today().isoformat(),
     "valid_until": (today() + timedelta(days=15)).isoformat(), "branch_id": sc.branch["id"],
     "warehouse_id": sc.warehouse["id"], "rate_includes_tax": True,
-    "lines": [{"line_number": 1, "product_id": sc.product["id"], "quantity": "500", "unit_price": "100"}]}), "quotation")
+    "lines": [{"line_number": 1, "product_id": sc.product["id"], "quantity": "500", "unit_price": "100", "discount_percent": "0"}]}), "quotation")
 c.eq(D(q["grand_total"]).quantize(D("0.01")), D("50000.00"), "step 3: quotation 50,000.00")
 o4 = incl("500", "84.7458", includes=False)
 c.eq(totals(o4), (D("42372.90"), D("7627.12"), D("50000.02")), "step 4: unchanged, 50,000.02")
