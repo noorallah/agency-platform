@@ -20,6 +20,8 @@ _, _, pb = bs.received_and_billed("2")
 bs.pay("50.00", pb)
 manual = data(a.post(JE, draft_body(a, [("6500", "11.00", "0"), ("1000", "0", "11.00")]))[1])
 a.post(f"{JE}/{manual['id']}/post", {})
+# a contra voucher (cash to petty cash), so the file holds all six voucher types
+must(a.post("/api/v1/contra-vouchers", {"voucher_date": today().isoformat(), "from_account_id": account(a, "1000")["id"], "to_account_id": account(a, "1005")["id"], "amount": "7.00"}), "contra voucher")
 
 # mappings: rename two accounts
 maps = rows_of(a.get(f"{FIN}/tally/mappings"))
@@ -56,7 +58,7 @@ try:
         expected = TY.get(src)
         if src == "settlements":
             num = v.findtext("VOUCHERNUMBER")
-            expected = "Payment" if num.startswith("PY-") != num.endswith("-REV") else "Receipt"  # a reversal is the other kind
+            expected = "Payment" if num.startswith(("PY-", "RF-")) != num.endswith("-REV") else "Receipt"  # a reversal is the other kind
         if expected and v.get("VCHTYPE") != expected:
             wrong.append((src, v.findtext("VOUCHERNUMBER"), v.get("VCHTYPE")))
     c.eq(wrong, [], "every voucher balances and is typed by its source (Sales, Purchase, Contra, Receipt, Payment, Journal)")

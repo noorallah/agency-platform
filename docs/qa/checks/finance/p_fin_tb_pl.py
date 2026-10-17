@@ -66,7 +66,9 @@ c.eq(delta("1200"), D("30000.00") + D("1000.00") - D("600.00"), "Inventory: +30,
 c.eq(delta("3000"), D("-30000.00"), "Opening Balance Equity credited with that opening stock")
 pl_d = lambda k: D(after["pl"][k]) - D(before["pl"][k])  # noqa: E731
 c.eq(pl_d("total_income"), D("1000.00"), "P&L income up exactly 1,000.00")
-c.eq(pl_d("total_expense"), D("600.00"), "P&L expense up exactly 600.00 (the purchase is stock, not an expense)")
-c.eq(pl_d("net_profit"), D("400.00"), "profit up exactly 400.00")
-c.eq(D(after["bs"]["result_for_the_year"]) - D(before["bs"]["result_for_the_year"]), D("400.00"), "balance sheet result for the year up 400.00")
+c.eq(delta("5700"), D("23.60"), "Loyalty Expense debited 23.60 (2 percent of 1,180.00, earned with the sale)")
+c.eq(delta("2600"), D("-23.60"), "Loyalty Payable credited 23.60")
+c.eq(pl_d("total_expense"), D("623.60"), "P&L expense up exactly 623.60 (600.00 cost + 23.60 loyalty; the purchase is stock, not an expense)")
+c.eq(pl_d("net_profit"), D("376.40"), "profit up exactly 376.40")
+c.eq(D(after["bs"]["result_for_the_year"]) - D(before["bs"]["result_for_the_year"]), D("376.40"), "balance sheet result for the year up 376.40")
 c.done()
