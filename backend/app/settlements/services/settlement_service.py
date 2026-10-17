@@ -1002,6 +1002,38 @@ class SettlementService(TransactionalDocumentService):
             )
         return records
 
+    def _lock_bills(self, ids: Sequence[UUID]) -> None:
+        """Lock the bills money is about to be set against, in id order.
+
+        What a bill still owes is summed from its allocations, so two receipts
+        racing for one bill both read the same outstanding unlocked, both
+        passed the check, and the loser was refused with a stale-version 409
+        rather than "has X outstanding" (D-CONC-2). Taking the bill rows
+        ``FOR UPDATE`` before the outstanding is read makes the second wait
+        for the first to commit, and its read then sees the first's money.
+        Sorted so two settlements naming the same bills cannot deadlock;
+        ``populate_existing`` refreshes a row already in the identity map,
+        or a waiter granted the lock would keep the version it read before.
+        An id that is no bill of this direction locks nothing and is refused
+        by the check that follows, as before.
+        """
+        if not ids:
+            return
+        ordered = sorted(set(ids), key=str)
+        models: tuple[type[Any], type[Any]] = (
+            (SalesInvoice, CustomerOpeningBill)
+            if self.DIRECTION == SettlementDirection.RECEIPT
+            else (PurchaseInvoice, VendorOpeningBill)
+        )
+        for model in models:
+            self._session.scalars(
+                select(model)
+                .where(model.id.in_(ordered))
+                .order_by(model.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).all()
+
     def _opening_bill_ids(self, ids: Sequence[UUID]) -> set[UUID]:
         """Say which of the ids a settlement names are opening bills.
 
@@ -1420,6 +1452,10 @@ class SettlementService(TransactionalDocumentService):
             )
         order = self._advance_order(data, firm_id=firm_id)
         currency = normalize_currency(data.currency_code)
+        # The bills are locked before what they owe is read, so a receipt
+        # racing another for one bill is refused by name rather than with a
+        # stale-version 409 (D-CONC-2).
+        self._lock_bills([allocation.invoice_id for allocation in data.allocations])
         # A payment in a supplier's currency (PG-12): the request's amounts
         # are in that currency, and what is stored and posted is rupees.
         fx = (
@@ -2085,6 +2121,9 @@ class SettlementService(TransactionalDocumentService):
             raise ValidationError("This settlement names no party to apply it for.")
         # A parent's receipt may be set against a shop's bill (backlog 126),
         # and any receipt against the bill of a customer it names (row P5).
+        # Locked first, so a racing allocation is read once it lands
+        # (D-CONC-2).
+        self._lock_bills([invoice_id])
         record = self._settleable_bills(
             firm_id=firm_id, party_id=party_id, paid_for=paid_for_customer_id
         ).get(invoice_id)
