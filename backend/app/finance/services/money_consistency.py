@@ -68,6 +68,14 @@ Checks, per month (an accounting period of the firm):
    approved bills (the *TCS paid* report). Journals typed by hand are left
    out of the account side: nothing in the product pays TCS over or claims
    TDS or TCS back, so a firm does it by hand, and no register holds it.
+8. **Loyalty payable agrees with the points held**, as at today only. The
+   account, from loyalty journals alone, equals the cost of the points
+   customers still hold -- each batch at its booked cost less what returns,
+   redemptions and lapses took, lapsed points the sweep has not reached
+   included (the *Loyalty balances* report).
+9. **Commission payable agrees with the payouts**, as at today only. The
+   account, from commission journals alone, equals the ``payable_amount`` of
+   the payouts approved and not yet paid.
 
 ``check_money_consistency`` returns one ``Difference`` per disagreement;
 ``scripts/check_money_consistency.py`` prints them for a firm or every firm.
@@ -84,8 +92,8 @@ TODO, later parts of item 30 (not built here):
 * TDS and TCS at each month's end; check 7 asks it as at today only. And
   the hand journals check 7 leaves out: TCS paid over, TDS and TCS claimed
   against income tax, opening balances on the four accounts.
-* Loyalty points held against loyalty payable; commission accrued against
-  commission payable.
+* Loyalty and commission at each month's end; checks 8 and 9 ask it as at
+  today only, and leave hand journals (opening balances) out.
 * Check 2 nets an opening balance in credit at its typed figure, so one
   later paid back by a refund that names no source reads as a difference;
   nothing yet records which opening credit a refund drew.
@@ -150,6 +158,12 @@ GST_TOLERANCE = Decimal("0.01")
 TAX_AT_SOURCE_VS_REGISTER = "TDS_TCS_LEDGER_VS_REGISTER"
 #: Each register row is rounded on its own, as each journal line is.
 TAX_AT_SOURCE_TOLERANCE = Decimal("0.01")
+LOYALTY_VS_LEDGER = "LOYALTY_LIABILITY_VS_LEDGER"
+#: A batch's cost leaves it in parts each rounded on its own, the last taking
+#: what is left, so the two sides may stand a paisa apart without either
+#: being wrong.
+LOYALTY_TOLERANCE = Decimal("0.01")
+COMMISSION_VS_PAYOUTS = "COMMISSION_PAYABLE_VS_PAYOUTS"
 #: The journal that settles a month's GST: it debits output tax and credits
 #: input tax by the return's own figures, so it is left out of the movement.
 GST_PAYMENT_MODULE = "gst_payment"
@@ -201,6 +215,8 @@ def check_money_consistency(
     receivable = controls.get(ControlAccountPurpose.ACCOUNTS_RECEIVABLE.value)
     payable = controls.get(ControlAccountPurpose.ACCOUNTS_PAYABLE.value)
     inventory = controls.get(ControlAccountPurpose.INVENTORY.value)
+    loyalty = controls.get(ControlAccountPurpose.LOYALTY_PAYABLE.value)
+    commission = controls.get(ControlAccountPurpose.COMMISSION_PAYABLE.value)
     gst_heads = _gst_head_accounts(controls)
     for period in months:
         label = f"{period.starts_on:%Y-%m}"
@@ -220,6 +236,10 @@ def check_money_consistency(
         if inventory is not None:
             found += _stock_vs_inventory_account(session, firm_id, inventory, today)
         found += _tax_at_source_vs_registers(session, firm_id, controls, today)
+        if loyalty is not None:
+            found += _loyalty_vs_ledger(session, firm_id, loyalty, today)
+        if commission is not None:
+            found += _commission_vs_payouts(session, firm_id, commission, today)
     found += _documents_without_journals(session, firm_id, months)
     found += _journals_without_documents(session, firm_id, months)
     return found
@@ -1184,29 +1204,7 @@ def _tax_at_source_vs_registers(
         account_id = controls.get(purpose.value)
         if account_id is None:
             continue
-        code = session.scalar(
-            select(LedgerAccount.code).where(LedgerAccount.id == account_id)
-        )
-        net = _money(
-            session.scalar(
-                select(
-                    func.coalesce(
-                        func.sum(JournalLine.debit_amount - JournalLine.credit_amount),
-                        0,
-                    )
-                )
-                .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
-                .where(
-                    JournalLine.ledger_account_id == account_id,
-                    JournalLine.is_deleted.is_(False),
-                    JournalEntry.firm_id == firm_id,
-                    JournalEntry.is_deleted.is_(False),
-                    JournalEntry.status.in_(COUNTED),
-                    JournalEntry.journal_date <= today,
-                    JournalEntry.source_module.in_(modules),
-                )
-            )
-        )
+        code, net = _balance_from_modules(session, firm_id, account_id, modules, today)
         ledger = -net if liability else net
         register = _tax_at_source_register(session, firm_id, purpose, today)
         if abs(ledger - register) <= TAX_AT_SOURCE_TOLERANCE:
@@ -1215,7 +1213,7 @@ def _tax_at_source_vs_registers(
             Difference(
                 TAX_AT_SOURCE_VS_REGISTER,
                 f"{today:%Y-%m}",
-                f"Account {code or account_id} ({purpose.value})",
+                f"Account {code} ({purpose.value})",
                 ledger,
                 register,
                 f"the account's balance from documents, against {register_says}, "
@@ -1228,6 +1226,162 @@ def _tax_at_source_vs_registers(
             )
         )
     return found
+
+
+def _balance_from_modules(
+    session: Session,
+    firm_id: UUID,
+    account_id: UUID,
+    modules: tuple[str, ...],
+    today: date,
+) -> tuple[str, Decimal]:
+    """Return an account's code and its debit-less-credit balance, today.
+
+    Only the journals the named source modules posted count -- their
+    reversals carry the same module -- so a journal typed by hand is left
+    out.
+    """
+    code = session.scalar(
+        select(LedgerAccount.code).where(LedgerAccount.id == account_id)
+    )
+    net = session.scalar(
+        select(
+            func.coalesce(
+                func.sum(JournalLine.debit_amount - JournalLine.credit_amount), 0
+            )
+        )
+        .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+        .where(
+            JournalLine.ledger_account_id == account_id,
+            JournalLine.is_deleted.is_(False),
+            JournalEntry.firm_id == firm_id,
+            JournalEntry.is_deleted.is_(False),
+            JournalEntry.status.in_(COUNTED),
+            JournalEntry.journal_date <= today,
+            JournalEntry.source_module.in_(modules),
+        )
+    )
+    return str(code or account_id), _money(net)
+
+
+# ---- 8. loyalty payable against the points ledger --------------------------
+
+#: The source module every loyalty journal carries: earning, redeeming,
+#: lapsing, goodwill and take-backs, and the reversal of a cancelled bill's.
+LOYALTY_MODULE = "loyalty"
+
+
+def _loyalty_held(session: Session, firm_id: UUID) -> Decimal:
+    """Return what the points customers hold cost the firm, by the ledger.
+
+    The *Loyalty balances* report's own figures: each batch at what it was
+    booked at less what returns, redemptions and lapses took from it, for the
+    points that can still be spent **and** for those past their date that
+    the sweep has not yet lapsed -- Loyalty Payable carries their cost until
+    it does.
+    """
+    from app.loyalty.services.loyalty_service import LoyaltyService
+
+    return sum(
+        (
+            _money(row.amount) + _money(row.lapsed_amount)
+            for row in LoyaltyService(session).balances_report(firm_scope=firm_id)
+        ),
+        ZERO,
+    )
+
+
+def _loyalty_vs_ledger(
+    session: Session, firm_id: UUID, account_id: UUID, today: date
+) -> list[Difference]:
+    """Check Loyalty Payable against the cost of the points still held, today.
+
+    Points cost the firm when they are earned, so the account is credited by
+    each batch's cost and debited as points are redeemed, lapse or are taken
+    back; what is left is the cost of what customers still hold. Journals
+    typed by hand are left out, as an opening balance on the account is.
+
+    Goodwill given before goodwill was booked (D-SELL-19) carries no journal
+    and is held at today's rate, so a firm with any reads it as a difference.
+    """
+    code, net = _balance_from_modules(
+        session, firm_id, account_id, (LOYALTY_MODULE,), today
+    )
+    ledger = -net
+    held = _loyalty_held(session, firm_id)
+    if abs(ledger - held) <= LOYALTY_TOLERANCE:
+        return []
+    return [
+        Difference(
+            LOYALTY_VS_LEDGER,
+            f"{today:%Y-%m}",
+            f"Account {code} ({ControlAccountPurpose.LOYALTY_PAYABLE.value})",
+            ledger,
+            held,
+            "the account's balance from loyalty journals, against the cost of "
+            "the points customers hold (the loyalty balances, lapsed points "
+            f"awaiting the sweep included), as at {today.isoformat()} -- "
+            + (
+                "the books owe more than the points are worth"
+                if ledger > held
+                else "points held whose cost no journal carried"
+            ),
+        )
+    ]
+
+
+# ---- 9. commission payable against the payouts ------------------------------
+
+#: The source module of a payout's accrual, payment and reversal.
+COMMISSION_MODULE = "commission"
+
+
+def _commission_vs_payouts(
+    session: Session, firm_id: UUID, account_id: UUID, today: date
+) -> list[Difference]:
+    """Check Commission Payable against the payouts approved and not paid.
+
+    Approval credits the account by the payout's ``payable_amount``, snapshotted
+    at accrual; payment debits it by the same; cancelling an approved payout
+    mirrors the accrual. So the account, from commission journals alone,
+    should hold exactly the approved payouts still unpaid. Journals typed by
+    hand are left out.
+    """
+    from app.commission.models import CommissionPayout, CommissionPayoutStatus
+
+    code, net = _balance_from_modules(
+        session, firm_id, account_id, (COMMISSION_MODULE,), today
+    )
+    ledger = -net
+    owed = _money(
+        session.scalar(
+            select(func.coalesce(func.sum(CommissionPayout.payable_amount), 0)).where(
+                CommissionPayout.firm_id == firm_id,
+                CommissionPayout.is_deleted.is_(False),
+                CommissionPayout.status == CommissionPayoutStatus.APPROVED.value,
+                CommissionPayout.accrued_on <= today,
+            )
+        )
+    )
+    if ledger == owed:
+        return []
+    return [
+        Difference(
+            COMMISSION_VS_PAYOUTS,
+            f"{today:%Y-%m}",
+            f"Account {code} ({ControlAccountPurpose.COMMISSION_PAYABLE.value})",
+            ledger,
+            owed,
+            "the account's balance from commission journals, against the "
+            "payouts approved and not yet paid, as at "
+            f"{today.isoformat()} -- "
+            + (
+                "the books owe commission no approved payout states"
+                if ledger > owed
+                else "an approved payout whose accrual no journal carried"
+            ),
+        )
+    ]
 
 
 __all__ = ["Difference", "check_money_consistency"]
