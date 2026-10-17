@@ -432,6 +432,15 @@ Item 30m part 1; results in `docs/qa/CONCURRENCY_CHECK_ROUND_1_2026-10-17.md`, k
 | --- | --- | --- | --- |
 | D-CONC-2 | Low | A receipt that loses the race for a bill's outstanding is refused "This record changed since you loaded it" instead of the "has 18.00 outstanding" message a one-at-a-time clerk gets. Outcome correct. | Live |
 
+### Concurrency round 2 -- cancel, product ETag and dispatch raced over HTTP, 2026-10-17
+
+Item 30m parts 1b and 2a; results in `docs/qa/CONCURRENCY_CHECK_ROUND_2_2026-10-17.md`, scenarios e, f and g of `docs/qa/checks/concurrency/run_concurrency.py`.
+
+| Id | Severity | Summary | Evidence |
+| --- | --- | --- | --- |
+| D-CONC-3 | Medium | Two users saving one product with the same `If-Match` can both get 200: the second overwrites the first and the version jumps 1 -> 3. A customer in the same race is held (scenario d, 1 x 200 every time). Probable cause, not proved: `update_product` reloads the row after the first save committed, so the version check passes against the fresh version rather than the one the caller sent. | Live |
+| D-CONC-4 | Low | A sales order cancelled by three users at once: the loser who got furthest answers 422 "Reserved quantity cannot become negative." (an inventory-internal reason for a person who only pressed Cancel); the other loser gets the generic 409. No 500, order cancelled once, reservation back to 0. It should hear that the order is already cancelled. | Live |
+
 ### Buying round 1 -- found driving order to receipt to bill to return over HTTP, 2026-10-15
 
 Cases TC-BUY-001 to 102 (twenty-six of them) and seven probes; results in `docs/qa/BUYING_API_CHECK_ROUND_1_2026-10-15.md`, kept scripts in `docs/qa/checks/buying/` (33 checks). Nothing is open: D-BUY-77 is under Fixed and D-BUY-78 under Not a defect.
