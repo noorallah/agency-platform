@@ -46,7 +46,8 @@ c.eq(len(rows), 64, "64 purposes per firm")
 status, answer = bare.get("/api/v1/finance/ledger-accounts?page_size=50")
 accounts = data(answer) if status == 200 else []
 purpose = next((r for r in rows if r["ledger_account_id"] and not r["posted_lines"]), None)
-other = next((a for a in accounts if purpose and a["id"] != purpose["ledger_account_id"]), None)
+other = next((a for a in accounts if purpose and a["id"] != purpose["ledger_account_id"]
+              and a["account_type"] in (purpose.get("expected_types") or [a["account_type"]])), None)
 if purpose and other:
     for target in (other["id"], purpose["ledger_account_id"]):
         status, answer = bare.put(f"/api/v1/finance/control-accounts/{purpose['purpose']}",

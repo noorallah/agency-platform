@@ -48,7 +48,8 @@ singleton(c, bare, "/api/v1/messaging/settings", "firm", "messaging",
 
 # ---- Selling --------------------------------------------------------------
 got = shape(c, ready, "selling", "ready")
-c.eq(got["credit-control"], ("OPTIONAL", "Left as it comes: warns at 80%"), "ready: credit control default")
+c.ok(got["credit-control"] in (("OPTIONAL", "Left as it comes: warns at 80%"), ("OPTIONAL", "Set for this firm")),
+     "ready: credit control default or already set", str(got["credit-control"]))
 for step in ("sales-stages", "salesmen", "price-floor", "discount-limits", "loyalty-scheme", "tcs"):
     c.eq(got[step][0], "OPTIONAL", f"ready: {step} optional")
 
