@@ -7,7 +7,10 @@ and never print a name, a GST number or a bank detail -- only counts.
 
 Usage::
 
-    python scripts/swathi_dump_to_templates.py DUMP.sql OUTPUT_DIR
+    python scripts/swathi_dump_to_templates.py DUMP.sql OUTPUT_DIR [STATE]
+
+``STATE`` is the one state name written on every customer and supplier row,
+because the dump holds none; left out, the column is blank.
 
 Files written (one per import kind, headings as the templates give them):
 ``principals.csv``, ``brands.csv``, ``routes.csv``, ``salesmen.csv``,
@@ -24,6 +27,16 @@ from typing import Any
 #: ledger account (plan, section 2).
 CUSTOMER_HEADS = frozenset({8, 28})
 SUPPLIER_HEADS = frozenset({9, 27, 29})
+
+#: Group written for an account whose head the dump does not name, so the
+#: value mapping can send it somewhere on purpose.
+UNASSIGNED_GROUP = "UNASSIGNED"
+
+#: ``P & L ACCOUNTS`` mixes income and expense heads; an account whose name
+#: carries one of these words is income and gets its own group to map.
+PL_GROUP = "P & L ACCOUNTS"
+PL_INCOME_GROUP = "P & L ACCOUNTS (INCOME)"
+PL_INCOME_WORDS = ("RECEIVED", "RECD", "INCOME", "COMMISSION RECEIPT", "GAIN")
 
 _CREATE = re.compile(r"CREATE TABLE `(\w+)` \((.*?)\n\)", re.S)
 _COLUMN = re.compile(r"^\s*`(\w+)`", re.M)
@@ -214,6 +227,7 @@ def customers(tables: dict[str, list[Row]]) -> list[Row]:
                 "Address1": _text(r.get("adr1")),
                 "Address2": _text(r.get("adr2")),
                 "City": _text(r.get("city")),
+                "State": "",
                 "PIN": _text(r.get("pin")) if _int(r.get("pin")) else "",
                 "Country": "IN",
                 "Beat": _code("BEAT", beat) if beat else "",
@@ -240,6 +254,7 @@ def suppliers(tables: dict[str, list[Row]]) -> list[Row]:
                 "Address1": _text(r.get("adr1")),
                 "Address2": _text(r.get("adr2")),
                 "City": _text(r.get("city")),
+                "State": "",
                 "PIN": _text(r.get("pin")) if _int(r.get("pin")) else "",
                 "Country": "IN",
             }
@@ -255,17 +270,24 @@ def ledger_accounts(tables: dict[str, list[Row]]) -> list[Row]:
     """
     heads = {_int(h["hcode"]): _text(h["hname"]) for h in tables["acchead"]}
     skip = CUSTOMER_HEADS | SUPPLIER_HEADS
-    return [
-        {
-            "Code": _code("A", r["acode"]),
-            "Name": _text(r["acname"]),
-            "Group": heads.get(_int(r["hcode"]), _text(r["hcode"])),
-            "Description": "",
-            "Active": "Yes",
-        }
-        for r in tables["codes"]
-        if _int(r["hcode"]) not in skip
-    ]
+    out: list[Row] = []
+    for r in tables["codes"]:
+        if _int(r["hcode"]) in skip:
+            continue
+        name = _text(r["acname"])
+        group = heads.get(_int(r["hcode"]), _text(r["hcode"])) or UNASSIGNED_GROUP
+        if group == PL_GROUP and any(w in name.upper() for w in PL_INCOME_WORDS):
+            group = PL_INCOME_GROUP
+        out.append(
+            {
+                "Code": _code("A", r["acode"]),
+                "Name": name,
+                "Group": group,
+                "Description": "",
+                "Active": "Yes",
+            }
+        )
+    return out
 
 
 #: Output file -> (builder, headings in template order).
@@ -294,6 +316,7 @@ OUTPUTS: dict[str, tuple[Any, tuple[str, ...]]] = {
             "Address1",
             "Address2",
             "City",
+            "State",
             "PIN",
             "Country",
             "Beat",
@@ -314,6 +337,7 @@ OUTPUTS: dict[str, tuple[Any, tuple[str, ...]]] = {
             "Address1",
             "Address2",
             "City",
+            "State",
             "PIN",
             "Country",
         ),
@@ -327,13 +351,19 @@ OUTPUTS: dict[str, tuple[Any, tuple[str, ...]]] = {
 TABLES = {"company", "codehead", "beatman", "codes", "acchead"}
 
 
-def convert(dump: Path, out_dir: Path) -> dict[str, int]:
-    """Write every file; return the number of rows written per file."""
+def convert(dump: Path, out_dir: Path, state: str = "") -> dict[str, int]:
+    """Write every file; return the number of rows written per file.
+
+    ``state`` is written on every customer and supplier row (the dump has none).
+    """
     tables = read_dump(dump, set(TABLES))
     out_dir.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = {}
     for filename, (builder, headings) in OUTPUTS.items():
         rows = builder(tables)
+        for row in rows:
+            if "State" in row:
+                row["State"] = state
         with (out_dir / filename).open("w", newline="", encoding="utf-8-sig") as fh:
             writer = csv.DictWriter(fh, fieldnames=headings, extrasaction="ignore")
             writer.writeheader()
@@ -344,10 +374,11 @@ def convert(dump: Path, out_dir: Path) -> dict[str, int]:
 
 def main(argv: list[str]) -> int:
     """Command line: dump path, output directory; prints counts only."""
-    if len(argv) != 3:
+    if len(argv) not in (3, 4):
         print(__doc__)
         return 2
-    for filename, count in convert(Path(argv[1]), Path(argv[2])).items():
+    state = argv[3] if len(argv) == 4 else ""
+    for filename, count in convert(Path(argv[1]), Path(argv[2]), state).items():
         print(f"{filename}: {count} rows")
     return 0
 

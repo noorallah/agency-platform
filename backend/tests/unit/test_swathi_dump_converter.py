@@ -108,3 +108,33 @@ def test_values_are_unescaped_and_linked(module: ModuleType, tmp_path: Path) -> 
     assert account["Group"] == "EXPENSES"
     principals = _read(tmp_path / "out" / "principals.csv")
     assert principals[1]["Name"] == "DAN'ONE"
+
+
+def test_state_is_written_and_blank_group_is_named(
+    module: ModuleType, tmp_path: Path
+) -> None:
+    """A given state fills every party row; a blank head gets a mappable name."""
+    dump = tmp_path / "d.sql"
+    dump.write_text(DUMP, encoding="utf-8")
+    module.convert(dump, tmp_path / "out", "Andhra Pradesh")
+    for name in ("customers.csv", "suppliers.csv"):
+        rows = _read(tmp_path / "out" / name)
+        assert {r["State"] for r in rows} == {"Andhra Pradesh"}
+    assert all(r["Group"] for r in _read(tmp_path / "out" / "ledger_accounts.csv"))
+
+
+def test_pl_income_heads_get_their_own_group(module: ModuleType) -> None:
+    """An income-looking head under P & L ACCOUNTS is split from the expenses."""
+    tables = {
+        "acchead": [{"hcode": 5, "hname": "P & L ACCOUNTS"}],
+        "codes": [
+            {"hcode": 5, "acode": 1, "acname": "INTEREST RECEIVED"},
+            {"hcode": 5, "acode": 2, "acname": "BANK CHARGES"},
+            {"hcode": 99, "acode": 3, "acname": "ODD"},
+        ],
+    }
+    rows = module.ledger_accounts(tables)
+    assert [r["Group"] for r in rows][:2] == [
+        "P & L ACCOUNTS (INCOME)",
+        "P & L ACCOUNTS",
+    ]
