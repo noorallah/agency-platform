@@ -523,7 +523,12 @@ class DocumentFrameworkService:
             DocumentNumberingRule.is_deleted.is_(False),
         )
         if for_update:
-            statement = statement.with_for_update()
+            # populate_existing: the rule may already be in the identity map
+            # from an earlier read; without it the lock is granted but the
+            # stale version is kept and the UPDATE fails (D-CONC-1).
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True
+            )
         row = self._session.scalar(statement)
         if row is None:
             raise ResourceNotFoundError("Document numbering rule not found.")
@@ -879,6 +884,7 @@ class DocumentFrameworkService:
                 DocumentNumberSequence.is_deleted.is_(False),
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if counter is None:
             legacy = self._legacy_counters(rule, scope_signature)
@@ -900,6 +906,7 @@ class DocumentFrameworkService:
                     DocumentNumberSequence.is_deleted.is_(True),
                 )
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
             if counter is not None:
                 # Revived: the unique key covers retired rows, so a second row

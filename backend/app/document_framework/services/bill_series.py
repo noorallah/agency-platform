@@ -318,7 +318,12 @@ class BillSeriesCounters:
             BillSeriesCounter.financial_year == year,
         )
         if lock:
-            statement = statement.with_for_update()
+            # populate_existing: a row already in the identity map would
+            # otherwise keep the version read before the lock was granted,
+            # and the waiter's UPDATE would fail as stale (D-CONC-1).
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True
+            )
         return self._session.scalar(statement)
 
     def issue(
