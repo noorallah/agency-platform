@@ -302,9 +302,11 @@ class _SupplierSchemePageState extends State<SupplierSchemePage> {
 
   Widget _grid() {
     if (_rows.isEmpty) {
-      return const WorkspaceEmptyState(
+      return WorkspaceEmptyState(
         title: 'No supplier schemes',
-        message: 'Record the free goods a supplier gives, such as 10+2.',
+        message: _mayManage
+            ? 'Record the free goods a supplier gives, such as 10+2.'
+            : 'None recorded yet.',
       );
     }
     return EnterpriseDataGrid<SupplierScheme>(

@@ -172,6 +172,18 @@ Future<void> _pump(WidgetTester tester, _Api api, {bool manage = true}) async {
 }
 
 void main() {
+  // A reader is told the register is empty, not which permission he lacks;
+  // whoever may write keeps the hint on how.
+  testWidgets('an empty register reads as empty to a reader', (tester) async {
+    await _pump(tester, _Api(), manage: false);
+    expect(find.text('None recorded yet.'), findsOneWidget);
+    expect(find.textContaining('permission'), findsNothing);
+
+    await _pump(tester, _Api());
+    expect(find.text('None recorded yet.'), findsNothing);
+    expect(find.textContaining('Add a freight'), findsOneWidget);
+  });
+
   testWidgets('the grid lists a voucher and the details show where it went',
       (tester) async {
     final _Api api = _Api(vouchers: [_voucher()]);

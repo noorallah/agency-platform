@@ -182,6 +182,18 @@ Future<void> _chooseVendor(WidgetTester tester) async {
 }
 
 void main() {
+  // A reader is told the register is empty, not which permission he lacks;
+  // whoever may write keeps the hint on how.
+  testWidgets('an empty register reads as empty to a reader', (tester) async {
+    await _pump(tester, _Api(), manage: false);
+    expect(find.text('None recorded yet.'), findsOneWidget);
+    expect(find.textContaining('permission'), findsNothing);
+
+    await _pump(tester, _Api());
+    expect(find.text('None recorded yet.'), findsNothing);
+    expect(find.textContaining('Record a gift'), findsOneWidget);
+  });
+
   testWidgets('an asset gift posts its account', (tester) async {
     final _Api api = _Api();
     await _pump(tester, api);

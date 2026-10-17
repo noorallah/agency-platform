@@ -421,7 +421,7 @@ class _SupplierRebatesPageState extends State<SupplierRebatesPage> {
         title: 'No rebates yet',
         message: _mayManage
             ? 'Record a volume rebate a supplier has agreed.'
-            : 'Recording one needs the approve purchases permission.',
+            : 'None recorded yet.',
       );
     }
     return EnterpriseDataGrid<SupplierRebate>(

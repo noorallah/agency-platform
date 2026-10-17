@@ -339,7 +339,7 @@ class _LandedCostsPageState extends State<LandedCostsPage> {
         message: _mayManage
             ? 'Add a freight or clearing bill to the cost of the goods it '
                 'brought in.'
-            : 'Posting one needs the approve purchases permission.',
+            : 'None recorded yet.',
       );
     }
     return EnterpriseDataGrid<LandedCost>(

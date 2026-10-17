@@ -597,7 +597,7 @@ class _PrincipalClaimsPageState extends State<PrincipalClaimsPage> {
         title: 'No claims yet',
         message: _mayManage
             ? 'Raise a claim on a principal for a period.'
-            : 'Raising one needs the approve purchases permission.',
+            : 'None recorded yet.',
       );
     }
     return EnterpriseDataGrid<PrincipalClaim>(
