@@ -360,3 +360,24 @@ Stated from general knowledge, not checked against any current manual.
 All three leave the choice to the person. What is new here is that the series
 follows the goods, so no one has to choose, and a mixed bill falls back to
 GENERAL. That is why section 6 proposes no manual override.
+
+## 14. How a firm switches it on
+
+1. Give each company its prefix: open the principal (company) and fill *Bill
+   series prefix* (letters and digits, saved in capitals, at most the length
+   Settings shows). A company left blank takes GENERAL.
+2. Open Settings > Firm > Bill series and choose *By company* instead of *One
+   series*. Switching back and forth is safe: counters are per prefix and
+   year, so nothing is reset or reused.
+3. On the sales bill, the line above the lines says which series the bill will
+   take, for example *ASIAN-26-27-0004*, or *GENERAL* when the companies are
+   mixed or one has no prefix. Freight and service lines are not counted.
+4. The saved bill carries the number of that series, its company name shows in
+   the invoice list's hidden-by-default *Company* column, and a sales return
+   keeps its own series. The drive that proves this is
+   `backend/scripts/drive_bill_series.py`; its cases and results are in
+   `docs/qa/BILL_SERIES_BY_COMPANY_CASES.md`.
+5. A new firm pads bill numbers to six digits, which leaves room for a
+   three-letter prefix only. Settings shows the length that fits; shorten the
+   padding on the sales bill series to make room for a longer one (four digits
+   fit five letters with the short year).
