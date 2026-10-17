@@ -64,7 +64,8 @@ class _PurchaseInvoiceManagementPageState
   /// The rows ticked for a bulk approve or cancel (backlog 56 A).
   Set<String> _ticked = <String>{};
   List<DocumentTimelineSnapshot> _history = const [];
-  // Reference data the editor needs, loaded once with the workspace.
+  // Reference data the editor needs, loaded with the workspace; the receipts
+  // are read again each time the bill window opens (D-BUY-80).
   List<GoodsReceiptRecord> _billableReceipts = const [];
   List<Product> _products = const [];
 
@@ -108,37 +109,61 @@ class _PurchaseInvoiceManagementPageState
   /// workspace down; the list of invoices is still readable without it.
   Future<void> _loadReferenceData() async {
     // Whoever may only change a draft needs the same lists (D-UI-39).
-    if (!widget.hasActiveFirm || !(_canCreate || _canUpdate)) return;
+    if (!_needsBillLists) return;
+    await Future.wait<void>([
+      _refreshBillableReceipts(),
+      _loadProducts(),
+    ]);
+    await _loadStages();
+  }
+
+  /// Whether this user may open the bill window at all, and so needs the
+  /// lists it picks from. Whoever may only change a draft needs them too
+  /// (D-UI-39).
+  bool get _needsBillLists =>
+      widget.hasActiveFirm && (_canCreate || _canUpdate);
+
+  /// Read the receipts a bill can name again.
+  ///
+  /// Called with the workspace and again each time the bill window opens:
+  /// read once, a receipt completed while this tab stayed open was missing
+  /// from the picker until the page was rebuilt (D-BUY-80). A failure keeps
+  /// the list already held rather than emptying the picker.
+  Future<void> _refreshBillableReceipts() async {
     try {
       // Every page, not the newest hundred: past a hundred completed receipts
       // an older one could not be billed from here at all (D-BUY-11).
-      final List<dynamic> results = await Future.wait<dynamic>([
-        fetchAllPages<GoodsReceiptRecord>(
-          (int page) => widget.api.goodsReceipts(
-            page: page,
-            pageSize: maxApiPageSize,
-            sortBy: 'receipt_date',
-            descending: true,
-            // Only receipts with goods left to bill: one billed in full, or
-            // sent back, is not offered again (D-BUY-27).
-            filters: const {'status': 'COMPLETED', 'billable': 'true'},
-          ),
+      final List<GoodsReceiptRecord> receipts =
+          await fetchAllPages<GoodsReceiptRecord>(
+        (int page) => widget.api.goodsReceipts(
+          page: page,
+          pageSize: maxApiPageSize,
+          sortBy: 'receipt_date',
+          descending: true,
+          // Only receipts with goods left to bill: one billed in full, or
+          // sent back, is not offered again (D-BUY-27).
+          filters: const {'status': 'COMPLETED', 'billable': 'true'},
         ),
-        fetchAllPages<Product>(
-          (int page) =>
-              widget.api.products(page: page, pageSize: maxApiPageSize),
-        ),
-      ]);
+      );
       if (!mounted) return;
-      setState(() {
-        _billableReceipts = results[0] as List<GoodsReceiptRecord>;
-        _products = results[1] as List<Product>;
-      });
+      setState(() => _billableReceipts = receipts);
     } on ApiException {
-      if (!mounted) return;
-      setState(() => _billableReceipts = const []);
+      return;
     }
-    await _loadStages();
+  }
+
+  /// Load the products a bill line can name, once with the workspace.
+  Future<void> _loadProducts() async {
+    try {
+      final List<Product> products = await fetchAllPages<Product>(
+        (int page) =>
+            widget.api.products(page: page, pageSize: maxApiPageSize),
+      );
+      if (!mounted) return;
+      setState(() => _products = products);
+    } on ApiException {
+      return;
+    }
   }
 
   /// Learn which buying stages this firm types, and load what a bill can
@@ -205,6 +230,9 @@ class _PurchaseInvoiceManagementPageState
   /// seeder had raised, and the orphan-route guard could not see it because
   /// the generic `documentPage` helper names the same literal.
   Future<void> _createInvoice() async {
+    // A receipt completed since the tab opened is offered too (D-BUY-80).
+    if (_needsBillLists) await _refreshBillableReceipts();
+    if (!mounted) return;
     final Object? outcome = await showDocument<Object>(
       context,
       title: 'New purchase invoice',
@@ -291,6 +319,9 @@ class _PurchaseInvoiceManagementPageState
       );
       return;
     }
+    // A draft may take on a receipt completed since the tab opened (D-BUY-80).
+    if (_needsBillLists) await _refreshBillableReceipts();
+    if (!mounted) return;
     final Object? outcome = await showDocument<Object>(
       context,
       title: 'Edit ${record.invoiceNumber}',
