@@ -59,6 +59,15 @@ Checks, per month (an accounting period of the firm):
    month's GST payment (``gst_payment``) is left out of the account's side:
    it clears the month's liability and uses its credit, so it is a payment
    of the return, not a document the return reports.
+7. **TDS and TCS agree with their registers**, as at today only. TDS
+   payable, from the documents that post to it, equals the deductions the
+   firm made that no live challan has paid (the TDS challan's open
+   deductions); TDS receivable equals what customers deducted on receipts
+   that stand (the TDS register); TCS payable equals the TCS collections
+   that stand; and TCS receivable equals the TCS suppliers charged on
+   approved bills (the *TCS paid* report). Journals typed by hand are left
+   out of the account side: nothing in the product pays TCS over or claims
+   TDS or TCS back, so a firm does it by hand, and no register holds it.
 
 ``check_money_consistency`` returns one ``Difference`` per disagreement;
 ``scripts/check_money_consistency.py`` prints them for a firm or every firm.
@@ -72,8 +81,9 @@ TODO, later parts of item 30 (not built here):
   split), reverse charge payable (3.1(d)), amendments to earlier returns,
   and a firm with more than one GSTIN (3B is read for the firm's own GSTIN
   while the account holds every branch's).
-* TCS collected against TCS payable; TDS deducted against TDS payable and
-  the challans paid.
+* TDS and TCS at each month's end; check 7 asks it as at today only. And
+  the hand journals check 7 leaves out: TCS paid over, TDS and TCS claimed
+  against income tax, opening balances on the four accounts.
 * Loyalty points held against loyalty payable; commission accrued against
   commission payable.
 * Check 2 nets an opening balance in credit at its typed figure, so one
@@ -137,6 +147,9 @@ GST_VS_RETURN = "GST_LEDGER_VS_RETURN"
 #: The return rounds each head once, the journals line by line, so a head may
 #: stand a paisa away without either being wrong.
 GST_TOLERANCE = Decimal("0.01")
+TAX_AT_SOURCE_VS_REGISTER = "TDS_TCS_LEDGER_VS_REGISTER"
+#: Each register row is rounded on its own, as each journal line is.
+TAX_AT_SOURCE_TOLERANCE = Decimal("0.01")
 #: The journal that settles a month's GST: it debits output tax and credits
 #: input tax by the return's own figures, so it is left out of the movement.
 GST_PAYMENT_MODULE = "gst_payment"
@@ -206,6 +219,7 @@ def check_money_consistency(
             found += _payables_against_bills(session, firm_id, today)
         if inventory is not None:
             found += _stock_vs_inventory_account(session, firm_id, inventory, today)
+        found += _tax_at_source_vs_registers(session, firm_id, controls, today)
     found += _documents_without_journals(session, firm_id, months)
     found += _journals_without_documents(session, firm_id, months)
     return found
@@ -1050,6 +1064,166 @@ def _gst_ledger_vs_return(
                     "the books carry tax the return does not report"
                     if ledger > returned
                     else "the return reports tax no journal carried"
+                ),
+            )
+        )
+    return found
+
+
+# ---- 7. TDS and TCS against their registers ---------------------------------
+
+#: Each account compared: its control account, the source modules whose
+#: journals post to it, whether it is a liability (credit-normal), and what
+#: the register side is.
+_TAX_AT_SOURCE: tuple[tuple[ControlAccountPurpose, tuple[str, ...], bool, str], ...] = (
+    (
+        ControlAccountPurpose.TDS_PAYABLE,
+        ("settlements", "expenses", "purchase_invoice", "tds_challan"),
+        True,
+        "deductions the firm made that no live challan has paid",
+    ),
+    (
+        ControlAccountPurpose.TDS_RECEIVABLE,
+        ("settlements",),
+        False,
+        "TDS customers deducted on receipts that stand",
+    ),
+    (
+        ControlAccountPurpose.TCS_PAYABLE,
+        ("tcs",),
+        True,
+        "TCS collected on receipts that stand",
+    ),
+    (
+        ControlAccountPurpose.TCS_RECEIVABLE,
+        ("purchase_invoice",),
+        False,
+        "TCS suppliers charged on approved bills",
+    ),
+)
+
+
+def _tax_at_source_register(
+    session: Session, firm_id: UUID, purpose: ControlAccountPurpose, today: date
+) -> Decimal:
+    """Return what the register for one TDS or TCS account holds, today.
+
+    Each is the register the product already shows: the TDS challan's open
+    deductions, the TDS register's deductions by customers, the TCS
+    collections and the *TCS paid* report.
+    """
+    from app.core.pagination.reports import ReportWindow
+
+    window = ReportWindow(to_date=today)
+    if purpose is ControlAccountPurpose.TDS_PAYABLE:
+        from app.finance.services.tds_challans import TdsChallanService
+
+        return sum(
+            (
+                _money(row.tds_amount)
+                for row in TdsChallanService(session).open_deductions(
+                    firm_id, date_to=today
+                )
+            ),
+            ZERO,
+        )
+    if purpose is ControlAccountPurpose.TDS_RECEIVABLE:
+        from app.finance.services.tds_register import TdsRegisterService
+
+        return sum(
+            (
+                _money(row.tds_amount)
+                for row in TdsRegisterService(session).deducted_by_customers(
+                    firm_id, window
+                )
+                if row.status == "POSTED"
+            ),
+            ZERO,
+        )
+    if purpose is ControlAccountPurpose.TCS_PAYABLE:
+        from app.tcs.models import TcsCollection, TcsCollectionStatus
+
+        return _money(
+            session.scalar(
+                select(func.coalesce(func.sum(TcsCollection.tcs_amount), 0)).where(
+                    TcsCollection.firm_id == firm_id,
+                    TcsCollection.is_deleted.is_(False),
+                    TcsCollection.status == TcsCollectionStatus.COLLECTED.value,
+                    TcsCollection.collected_on <= today,
+                )
+            )
+        )
+    from app.purchase_invoice.services.tcs_paid_report import TcsPaidReportService
+
+    return sum(
+        (
+            _money(row.tcs_amount)
+            for row in TcsPaidReportService(session).rows(firm_id, window)
+            if row.row_type == "BILL"
+        ),
+        ZERO,
+    )
+
+
+def _tax_at_source_vs_registers(
+    session: Session, firm_id: UUID, controls: dict[str, UUID], today: date
+) -> list[Difference]:
+    """Check the TDS and TCS accounts against their registers, as at today.
+
+    The account side is the balance of the journals the documents posted --
+    payments, receipts, expenses, bills, TDS challans and TCS collections,
+    their reversals included. A journal typed by hand is left out: it is how
+    a firm pays TCS over and claims TDS and TCS against its income tax, and
+    how an opening balance comes in, and no register records any of them.
+
+    A payment reversed after its deduction was deposited reads as a
+    difference on TDS payable: the challan stands and the deduction does not.
+    """
+    found: list[Difference] = []
+    for purpose, modules, liability, register_says in _TAX_AT_SOURCE:
+        account_id = controls.get(purpose.value)
+        if account_id is None:
+            continue
+        code = session.scalar(
+            select(LedgerAccount.code).where(LedgerAccount.id == account_id)
+        )
+        net = _money(
+            session.scalar(
+                select(
+                    func.coalesce(
+                        func.sum(JournalLine.debit_amount - JournalLine.credit_amount),
+                        0,
+                    )
+                )
+                .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+                .where(
+                    JournalLine.ledger_account_id == account_id,
+                    JournalLine.is_deleted.is_(False),
+                    JournalEntry.firm_id == firm_id,
+                    JournalEntry.is_deleted.is_(False),
+                    JournalEntry.status.in_(COUNTED),
+                    JournalEntry.journal_date <= today,
+                    JournalEntry.source_module.in_(modules),
+                )
+            )
+        )
+        ledger = -net if liability else net
+        register = _tax_at_source_register(session, firm_id, purpose, today)
+        if abs(ledger - register) <= TAX_AT_SOURCE_TOLERANCE:
+            continue
+        found.append(
+            Difference(
+                TAX_AT_SOURCE_VS_REGISTER,
+                f"{today:%Y-%m}",
+                f"Account {code or account_id} ({purpose.value})",
+                ledger,
+                register,
+                f"the account's balance from documents, against {register_says}, "
+                f"as at {today.isoformat()} -- "
+                + (
+                    "the books hold tax the register does not"
+                    if ledger > register
+                    else "the register holds tax no journal carried"
                 ),
             )
         )
