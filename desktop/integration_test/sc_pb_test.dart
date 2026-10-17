@@ -139,8 +139,20 @@ void main() {
         await pumpFor(tester, const Duration(seconds: 2));
         final String billedNo = docNumber(billed['receipt'] as Json);
         final String waitingNo = docNumber(waitingGr);
-        final bool b = screenHas(tester, billedNo);
-        final bool w = screenHas(tester, waitingNo);
+        // The picker is a lazy list of every receipt, oldest first, so the
+        // new one is off screen: scroll, checking both numbers at each step.
+        bool b = screenHas(tester, billedNo);
+        bool w = screenHas(tester, waitingNo);
+        final Finder pickerList = find
+            .descendant(
+                of: find.byType(Dialog), matching: find.byType(Scrollable))
+            .first;
+        for (int i = 0; i < 60 && !w; i++) {
+          await tester.drag(pickerList, const Offset(0, -300));
+          await pumpFor(tester, const Duration(milliseconds: 300));
+          if (screenHas(tester, billedNo)) b = true;
+          w = screenHas(tester, waitingNo);
+        }
         log.saw = 'billed receipt $billedNo offered=$b; unbilled $waitingNo '
             'offered=$w';
         await closeOpenEditor(tester);
