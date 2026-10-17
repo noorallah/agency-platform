@@ -430,7 +430,6 @@ Item 30m part 1; results in `docs/qa/CONCURRENCY_CHECK_ROUND_1_2026-10-17.md`, k
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-CONC-2 | Low | A receipt that loses the race for a bill's outstanding is refused "This record changed since you loaded it" instead of the "has 18.00 outstanding" message a one-at-a-time clerk gets. Outcome correct. | Live |
 
 ### Concurrency round 2 -- cancel, product ETag and dispatch raced over HTTP, 2026-10-17
 
@@ -457,6 +456,7 @@ Cases TC-BUY-001 to 102 (twenty-six of them) and seven probes; results in `docs/
 | Id | Fixed | Summary | PR | Guard |
 | --- | --- | --- | --- | --- |
 | D-CONC-1 | 2026-10-17 | **Parallel bills / sales orders: one 201, the rest 409 "changed since you loaded it"** (Medium, numbering; found by the concurrency check). The locked counter rows (`get_numbering_rule`, both `DocumentNumberSequence` reads, `BillSeriesCounters._row`) were already in the identity map, so the waiter kept a stale `version`; the locking reads now carry `populate_existing=True`. Live re-run of scenario a on TEST01 not yet done. | #1670 | `test_the_locked_counter_is_reread_not_taken_from_the_identity_map` |
+| D-CONC-2 | 2026-10-17 | **A receipt losing the race for a bill's outstanding was refused "changed since you loaded it"** (Low). What a bill owes is summed from its allocations, read unlocked; `_lock_bills` now takes the bill rows `FOR UPDATE` (id order, `populate_existing`) in `create` and `allocate` before the sum. Live race re-run not yet done. | #1682 | `test_a_receipt_locks_the_bill_before_reading_what_it_owes` |
 | D-CONC-3 | 2026-10-17 | **Two saves of one product with the same If-Match both answered 200, version 1 -> 3** (Medium). The router compared If-Match with a read taken before the write; `update_product` now reads the row locked and fresh and checks the version against it, so the second save gets 409. Live re-run of scenario f not yet done. | #1673 | `test_a_save_behind_another_is_refused_not_applied_over_it` |
 | D-CONC-5 | 2026-10-17 | **Parallel journal vouchers in one period: one 200, the rest 409** (Low-Medium). Ledger balance rows were read unlocked. `post_entry` now locks every balance row it moves (this and later periods, account id then period order) with `populate_existing`; PR #1677. Live re-run of `run_concurrency.py --only i` not yet done. |
 | D-CONC-4 | 2026-10-17 | **Sales order cancelled by three users at once: losers heard an inventory reason or a generic 409** (Low). `stage_cancel` now reads the order locked with `populate_existing` and answers "Sales order is already cancelled."; PR #1680. Not re-run live. |
