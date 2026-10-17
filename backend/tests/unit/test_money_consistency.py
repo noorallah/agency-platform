@@ -37,6 +37,7 @@ from app.finance.services.money_consistency import (
     RECEIVABLES_BILLS,
     RECEIVABLES_LEDGER,
     STOCK_VS_INVENTORY,
+    TAX_AT_SOURCE_VS_REGISTER,
     TRIAL_BALANCE,
     Difference,
     check_money_consistency,
@@ -44,12 +45,14 @@ from app.finance.services.money_consistency import (
 from app.firms.models import Firm
 from app.purchase_invoice.models import PurchaseInvoice
 from app.sales_invoice.models import SalesInvoice
+from app.settlements.models import Settlement
 from app.settlements.schemas import (
     SettlementAllocationWrite,
     SettlementCreate,
     SettlementMethodEnum,
 )
 from app.settlements.services import PaymentService, ReceiptService
+from app.tcs.models import TcsCollection, TcsCollectionStatus
 from tests.unit.test_settlements import WHEN, _Books, _session_factory
 
 pytestmark = pytest.mark.typed_document_numbers
@@ -713,3 +716,201 @@ def test_months_outside_the_range_are_not_read() -> None:
 
     assert found == []
     assert books.session.scalar(select(CustomerReceivableTransaction.id)) is not None
+
+
+def _withheld(books: _Books) -> None:
+    """Trade with tax at source each way, the way the services post it.
+
+    A customer deducts 10.00 TDS from a receipt, the firm deducts 5.00 from
+    a payment, a supplier charges 7.00 TCS on a bill, and the firm collects
+    3.00 TCS on a receipt.
+    """
+    sale = _sale(books, "SI-W", "1000.00")
+    for service, party, amount, tds, invoice in (
+        (ReceiptService, books.customer.id, "400.00", "10.00", sale.id),
+        (PaymentService, books.vendor.id, "200.00", "5.00", None),
+    ):
+        service(books.session).create(
+            SettlementCreate(
+                party_id=party,
+                settlement_date=WHEN,
+                amount=Decimal(amount),
+                method=SettlementMethodEnum.BANK,
+                tds_amount=Decimal(tds),
+                tds_section="194Q",
+                allocations=(
+                    [
+                        SettlementAllocationWrite(
+                            invoice_id=invoice, amount=Decimal(amount)
+                        )
+                    ]
+                    if invoice is not None
+                    else []
+                ),
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+    bill = books.purchase_invoice("PI-W", "700.00")
+    bill.tcs_amount = Decimal("7.00")
+    DocumentPostingService(books.session).post_purchase_invoice(
+        firm_id=books.firm.id,
+        invoice_id=bill.id,
+        invoice_number="PI-W",
+        invoice_date=WHEN,
+        goods_amount=Decimal("700.00"),
+        tax_amount=Decimal("0"),
+        total_amount=Decimal("700.00"),
+        actor_id=books.actor_id,
+        tcs_amount=Decimal("7.00"),
+    )
+    receipt = books.session.scalars(
+        select(Settlement).where(Settlement.direction == "RECEIPT")
+    ).one()
+    collection = TcsCollection(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        settlement_id=receipt.id,
+        financial_year_start=APRIL,
+        collected_on=WHEN,
+        consideration_amount=Decimal("400.00"),
+        cumulative_before=Decimal("0"),
+        taxable_amount=Decimal("3000.00"),
+        rate_percent=Decimal("0.1"),
+        tcs_amount=Decimal("3.00"),
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(collection)
+    books.session.flush()
+    DocumentPostingService(books.session).post_tcs_collection(
+        firm_id=books.firm.id,
+        collection_id=collection.id,
+        reference="TCS-W",
+        collected_on=WHEN,
+        amount=Decimal("3.00"),
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+
+def _at_source_rows(found: list[Difference]) -> list[tuple[str, Decimal, Decimal]]:
+    return [
+        (row.document_ref, row.expected, row.actual)
+        for row in found
+        if row.check == TAX_AT_SOURCE_VS_REGISTER
+    ]
+
+
+def test_tds_and_tcs_accounts_agree_with_their_registers() -> None:
+    books = _books()
+    _withheld(books)
+
+    assert _at_source_rows(_check(books)) == []
+
+
+def test_each_tds_and_tcs_register_is_read() -> None:
+    """The clean case is not clean because nothing was read."""
+    books = _books()
+    _withheld(books)
+
+    held = {
+        purpose: money_consistency._tax_at_source_register(
+            books.session, books.firm.id, purpose, date(2026, 6, 15)
+        )
+        for purpose in (
+            ControlAccountPurpose.TDS_PAYABLE,
+            ControlAccountPurpose.TDS_RECEIVABLE,
+            ControlAccountPurpose.TCS_PAYABLE,
+            ControlAccountPurpose.TCS_RECEIVABLE,
+        )
+    }
+
+    assert held == {
+        ControlAccountPurpose.TDS_PAYABLE: Decimal("5.00"),
+        ControlAccountPurpose.TDS_RECEIVABLE: Decimal("10.00"),
+        ControlAccountPurpose.TCS_PAYABLE: Decimal("3.00"),
+        ControlAccountPurpose.TCS_RECEIVABLE: Decimal("7.00"),
+    }
+
+
+def test_a_deduction_away_from_its_journal_is_found() -> None:
+    books = _books()
+    _withheld(books)
+    payment = books.session.scalars(
+        select(Settlement).where(Settlement.direction == "PAYMENT")
+    ).one()
+    payment.tds_amount = Decimal("8.00")  # the register now says more
+    books.session.commit()
+
+    rows = _at_source_rows(_check(books))
+
+    assert [(expected, actual) for _, expected, actual in rows] == [
+        (Decimal("5.00"), Decimal("8.00"))
+    ]
+    assert "TDS_PAYABLE" in rows[0][0]
+
+
+def test_tcs_undone_without_its_journal_is_found() -> None:
+    books = _books()
+    _withheld(books)
+    collection = books.session.scalars(select(TcsCollection)).one()
+    collection.status = TcsCollectionStatus.REVERSED.value
+    bill = books.session.scalars(
+        select(PurchaseInvoice).where(PurchaseInvoice.invoice_number == "PI-W")
+    ).one()
+    bill.status = "CANCELLED"
+    books.session.commit()
+
+    rows = _at_source_rows(_check(books))
+
+    assert [(expected, actual) for _, expected, actual in rows] == [
+        (Decimal("3.00"), Decimal("0.00")),
+        (Decimal("7.00"), Decimal("0.00")),
+    ]
+    assert "TCS_PAYABLE" in rows[0][0]
+    assert "TCS_RECEIVABLE" in rows[1][0]
+
+
+def test_a_hand_journal_on_tcs_payable_is_not_counted() -> None:
+    """TCS paid over is a hand journal no register records."""
+    books = _books()
+    _withheld(books)
+    posting = DocumentPostingService(books.session)
+    context = posting.context_for(books.firm.id, WHEN)
+    engine = JournalEntryEngine(books.session)
+    entry = engine.create_entry(
+        firm_id=books.firm.id,
+        journal_type_id=context.journal_type_id,
+        voucher_type_id=context.voucher_type_id,
+        accounting_period_id=context.accounting_period_id,
+        journal_date=WHEN,
+        reference_number="JV-TCS-1",
+        description="TCS paid over",
+        lines=[
+            JournalLineData(
+                ledger_account_id=books.account(ControlAccountPurpose.TCS_PAYABLE),
+                debit_amount=Decimal("3.00"),
+            ),
+            JournalLineData(
+                ledger_account_id=books.account(ControlAccountPurpose.BANK),
+                credit_amount=Decimal("3.00"),
+            ),
+        ],
+        actor_id=books.actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    assert _at_source_rows(_check(books)) == []
+
+
+def test_a_firm_with_no_tds_or_tcs_accounts_is_not_checked() -> None:
+    books = _books()
+    _withheld(books)
+
+    found = money_consistency._tax_at_source_vs_registers(
+        books.session, books.firm.id, {}, date(2026, 6, 15)
+    )
+
+    assert found == []
