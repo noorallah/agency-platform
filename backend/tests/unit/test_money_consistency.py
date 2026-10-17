@@ -8,6 +8,7 @@ exists to find, and has to name the month and the document.
 
 from datetime import date
 from decimal import Decimal
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -338,6 +339,87 @@ def test_an_opening_balance_on_the_master_is_not_a_difference(
     books.session.commit()
 
     assert _check(books) == []
+
+
+def _charge(books: _Books, kind: CustomerReceivableTransactionType) -> UUID:
+    """Charge the customer on top of every bill, the way the services do.
+
+    Tax collected at source on a receipt, or the charge for a bounced
+    cheque: the account goes up and no invoice carries it.
+    """
+    row = CustomerService(books.session).post_receivable_transaction(
+        books.customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=kind,
+            transaction_date=WHEN,
+            amount=Decimal("19.64"),
+            reference_type="TCS_COLLECTION",
+            reference_id=uuid4(),
+            reference_number="RC-TCS",
+        ),
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+        commit=False,
+    )
+    books.session.commit()
+    return row.id
+
+
+def _bills_rows(found: list[Difference]) -> list[tuple[str, Decimal, Decimal]]:
+    return [
+        (row.document_ref, row.expected, row.actual)
+        for row in found
+        if row.check == RECEIVABLES_BILLS
+    ]
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        CustomerReceivableTransactionType.TCS,
+        CustomerReceivableTransactionType.CHEQUE_RETURN_CHARGE,
+    ],
+)
+def test_a_charge_no_bill_carries_is_not_a_difference(
+    kind: CustomerReceivableTransactionType,
+) -> None:
+    """TCS and a cheque return charge are owed on top of the bills.
+
+    MEDI01C02 read 20764.31 against 20744.67 -- its 19.64 of TCS -- and a
+    bounced cheque's 100.00 charge read the same way (2026-10-17).
+    """
+    books = _books()
+    _trading(books)
+    _charge(books, kind)
+
+    assert _bills_rows(_check(books)) == []
+
+
+def test_a_charge_reversed_with_its_receipt_counts_nothing() -> None:
+    books = _books()
+    _trading(books)
+    charge = _charge(books, CustomerReceivableTransactionType.TCS)
+    CustomerService(books.session).reverse_receivable_transaction(
+        charge, firm_scope=books.firm.id, actor_id=books.actor_id, on=WHEN
+    )
+    books.session.commit()
+
+    assert _bills_rows(_check(books)) == []
+
+
+def test_without_the_charge_it_reads_as_a_difference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    books = _books()
+    _trading(books)
+    _charge(books, CustomerReceivableTransactionType.TCS)
+    monkeypatch.setattr(money_consistency, "_charges_on_no_bill", lambda *_: {})
+
+    # The false positive the netting removes: 600.00 on the bill less 50.00
+    # held, against an account that also carries the 19.64.
+    assert _bills_rows(_check(books)) == [
+        ("Customer C1", Decimal("569.64"), Decimal("550.00"))
+    ]
 
 
 def test_a_hand_journal_on_payables_is_found() -> None:

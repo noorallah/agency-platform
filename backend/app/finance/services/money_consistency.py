@@ -25,7 +25,9 @@ Checks, per month (an accounting period of the firm):
    advances held. And each customer's account, owing less advances, equals
    what their bills still owe -- the ageing's open invoices and opening bills
    less settlements, credits and adjustments
-   (``CustomerStatementService.ageing``) -- less receipts held on account
+   (``CustomerStatementService.ageing``) -- plus the charges owed on top of
+   every bill that no bill carries (tax collected at source, cheque return
+   charges, still standing), less receipts held on account
    and less the credit returns and credit notes gave that no bill absorbed
    and nothing has used (``customer_credits``), and less an opening balance
    typed on the customer master in credit, held as an advance no receipt
@@ -73,7 +75,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.common.firm_metadata import firm_today
 from app.core.utils.money import quantize_ledger
@@ -398,6 +400,8 @@ def _receivables_against_bills(
         owing[customer_id] = owing.get(customer_id, ZERO) - credit
     for customer_id, opening in _opening_credits(session, firm_id, today).items():
         owing[customer_id] = owing.get(customer_id, ZERO) - opening
+    for customer_id, charge in _charges_on_no_bill(session, firm_id, today).items():
+        owing[customer_id] = owing.get(customer_id, ZERO) + charge
     found: list[Difference] = []
     for customer_id in sorted(set(accounts) | set(owing), key=str):
         code, owed, advance = accounts.get(customer_id, ("", ZERO, ZERO))
@@ -412,7 +416,8 @@ def _receivables_against_bills(
                 f"Customer {code or codes.get(customer_id, customer_id)}",
                 account,
                 bills,
-                "the customer's account less advances against open bills less "
+                "the customer's account less advances against open bills plus "
+                "charges no bill carries (TCS, cheque return charges) less "
                 "receipts held on account and return or credit-note credit "
                 "unused and opening balances in credit, as at "
                 f"{today.isoformat()} -- "
@@ -424,6 +429,60 @@ def _receivables_against_bills(
                 ),
             )
         )
+    return found
+
+
+#: Movements that raise what a customer owes on top of every bill: tax
+#: collected at source on a receipt, and the charge for a bounced cheque.
+#: Owed, and carried by no invoice, so the ageing names them as charges not
+#: billed rather than as an open bill.
+_CHARGES_ON_NO_BILL = ("TCS", "CHEQUE_RETURN_CHARGE")
+
+
+def _charges_on_no_bill(
+    session: Session, firm_id: UUID, today: date
+) -> dict[UUID, Decimal]:
+    """Return each customer's standing charges that no bill carries.
+
+    A ``TCS`` or ``CHEQUE_RETURN_CHARGE`` movement raises the account by the
+    tax or the charge and puts it on no invoice; money later paid towards it
+    is a receipt held on account, which the bills' side already takes off.
+    So the bills' side adds the charge back. A charge reversed with its
+    receipt is netted by its ``REVERSAL`` row, which names it, so only the
+    charges still standing count. Read off the same movements the account
+    sums, net of advance, so the two sides cannot round it differently.
+    """
+    from app.customers.models import CustomerReceivableTransaction as Move
+
+    charge = aliased(Move)
+    net = Move.outstanding_delta - Move.advance_delta
+    found: dict[UUID, Decimal] = {}
+    for customer_id, value in session.execute(
+        select(Move.customer_id, func.sum(net))
+        .outerjoin(
+            charge,
+            and_(
+                Move.reference_type == "reversal",
+                charge.id == Move.reference_id,
+            ),
+        )
+        .where(
+            Move.firm_id == firm_id,
+            Move.is_deleted.is_(False),
+            Move.transaction_date <= today,
+            or_(
+                Move.transaction_type.in_(_CHARGES_ON_NO_BILL),
+                and_(
+                    charge.id.is_not(None),
+                    charge.is_deleted.is_(False),
+                    charge.transaction_type.in_(_CHARGES_ON_NO_BILL),
+                ),
+            ),
+        )
+        .group_by(Move.customer_id)
+    ).all():
+        if _money(value) != ZERO:
+            found[customer_id] = _money(value)
     return found
 
 
