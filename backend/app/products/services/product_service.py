@@ -536,6 +536,7 @@ class ProductService:
         firm_scope: UUID,
         actor_id: UUID,
         may_write_cost_price: bool = True,
+        expected_version: int | None = None,
     ) -> Product:
         """Apply the fields the caller sent, and only those (D-MST-5).
 
@@ -551,10 +552,29 @@ class ProductService:
         ``may_write_cost_price`` says the caller can *see* the cost price. One
         who cannot is served ``purchase_price: null`` and a form sends that
         null straight back, so their save leaves the stored cost alone.
+
+        ``expected_version`` is the caller's ``If-Match``, compared with the
+        row this write is applied to (D-CONC-3). The router used to check it
+        against a read taken before the write, so a second save carrying the
+        same version passed that check, then wrote over the first one against
+        the row the first had left: both answered 200 and the version went
+        from 1 to 3. The row is now read locked and fresh, so a save that
+        comes second waits for the first and is refused against its version.
         """
-        product = self.get_product(
-            product_id, firm_scope=firm_scope, include_deleted=True
+        product = self._session.scalar(
+            select(Product)
+            .where(
+                Product.id == product_id,
+                Product.firm_id == firm_scope,
+                Product.is_deleted.is_(False),
+            )
+            .options(selectinload(Product.media))
+            .with_for_update(of=Product)
+            .execution_options(populate_existing=True)
         )
+        if product is None:
+            raise ResourceNotFoundError("Product not found.")
+        assert_version(product.version, expected_version)
         self.stage_update_product(
             product,
             data,
