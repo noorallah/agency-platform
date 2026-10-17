@@ -18,11 +18,17 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 from app.document_framework.services.bill_series import (
     assert_prefix_fits,
     normalise_prefix,
+    prefix_has_issued,
 )
 from app.products.models import Product
 from app.products.models.brand import Brand, Principal
@@ -124,10 +130,15 @@ class BrandService:
         firm_id: UUID,
         actor_id: UUID,
         principal_id: UUID | None = None,
+        may_change_issued_prefix: bool = False,
     ) -> PrincipalResponse:
         """Create a principal, or change one; commit."""
         row = self.stage_save_principal(
-            data, firm_id=firm_id, actor_id=actor_id, principal_id=principal_id
+            data,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            principal_id=principal_id,
+            may_change_issued_prefix=may_change_issued_prefix,
         )
         self._session.commit()
         return PrincipalResponse.model_validate(row)
@@ -139,15 +150,26 @@ class BrandService:
         firm_id: UUID,
         actor_id: UUID,
         principal_id: UUID | None = None,
+        may_change_issued_prefix: bool = False,
     ) -> Principal:
         """Create or change a principal with every guard, flushed, uncommitted.
 
         The principal file import stages each row through here and commits
         once (Swathi G3); ``save_principal`` is this and a commit.
 
+        Args:
+            data: The principal as written.
+            firm_id: The firm.
+            actor_id: The user saving it.
+            principal_id: The principal changed; ``None`` creates one.
+            may_change_issued_prefix: The caller is an administrator, who may
+                change a bill series prefix bills are already numbered under.
+
         Raises:
             ConflictError: If another live principal already has the code.
             ResourceNotFoundError: If the principal is not the firm's.
+            AuthorizationError: If a prefix bills are numbered under is
+                changed by anyone but an administrator.
 
         """
         clash = self._session.scalar(
@@ -163,11 +185,31 @@ class BrandService:
             # Judged when the prefix is saved, not when a bill is issued
             # (backlog 157): the longest number the series could print.
             assert_prefix_fits(self._session, firm_id, data.bill_series_prefix)
+        moved_from: str | None = None
         if principal_id is None:
             row = Principal(firm_id=firm_id, created_by=actor_id, **data.model_dump())
             self._session.add(row)
         else:
             row = self._principal(principal_id, firm_id)
+            old_prefix = row.bill_series_prefix
+            if (
+                "bill_series_prefix" in data.model_fields_set
+                and old_prefix
+                and old_prefix != data.bill_series_prefix
+                and prefix_has_issued(self._session, firm_id, old_prefix)
+            ):
+                # A new prefix is the way past a series' limit (design
+                # section 15, decision 4): its own counter starts at 1, the
+                # old one is kept, and issued bills keep their numbers. So it
+                # is allowed after bills exist, by an administrator alone.
+                if not may_change_issued_prefix:
+                    raise AuthorizationError(
+                        f"Bills are already numbered under the prefix "
+                        f"{old_prefix}, so only an administrator may change "
+                        "it. The bills keep their numbers and the new prefix "
+                        "starts its own series at 1."
+                    )
+                moved_from = old_prefix
             # Absent leaves a field alone; an explicit null still clears it.
             for field, value in data.model_dump(exclude_unset=True).items():
                 setattr(row, field, value)
@@ -176,6 +218,17 @@ class BrandService:
         self._audit(
             "principal.saved", "principal", row.id, firm_id, actor_id, data.code
         )
+        if moved_from is not None:
+            record_audit(
+                self._session,
+                action="principal.bill_series_prefix_changed",
+                entity_type="principal",
+                entity_id=row.id,
+                actor_id=actor_id,
+                firm_id=firm_id,
+                before_data={"bill_series_prefix": moved_from},
+                after_data={"bill_series_prefix": row.bill_series_prefix},
+            )
         return row
 
     def delete_principal(
