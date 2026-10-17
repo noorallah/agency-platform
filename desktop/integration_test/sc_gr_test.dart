@@ -285,8 +285,16 @@ void main() {
           final Map<String, String> s = buttons(
               <String>['+ New', 'New', 'Approve', 'Complete', 'Cancel']);
           log.saw = '${log.saw}; $s';
-          if (s['New'] != 'enabled' && s['+ New'] != 'enabled') {
+          // Raising a receipt belongs to the warehouse role (D-ROLE-3): only
+          // it is offered New; Purchase Executive and Manager are offered
+          // Complete, as the case text says.
+          final bool newOffered =
+              s['New'] == 'enabled' || s['+ New'] == 'enabled';
+          if (itHandle == 'qstore' && !newOffered) {
             throw StateError('New not offered: $s');
+          }
+          if (itHandle != 'qstore' && s['Complete'] != 'enabled') {
+            throw StateError('Complete not offered: $s');
           }
         });
       } else if (itHandle == 'qsexe') {
