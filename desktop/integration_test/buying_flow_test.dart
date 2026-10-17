@@ -131,15 +131,31 @@ void main() {
                 w is TextField && w.decoration?.hintText == 'as printed'),
             'SUP-${DateTime.now().millisecondsSinceEpoch}');
         await pumpFor(tester, const Duration(milliseconds: 300));
-        await tapKey(tester, 'purchase-invoice-choose-receipts');
-        await pumpFor(tester, const Duration(seconds: 2));
-        await tester.tap(find
-            .descendant(
-                of: find.byType(Dialog), matching: find.byType(Checkbox))
-            .first);
-        await pumpFor(tester, const Duration(milliseconds: 500));
-        await confirmIfAsked(tester);
-        await pumpFor(tester, const Duration(seconds: 3));
+        // Choosing a supplier with one receipt waiting ticks it already, and
+        // with several it opens the tick list itself. Tapping the first
+        // checkbox blind untoggled the receipt the editor had just ticked,
+        // so the bill was saved with nothing on it. Tick this receipt by key,
+        // and only where it is not on the bill yet.
+        final String receiptId = '${receipt!['id']}';
+        final Finder chip = find.byKey(
+            ValueKey<String>('purchase-invoice-receipt-chip-$receiptId'));
+        final Finder tick =
+            find.byKey(ValueKey<String>('purchase-invoice-tick-$receiptId'));
+        if (chip.evaluate().isEmpty) {
+          if (tick.evaluate().isEmpty) {
+            await tapKey(tester, 'purchase-invoice-choose-receipts');
+            await pumpFor(tester, const Duration(seconds: 2));
+          }
+          if (tester.widget<Checkbox>(tick).value != true) {
+            await tester.tap(tick);
+            await pumpFor(tester, const Duration(milliseconds: 500));
+          }
+          await tapKey(tester, 'purchase-invoice-tick-done');
+          await pumpFor(tester, const Duration(seconds: 3));
+        }
+        if (chip.evaluate().isEmpty) {
+          throw StateError('${docNumber(receipt!)} is not on the bill');
+        }
         await saveEditor(tester, 'purchase-invoice-save');
         await pumpFor(tester, const Duration(seconds: 3));
         bill = await server.newest('purchase-invoices');
