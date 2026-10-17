@@ -133,6 +133,10 @@ void main() {
       await closeOpenEditor(tester);
 
       await log.step('SC-PB-017 a billed receipt is not offered', () async {
+        // The bills page reads the billable receipts once when it opens, so
+        // leave and come back: the receipts raised above were not there then.
+        await openMenu(tester, 'buy', 'purchaseReturns');
+        await pumpFor(tester, const Duration(seconds: 2));
         // The receipts were raised for their own supplier, not the principal.
         await newBillFromSupplier('${waitingGr['vendor_name']}');
         final String billedNo = docNumber(billed['receipt'] as Json);
