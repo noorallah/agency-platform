@@ -92,3 +92,24 @@ The 401s and the cash refusal of the first round are gone; SC-PB-035/036 (stale 
 Real application defects: none certain. Open for a ruling: the 0.02 inventory difference above, PO tradeadmin exit 79, GR New for PU/PM, and menu-versus-server disagreement for Warehouse (Purchase Orders) and Viewer (Payments).
 
 **Correction 2026-10-17 (run 76):** SC-PY-022 was run under handle `viewer`, which is not Purchase Manager (`qpmgr`); the read-only handle is `qro`. A Viewer holds PAYMENT_VIEW and `GET /payments` answers 200, so Payments is rightly offered. Not an app defect; D-BUY-79 is fixed in #1720 (registers only).
+
+## Round 3 -- SC-PB-017 and SC-PC-001 (2026-10-17, evening)
+
+Firm T1016VSH1-S, main at origin/main, `integration_test/run.sh` from a short-path copy of `desktop/`, handle `tradeadmin`. No application code changed.
+
+### SC-PC-001 -- passes after a fixture claim
+
+Fixture state, as suspected. The principal "Principal t1016vsh1" (QAPRN) has nothing claimable (preview totals 0; raising is refused "Nothing is left to claim"), so one claim was raised over the API on the principal that does: **Check Company** (code CHECKS), 2026-01-01 to 2026-10-17, free goods 60.00, claim number CLM-2026-2027-000001, remark "QA round 3 fixture claim". Nothing else touched.
+
+`sc_pc_test.dart` tradeadmin: first start 6 steps reached (SC-PC-001, 011, 012, 016, 020 pass) then exit 79 (host death, as before); second start **passed 6, failed 0, not run 16**, exit 0. SC-PC-001 reads "Price cut claim present, + New enabled; missing []". The 16 not-run steps are the flow's own skips.
+
+### SC-PB-017 -- not "all receipts billed"; fixture clutter plus a visibility limit of the flow
+
+The flow makes its own unbilled receipt (`waitingGr = apiReceiptOf(admin, apiPo(admin))`) on every run, so there was no missing fixture to create and none was added. Over HTTP, `GET /goods-receipts?status=COMPLETED&billable=true` (the picker's own query) answers **133 billable receipts** for Principal supplier (242 completed in all), left over from earlier rounds and flows. The picker opened with `GRN-...-000048`, `-000047`, `-000033`, `-000032`... (oldest first within the same day; the list is sorted by `receipt_date` desc and every receipt carries today's date, so the order among them is whatever the database returns). The dialog body is a `ListView` (`lib/phase2/source_tick_dialog.dart`), which builds only the rows on screen; the new receipt is far down a 133-row list, so `screenHas(waitingNo)` is false although the server offers it. The billed receipt is correctly absent.
+
+Run: `sc_pb_test.dart` tradeadmin, one start: **15 pass, 1 fail (SC-PB-017 "an unbilled receipt is not offered"), 12 not run**, same as round 2; no exit 79 on this run.
+
+Reading: flow-versus-fixture, not a certain app fault. Two things for the owner: (1) the flow cannot see an off-screen row, so it needs a firm with few billable receipts, or to search/scroll in the picker; (2) possible Low app point: among receipts of the same date the picker has no tie-break, so a just-received goods receipt is not first -- a secondary sort on number or creation time desc would put it on top. Not changed here.
+
+### Summary
+SC-PC-001 now passes. SC-PB-017 still fails, from 133 stale billable receipts and a lazily built picker list, not from billed fixture state. Real application defects: none certain.
