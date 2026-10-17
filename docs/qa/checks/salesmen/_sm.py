@@ -449,6 +449,10 @@ def sell(
                 "product_id": prod["id"],
                 "quantity": qty,
                 "unit_price": price,
+                # A firm that already trades may hold live offers (the Offers pass left
+                # a stacking BULK5 on T1016VSH1-S); an explicit 0 refuses them, so the
+                # sale is worth exactly price x quantity as these checks assume.
+                "discount_percent": "0",
             }
         ],
     }
