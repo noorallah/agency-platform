@@ -19,8 +19,10 @@ sys.path.insert(0, str(HERE.parent / "collections"))
 sys.path.insert(0, str(HERE.parent / "buying"))
 
 from _col import *  # noqa: E402,F401,F403
+# ensure_user is _col's: it matches the role by code AND firm_id (a platform
+# admin's role list holds other firms' roles of the same code; D-IDN-19).
 from _col import (  # noqa: E402,F401
-    D, Api, Scene, by_code, counter, data, message, must, rows_of, today,
+    D, Api, Scene, by_code, counter, data, ensure_user, message, must, rows_of, today,
     suffix, journal_count, entry_by_id, entry_net, balanced,
 )
 import _buy  # noqa: E402,F401  (the buying chain: order, receipt, bill)
