@@ -27,7 +27,9 @@ or nothing, match headings loosely, update by code on request -- live in
   ``stage_*`` methods, and needs ``TRADE_LICENCE_MANAGE`` as that screen does.
   A number the customer already holds of that type is renewed in place; a
   new number is a new licence, and the old one stays as the record of what
-  was valid when past sales were made.
+  was valid when past sales were made. A licence with no expiry in the file
+  is loaded with none (owner, 2026-10-17) -- never with an invented date --
+  and the register shows it as "no expiry recorded".
 """
 
 # ruff: noqa: D102, D107
@@ -320,8 +322,9 @@ COLUMNS: tuple[Column, ...] = (
         "LicenceExpiry",
         ("licencevalidto", "licensevalidto", "licenseexpiry", "dlexpiry"),
         False,
-        "The day the licence runs out, as dd-mm-yyyy. Needed for a type that "
-        "expires.",
+        "The day the licence runs out, as dd-mm-yyyy. May be left blank: the "
+        "licence is loaded with no expiry and the register shows it as "
+        "'no expiry recorded' until the date is filled in.",
         "",
     ),
     Column("Notes", ("remarks", "narration"), False, "Free text.", ""),
@@ -718,17 +721,9 @@ class CustomerFileImporter(FileImporter[Customer]):
         )
         if held is not None and licence.valid_to in (None, held.valid_to):
             return True
-        if held is None and licence.valid_to is None and licence.licence_type.expires:
-            report.issues.append(
-                ImportIssue(
-                    row.number,
-                    code,
-                    "LicenceExpiry",
-                    f"is needed: a {licence.licence_type.name} runs out, and an "
-                    "expiry nobody wrote down is one nobody is warned about.",
-                )
-            )
-            return False
+        # A blank expiry is loaded blank, never invented (owner, 2026-10-17):
+        # the register shows the licence as "no expiry recorded" until
+        # somebody fills the date in.
         try:
             data = TradeLicenceWrite(
                 licence_type_id=licence.licence_type.id,
@@ -743,7 +738,10 @@ class CustomerFileImporter(FileImporter[Customer]):
             )
             if held is None:
                 self._licences.stage_create_licence(
-                    data, firm_id=customer.firm_id, actor_id=actor_id
+                    data,
+                    firm_id=customer.firm_id,
+                    actor_id=actor_id,
+                    allow_missing_expiry=True,
                 )
             else:
                 self._licences.stage_update_licence(
@@ -1065,8 +1063,9 @@ def template_workbook(session: Session, firm_id: UUID) -> bytes:
             "chart of accounts and an open period first.",
             "A Beat names a route the firm already has; the file does not "
             "make routes.",
-            "A licence goes on the firm's licence register: give its type, "
-            "number and, for a type that runs out, its expiry.",
+            "A licence goes on the firm's licence register: give its type and "
+            "number, and its expiry if you have it -- a blank expiry is loaded "
+            "blank and shown as 'no expiry recorded'.",
         ],
         lists_header=[
             "Segment code",

@@ -321,11 +321,23 @@ class TradeLicenceService:
             if found is None:
                 raise ValidationError(f"{label} not found in this firm.")
 
-    def _checked(self, data: TradeLicenceWrite, firm_id: UUID) -> TradeLicenceType:
-        """Validate a write against the firm's records; return its type."""
+    def _checked(
+        self,
+        data: TradeLicenceWrite,
+        firm_id: UUID,
+        *,
+        allow_missing_expiry: bool = False,
+    ) -> TradeLicenceType:
+        """Validate a write against the firm's records; return its type.
+
+        ``allow_missing_expiry`` lets a type that runs out be recorded with no
+        valid-to date. Only the customer import passes it: an old file often
+        carries the number without the date, and the register shows such a
+        licence as "no expiry recorded" rather than inventing one.
+        """
         licence_type = self.get_type(data.licence_type_id, firm_id=firm_id)
         self._assert_holder(data, firm_id)
-        if licence_type.expires and data.valid_to is None:
+        if licence_type.expires and data.valid_to is None and not allow_missing_expiry:
             raise ValidationError(
                 f"A {licence_type.name} runs out: enter its valid-to date, so "
                 "the firm is warned before it does."
@@ -341,14 +353,20 @@ class TradeLicenceService:
         return row
 
     def stage_create_licence(
-        self, data: TradeLicenceWrite, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: TradeLicenceWrite,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        allow_missing_expiry: bool = False,
     ) -> TradeLicence:
         """Record one licence and its audit row; flush, never commit.
 
         The customer import composes this inside its one transaction (Swathi
-        G5), so a file whose tenth row fails leaves no licence behind.
+        G5), so a file whose tenth row fails leaves no licence behind. It
+        alone passes ``allow_missing_expiry`` (see ``_checked``).
         """
-        self._checked(data, firm_id)
+        self._checked(data, firm_id, allow_missing_expiry=allow_missing_expiry)
         row = TradeLicence(
             firm_id=firm_id,
             **data.model_dump(mode="python"),

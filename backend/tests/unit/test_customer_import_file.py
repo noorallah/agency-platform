@@ -601,6 +601,32 @@ def test_a_licence_goes_on_the_register_and_is_renewed_by_its_number() -> None:
         ]
 
 
+def test_a_drug_licence_with_no_expiry_loads_blank() -> None:
+    """A number with no expiry passes the check and is loaded with none.
+
+    Owner, 2026-10-17: an old file often has the licence number and not the
+    date; the row is not an error, and no date is invented for it. Every
+    other optional cell left blank is no error either.
+    """
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+    content = _csv(
+        "Code,Name,Address1,City,PIN,Phone,Email,PAN,GSTIN,"
+        "LicenceType,LicenceNumber,LicenceExpiry",
+        "NOEXP,No expiry,,,,,,,,DRUG_WHOLESALE,dl-1,",
+    )
+
+    checked = _run(session, firm.id, content, apply=False)
+    assert not checked.issues, [issue.describe() for issue in checked.issues]
+
+    report = _run(session, firm.id, content, apply=True)
+
+    assert report.imported, [issue.describe() for issue in report.issues]
+    with factory() as fresh:
+        assert _licences(fresh) == [("NOEXP", "DL-1", None)]
+
+
 def test_a_licence_row_is_refused_by_the_cell_that_is_wrong() -> None:
     """Each refusal names its column, and the file writes nothing."""
     factory = _factory()
@@ -608,7 +634,6 @@ def test_a_licence_row_is_refused_by_the_cell_that_is_wrong() -> None:
     firm = _firm(session)
     content = _csv(
         "Code,Name,LicenceType,LicenceNumber,LicenceExpiry",
-        "NOEXP,No expiry,DRUG_WHOLESALE,DL-1,",
         "BADTYPE,Bad type,LIQUOR,DL-2,31-03-2027",
         "NOTYPE,No type,,DL-3,31-03-2027",
         "BADDATE,Bad date,FSSAI,DL-4,someday",
@@ -618,11 +643,10 @@ def test_a_licence_row_is_refused_by_the_cell_that_is_wrong() -> None:
     report = _run(session, firm.id, content, apply=True)
 
     assert [(issue.row, issue.column) for issue in report.issues] == [
-        (2, "LicenceExpiry"),
+        (2, "LicenceType"),
         (3, "LicenceType"),
-        (4, "LicenceType"),
-        (5, "LicenceExpiry"),
-        (6, "LicenceNumber"),
+        (4, "LicenceExpiry"),
+        (5, "LicenceNumber"),
     ], [issue.describe() for issue in report.issues]
     assert _codes(factory) == []
     with factory() as fresh:
