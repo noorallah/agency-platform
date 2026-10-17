@@ -29,6 +29,14 @@ links to the full write-up. Status here was checked against the code on
 
 ## Open
 
+### Concurrency -- found by the 15-minute soak, 2026-10-17
+
+Full write-up: `docs/qa/CONCURRENCY_CHECK_ROUND_4_2026-10-17.md`.
+
+| Id | Severity | Summary | Evidence |
+| --- | --- | --- | --- |
+| D-CONC-6 | Medium | **Receipts recorded while bills are approved for the same customers hit a database deadlock and answer 503 "The database is temporarily unavailable."** 19 of 609 `POST /receipts` in a 15-minute five-user soak on TEST01 (3 percent of receipts) were lost this way; the server log shows `DeadlockDetected ... while locking tuple in relation "customers"`, two transactions each holding a customer row the other wants (receipt create and bill approve both move the customer's balance, in different orders). Nothing is written, so a retry works, but the user sees a server error instead of a result. Fix direction: take the customer row lock first and in one place in both paths (or in id order), or retry once on a deadlock inside the service. | Live: `run_soak.py --soak 15` (and 1 of 21 in a 30-second smoke run) |
+
 ### Buying -- found writing the Buying data trail, 2026-09-18
 
 Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
