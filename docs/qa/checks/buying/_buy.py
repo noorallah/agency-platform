@@ -439,7 +439,10 @@ def ensure_user(
         )
     inside = platform.inside(firm_id)
     roles = rows_of(inside.get(f"/api/v1/roles?search={role_code}&page_size=50"))
-    role = next(r for r in roles if r["code"] == role_code)
+    role = next(
+        r for r in roles
+        if r["code"] == role_code and r.get("firm_id") in (None, firm_id)
+    )
     must(
         platform.put(
             f"/api/v1/users/{user_id}/firms/{firm_id}/roles", {"ids": [role["id"]]}
