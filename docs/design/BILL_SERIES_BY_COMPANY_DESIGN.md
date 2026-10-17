@@ -381,3 +381,65 @@ GENERAL. That is why section 6 proposes no manual override.
    three-letter prefix only. Settings shows the length that fits; shorten the
    padding on the sales bill series to make room for a longer one (four digits
    fit five letters with the short year).
+
+## 15. More digits, no year printed -- Decided 2026-10-17 (owner)
+
+**The problem.** The default of six digits fits a three-letter prefix only,
+and the firm expects far more bills over the years. CGST rule 46(b) caps an
+invoice number at 16 characters, so the room has to be found inside that.
+
+**Options weighed.**
+
+| Layout | Example | Chars | Verdict |
+| --- | --- | --- | --- |
+| Short year `26-27`, 6 digits | `ASIAN-26-27-000001` | 18 | does not fit |
+| Year as `2627`, no separators | `ASIAN2627000001` | 15 | fits, but hard to read |
+| Two-digit start year, 7 digits | `ASIAN/26/0000001` | 16 | fits exactly |
+| **No year, 8 digits** | `ASIAN/00000001` | 14 | **default for new firms** |
+| Letters in the counter | `ASIAN/00000A1` | 14 | rejected |
+
+**Letters in the counter** give more numbers per character, but staff, auditors
+and the GST return read a bill number as a consecutive serial. Letters break
+sorting and the gap check (a missing number is how a deleted bill is found).
+The owner chose digits: *"increase the invoice number to more digits"*.
+
+**Decision.**
+
+1. A new firm's sales bill series prints **no year**: prefix, `/`, **8 digits**
+   (`ASIAN/00000001`, 14 characters). Up to 10 digits fit behind a five-letter
+   prefix.
+2. The year in the number is a choice on the numbering rule: *none* (default
+   for new firms), *two-digit start year* (`ASIAN/26/0000001`) or *short*
+   (`26-27`, as today). Existing firms keep their layout until their
+   administrator changes it.
+3. **With no year printed the counter never resets.** A yearly reset would
+   print `ASIAN/00000001` again every April: two bills with one number in the
+   books, in search and in the old-bill import. So *none* forces auto-reset
+   off and keys the counter per prefix only. The other two choices keep the
+   counter keyed on the full year label, so it resets each year as now. This
+   also matches the customer's old program (series name plus a running
+   number, `docs/SWATHI_IMPORT_PLAN.md`).
+4. **A new prefix is the way past a series' limit.** Changing a company's
+   prefix after bills exist is allowed (admin only, audited). The new prefix
+   starts its own counter at 1; the old prefix's counter is kept, so going
+   back to it continues where it stopped and no number repeats. Bills already
+   issued keep their numbers.
+5. Settings warns when a series has used 95% of its padding. At the limit the
+   refusal reads: *"This series has used its last number; give the company a
+   new prefix to start a new series."*
+6. A change of padding or year format is refused if any prefix in use would no
+   longer fit in 16 characters, as today (section 8).
+
+**Build, in small parts (Opus for code).**
+
+- (a) this section;
+- (b) the year-format option on the numbering rule, and the counter key per
+  prefix only when no year is printed;
+- (c) new firms default to *none* with 8-digit padding on the sales bill
+  series; existing firms unchanged;
+- (d) Settings text shows the fit, the 95% warning and the limit message;
+- (e) prefix change mid-year, change back, the 16-character check and a year
+  rollover with no repeated number, in tests; docs; a drive on a NEW test firm.
+
+**Open for the owner.** None; the build order puts it after the Buying sweep
+and the Viewer-menu fix.
