@@ -1692,6 +1692,26 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
+        # Approval is what puts the amount on the customer's account, so it is
+        # the last point at which a limit can still be enforced.
+        #
+        # The customer is locked while the limit is judged and the balance
+        # raised. Two approvals for one customer that both read the balance
+        # before either posted would each see headroom the other was about to
+        # use; the version check refused the second only as a generic conflict,
+        # never with the credit decision. Locked, the second waits, reads the
+        # balance the first left (`populate_existing`, not the copy this session
+        # may already hold) and is judged on it (2026-09-15). Per customer, so
+        # approvals for different customers do not queue.
+        #
+        # Taken before any other row this approval locks or writes, through the
+        # one helper a receipt also uses, so a receipt and an approval for one
+        # customer queue on the customer rather than deadlocking (D-CONC-6).
+        customer = (
+            CustomerService(self._session)
+            .lock_balances([row.customer_id], firm_id=firm_scope)
+            .get(row.customer_id)
+        )
         if row.is_held:
             # A held bill never posts (SG-7): it was parked on purpose, and
             # approving it from a list would bill a customer who has not
@@ -1723,23 +1743,6 @@ class SalesInvoiceService(TransactionalDocumentService):
             else:
                 require_dispatched_note(note, "billed")
         self._refuse_billing_returned_goods(row)
-        # Approval is what puts the amount on the customer's account, so it is
-        # the last point at which a limit can still be enforced.
-        #
-        # The customer is locked while the limit is judged and the balance
-        # raised. Two approvals for one customer that both read the balance
-        # before either posted would each see headroom the other was about to
-        # use; the version check refused the second only as a generic conflict,
-        # never with the credit decision. Locked, the second waits, reads the
-        # balance the first left (`populate_existing`, not the copy this session
-        # may already hold) and is judged on it (2026-09-15). Per customer, so
-        # approvals for different customers do not queue.
-        customer = self._session.scalar(
-            select(Customer)
-            .where(Customer.id == row.customer_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
         walk_in = customer is not None and customer.is_cash_sale
         # Money is two decimals, like the receivable it is set against: both
         # sides of every comparison below are at the ledger's scale (D-SELL-83).

@@ -331,6 +331,52 @@ def test_a_receipt_locks_the_bill_before_reading_what_it_owes() -> None:
     assert lock < first_sum
 
 
+def test_a_receipt_locks_the_customer_before_any_other_row() -> None:
+    """D-CONC-6: a receipt and a bill approval queue on the customer.
+
+    A receipt locked its bills and posted its journal before the balance
+    update took the customer row, while an approval took the customer first,
+    so the two deadlocked and the receipt answered 503. The customer is now
+    locked first, with ``populate_existing``. SQLite drops the lock clause, so
+    the order of statements is what is asserted, beside the receipt landing.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("1000.00")
+    invoice = books.sales_invoice("SI-1", "300.00")
+    books.session.commit()
+
+    seen: list[tuple[bool, str]] = []
+
+    def _record(state: ORMExecuteState) -> None:
+        """Note each statement's SQL and whether it refreshes the identity map."""
+        seen.append(
+            (
+                bool(state.execution_options.get("populate_existing")),
+                str(state.statement),
+            )
+        )
+
+    event.listen(books.session, "do_orm_execute", _record)
+    _receipt(
+        books,
+        "200.00",
+        [SettlementAllocationWrite(invoice_id=invoice.id, amount=Decimal("200.00"))],
+    )
+    event.remove(books.session, "do_orm_execute", _record)
+
+    locks = [
+        (refreshes, sql)
+        for refreshes, sql in seen
+        if "FOR UPDATE" in sql or sql.startswith(("INSERT", "UPDATE", "DELETE"))
+    ]
+    refreshes, first = locks[0]
+    assert "FROM customers" in first and "FOR UPDATE" in first and refreshes
+    assert any("FROM sales_invoices" in sql for _, sql in locks[1:])
+    books.session.commit()
+    books.session.refresh(books.customer)
+    assert books.customer.current_outstanding == Decimal("800.00")
+
+
 def test_allocations_cannot_exceed_the_money_that_arrived() -> None:
     """Two invoices cannot be cleared with one invoice's worth of cash."""
     books = _Books(_session_factory()())

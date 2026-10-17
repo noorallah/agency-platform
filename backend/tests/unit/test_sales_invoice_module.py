@@ -725,6 +725,50 @@ def test_approval_locks_the_customer_while_it_judges_the_limit() -> None:
     assert True in locked_reads, "the credit check must lock and refresh the customer"
 
 
+def test_approval_locks_the_customer_before_any_other_row() -> None:
+    """D-CONC-6: an approval and a receipt queue on the customer, not deadlock.
+
+    A receipt locked its bills and posted its journal before the balance update
+    took the customer row, while an approval took the customer first, so each
+    held a row the other wanted. Both now lock the customer first. SQLite
+    ignores FOR UPDATE, so what is asserted is the order of the statements: the
+    customer lock comes before any other lock and before any write.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    session.commit()
+    customers_table = Customer.__table__
+    seen: list[str] = []
+
+    def capture(
+        conn: object,
+        clauseelement: object,
+        multiparams: object,
+        params: object,
+        execution_options: object,
+    ) -> None:
+        """Note each lock and each write, in the order they are sent."""
+        if getattr(clauseelement, "is_dml", False):
+            seen.append("write")
+        elif getattr(clauseelement, "_for_update_arg", None) is not None:
+            froms = getattr(clauseelement, "get_final_froms", lambda: [])()
+            seen.append("customer lock" if customers_table in froms else "lock")
+
+    engine = session.get_bind()
+    event.listen(engine, "before_execute", capture)
+    try:
+        service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    finally:
+        event.remove(engine, "before_execute", capture)
+
+    assert seen, "the approval must lock and write something"
+    assert seen[0] == "customer lock", seen
+
+
 def test_the_default_policy_lets_the_same_invoice_through() -> None:
     """WARN is the default, so nothing stops trading until a firm opts in."""
     session = _session_factory()()

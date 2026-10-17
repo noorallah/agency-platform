@@ -1,5 +1,6 @@
 """Transactional application service for customer management."""
 
+from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
 from typing import ClassVar
@@ -654,6 +655,34 @@ class CustomerService:
             offset=(page - 1) * page_size,
             limit=page_size,
         )
+
+    def lock_balances(
+        self, customer_ids: Iterable[UUID | None], *, firm_id: UUID
+    ) -> dict[UUID, Customer]:
+        """Lock the customers whose balances are about to move, in id order.
+
+        Every path that moves a customer's balance takes this lock **first**,
+        before any bill, ledger or numbering row (D-CONC-6). A receipt used to
+        lock its bills and post its journal before the balance update took the
+        customer row, while a bill's approval took the customer first: two
+        transactions each held a row the other wanted, and PostgreSQL broke
+        the deadlock by failing one with a 503. Sorted, so two paths locking
+        several customers cannot cross either; ``populate_existing``, so a
+        waiter granted the lock reads the balance the winner left rather than
+        the copy already in its identity map. An id that is no customer of
+        this firm locks nothing and is refused by the caller's own check.
+        """
+        ordered = sorted({cid for cid in customer_ids if cid is not None}, key=str)
+        if not ordered:
+            return {}
+        rows = self._session.scalars(
+            select(Customer)
+            .where(Customer.firm_id == firm_id, Customer.id.in_(ordered))
+            .order_by(Customer.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).all()
+        return {row.id: row for row in rows}
 
     def post_receivable_transaction(
         self,
