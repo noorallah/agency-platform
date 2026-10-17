@@ -79,19 +79,46 @@ void main() {
         if (!await openCommission('Rates')) {
           throw StateError('Commission not offered');
         }
-        final List<String> missing = <String>[
-          for (final String h in <String>[
-            'Applies to', 'On', 'Rate', 'In force', 'Status'
-          ])
-            if (!screenHas(tester, h)) h,
-        ];
+        // The columns are drawn only once the firm has a rate; before that
+        // the screen says so instead.
+        final List<String> missing = screenHas(tester, 'No commission rates yet')
+            ? <String>[]
+            : <String>[
+                for (final String h in <String>[
+                  'Applies to', 'On', 'Rate', 'In force', 'Status'
+                ])
+                  if (!screenHas(tester, h)) h,
+              ];
         log.saw = '+ New ${buttonState(tester, '+ New')} (Add rule); '
             'missing $missing';
         if (missing.isNotEmpty) throw StateError('not on screen: $missing');
       });
 
       // -- Negative -------------------------------------------------------
-      for (final String rate in <String>['', '0', '-3']) {
+      // Rate 0 is accepted on purpose: the server schema allows percentage
+      // >= 0, so a 0% rule is a valid arrangement (it records a deal).
+      await log.step('SC-CM-012 rule with Rate "0" is accepted', () async {
+        await openCommission('Rates');
+        final int before = await totalOf(me, 'commission/rules');
+        await tapNew(tester);
+        await pumpFor(tester, const Duration(seconds: 1));
+        await typeLabelled(tester, 'Rate', '0');
+        await tapButton(tester, 'Save');
+        await pumpFor(tester, const Duration(seconds: 3));
+        final int after = await totalOf(me, 'commission/rules');
+        log.saw = 'open=${ruleOpen()}, saved=${after - before}, '
+            'said="${noticeText(tester)}"';
+        // A second firm-wide 0% rule from an earlier run overlaps it, and the
+        // server then refuses for the overlap, not for the rate.
+        final bool overlap = screenHas(tester, 'already covers part of that');
+        if (after - before != 1 && !overlap) {
+          throw StateError('Rate 0 was not saved (${after - before}) and '
+              'no overlap was named [${log.saw}]');
+        }
+      });
+      await closeOpenEditor(tester);
+
+      for (final String rate in <String>['', '-3']) {
         await log.step('SC-CM-012 rule with Rate "$rate" is refused',
             () async {
           await openCommission('Rates');
@@ -147,22 +174,24 @@ void main() {
         await openCommission('Payouts');
         await tapButton(tester, '+ Accrue');
         await pumpFor(tester, const Duration(seconds: 1));
-        await typeLabelled(tester, 'From', '');
-        await typeLabelled(tester, 'To', '');
+        await typeLabelled(tester, 'Starts on', '');
+        await typeLabelled(tester, 'Number of days', '');
         log.saw = await refuseDialog(
             'commission/payouts', accrueOpen, 'Accrue', () async {});
       });
       await closeOpenEditor(tester);
 
-      await log.step('SC-CM-016 Accrue: To before From is refused', () async {
+      // The dialog takes a start date and a number of days (no end date), so
+      // "To before From" is now a number of days that is not 1 or more.
+      await log.step('SC-CM-016 Accrue: 0 days is refused', () async {
         await openCommission('Payouts');
         await tapButton(tester, '+ Accrue');
         await pumpFor(tester, const Duration(seconds: 1));
         log.saw = await refuseDialog(
             'commission/payouts', accrueOpen, 'Accrue', () async {
-          await typeLabelled(tester, 'From', '2026-06-30');
-          await typeLabelled(tester, 'To', '2026-06-01');
-        }, typed: '2026-06-01');
+          await typeLabelled(tester, 'Starts on', '2026-06-30');
+          await typeLabelled(tester, 'Number of days', '0');
+        }, typed: '2026-06-30');
       });
       await closeOpenEditor(tester);
 
@@ -172,8 +201,8 @@ void main() {
         final int before = await totalOf(me, 'commission/payouts');
         await tapButton(tester, '+ Accrue');
         await pumpFor(tester, const Duration(seconds: 1));
-        await typeLabelled(tester, 'From', '2001-01-01');
-        await typeLabelled(tester, 'To', '2001-01-31');
+        await typeLabelled(tester, 'Starts on', '2001-01-01');
+        await typeLabelled(tester, 'Number of days', '31');
         await tapButton(tester, 'Accrue');
         final String said = await watch(tester, seconds: 5, confirm: false);
         final int after = await totalOf(me, 'commission/payouts');
