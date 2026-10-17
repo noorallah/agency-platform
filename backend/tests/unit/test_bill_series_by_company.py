@@ -35,6 +35,7 @@ from app.document_framework.services import DocumentFrameworkService, bill_serie
 from app.document_framework.services.bill_series import (
     BillSeriesService,
     BillSeriesSettingsWrite,
+    longest_prefix,
 )
 from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
@@ -473,3 +474,186 @@ def test_a_later_level_is_an_entry_in_the_table_of_drivers(
 
     assert "BY_TEST" in BillSeriesService(shop.session).settings(shop.firm_id).drivers
     assert shop.bill(shop.setup.product).invoice_number == "ZZ-26-27-000001"
+
+
+# -- 15. the year format ------------------------------------------------------
+def _set_year_format(shop: _Shop, year_format: str) -> DocumentNumberingRule:
+    """Give the firm's sales-bill series ``year_format`` and return it."""
+    rule = shop.bill_rule()
+    DocumentFrameworkService(shop.session).update_numbering_rule(
+        shop.firm_id,
+        rule.id,
+        DocumentNumberingRuleUpdate(
+            document_type_id=rule.document_type_id,
+            code=rule.code,
+            name=rule.name,
+            year_format=year_format,  # type: ignore[arg-type]
+        ),
+        ACTOR,
+    )
+    shop.session.commit()
+    return rule
+
+
+def _issue(
+    shop: _Shop, rule: DocumentNumberingRule, on: date, prefix: str | None
+) -> str:
+    """Reserve the next sales-bill number of ``prefix`` on ``on``."""
+    return DocumentFrameworkService(shop.session).reserve_number(
+        rule.id,
+        firm_id=shop.firm_id,
+        document_date=on,
+        actor_id=ACTOR,
+        series_prefix=prefix,
+    )
+
+
+@pytest.mark.parametrize(
+    ("year_format", "expected"),
+    [
+        ("NONE", "AS-000001"),
+        ("TWO_DIGIT", "AS-26-000001"),
+        ("SHORT", "AS-26-27-000001"),
+    ],
+)
+def test_each_year_format_prints_the_year_its_own_way(
+    shop: _Shop, year_format: str, expected: str
+) -> None:
+    """None, the start year's two digits, or 26-27 as today."""
+    rule = _set_year_format(shop, year_format)
+
+    assert _issue(shop, rule, date(2026, 8, 4), "AS") == expected
+    assert rule.year_format == year_format
+    # The flags still say the same thing, for anything that reads them.
+    assert rule.include_financial_year is (year_format != "NONE")
+    assert rule.short_financial_year is (year_format == "SHORT")
+
+
+def test_no_year_forces_the_yearly_restart_off(shop: _Shop) -> None:
+    """A number with no year that restarted each April would repeat."""
+    rule = _set_year_format(shop, "NONE")
+
+    assert rule.auto_reset is False
+
+
+def test_with_no_year_a_new_year_carries_on_and_repeats_nothing(shop: _Shop) -> None:
+    """Across 1 April a company series and GENERAL keep counting."""
+    rule = _set_year_format(shop, "NONE")
+
+    numbers = [
+        _issue(shop, rule, date(2026, 8, 4), "AS"),
+        _issue(shop, rule, date(2027, 4, 2), "AS"),
+        _issue(shop, rule, date(2027, 3, 30), "AS"),
+        _issue(shop, rule, date(2026, 8, 4), None),
+        _issue(shop, rule, date(2027, 4, 2), None),
+    ]
+
+    assert numbers == ["AS-000001", "AS-000002", "AS-000003", "SI-000001", "SI-000002"]
+    years = {
+        row.financial_year for row in shop.session.scalars(select(BillSeriesCounter))
+    }
+    assert years == {bill_series.NO_YEAR}
+
+
+def test_two_digit_year_restarts_each_year(shop: _Shop) -> None:
+    """The counter is still keyed on the full year, so April starts at 1."""
+    rule = _set_year_format(shop, "TWO_DIGIT")
+
+    assert _issue(shop, rule, date(2026, 8, 4), "AS") == "AS-26-000001"
+    assert _issue(shop, rule, date(2027, 4, 2), "AS") == "AS-27-000001"
+    assert _issue(shop, rule, date(2027, 3, 30), "AS") == "AS-26-000002"
+
+
+def test_dropping_the_year_carries_on_past_every_number_reached(shop: _Shop) -> None:
+    """A series that stops printing its year never goes back to 1."""
+    rule = shop.bill_rule()
+    assert _issue(shop, rule, date(2026, 8, 4), "AS") == "AS-26-27-000001"
+    assert _issue(shop, rule, date(2026, 8, 5), "AS") == "AS-26-27-000002"
+
+    _set_year_format(shop, "NONE")
+
+    assert _issue(shop, rule, date(2026, 8, 6), "AS") == "AS-000003"
+
+
+def test_sending_the_rule_back_as_read_keeps_the_two_digit_year(shop: _Shop) -> None:
+    """The flags cannot spell TWO_DIGIT; an unchanged edit must not lose it."""
+    rule = _set_year_format(shop, "TWO_DIGIT")
+
+    DocumentFrameworkService(shop.session).update_numbering_rule(
+        shop.firm_id,
+        rule.id,
+        DocumentNumberingRuleUpdate(
+            document_type_id=rule.document_type_id,
+            code=rule.code,
+            name="Renamed",
+            include_financial_year=rule.include_financial_year,
+            short_financial_year=rule.short_financial_year,
+        ),
+        ACTOR,
+    )
+
+    assert rule.year_format == "TWO_DIGIT"
+
+
+def test_turning_the_short_flag_on_moves_the_format_with_it(shop: _Shop) -> None:
+    """A client that only knows the flags still changes the layout."""
+    rule = _set_year_format(shop, "TWO_DIGIT")
+
+    DocumentFrameworkService(shop.session).update_numbering_rule(
+        shop.firm_id,
+        rule.id,
+        DocumentNumberingRuleUpdate(
+            document_type_id=rule.document_type_id,
+            code=rule.code,
+            name=rule.name,
+            include_financial_year=True,
+            short_financial_year=True,
+        ),
+        ACTOR,
+    )
+
+    assert rule.year_format == "SHORT"
+
+
+@pytest.mark.parametrize(
+    ("year_format", "fits"), [("SHORT", 3), ("TWO_DIGIT", 6), ("NONE", 9)]
+)
+def test_the_sixteen_character_fit_follows_the_year_format(
+    shop: _Shop, year_format: str, fits: int
+) -> None:
+    """The longest prefix is worked out from the layout the rule prints."""
+    _set_year_format(shop, year_format)
+
+    assert longest_prefix(shop.session, shop.firm_id) == fits
+
+
+def test_the_year_format_backfill_keeps_every_rule_printing_as_before(
+    shop: _Shop,
+) -> None:
+    """Rules at the column default take the format their flags spell."""
+    rule = shop.bill_rule()
+    shop.session.execute(
+        update(DocumentNumberingRule)
+        .where(DocumentNumberingRule.id == rule.id)
+        .values(year_format="NONE")
+    )
+    shop.session.commit()
+
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "20261017_0397_numbering_year_format.py"
+    )
+    spec = importlib.util.spec_from_file_location("year_format_migration", path)
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    connection = shop.session.connection()
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.upgrade()
+        migration.upgrade()  # a replay changes nothing
+    shop.session.commit()
+    shop.session.refresh(rule)
+
+    assert rule.year_format == "SHORT"

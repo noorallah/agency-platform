@@ -65,3 +65,11 @@ def short_year(label: str) -> str:
     if found is None:
         return label
     return f"{found.group(1)[2:]}-{found.group(2)[2:]}"
+
+
+def two_digit_year(label: str) -> str:
+    """Return ``26`` for ``2026-2027`` or ``2026``: the start year's last two."""
+    found = re.fullmatch(r"(\d{4})(?:-\d{4})?", label)
+    if found is None:
+        return label
+    return found.group(1)[2:]

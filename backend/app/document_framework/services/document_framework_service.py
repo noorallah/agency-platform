@@ -27,6 +27,15 @@ from app.document_framework.models import (
     DocumentStateDefinition,
     DocumentTypeDefinition,
 )
+from app.document_framework.models.document_framework import (
+    YEAR_FORMAT_FULL,
+    YEAR_FORMAT_NONE,
+    YEAR_FORMAT_SHORT,
+    YEAR_FORMAT_TWO_DIGIT,
+    flags_for_year_format,
+    year_format_from_flags,
+    year_format_of,
+)
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
     DocumentNumberingRuleCreate,
@@ -41,12 +50,14 @@ from app.document_framework.services.bill_series import (
     GENERAL_SERIES,
     BillSeriesCounters,
     company_prefixes_in_use,
+    counter_year,
     series_key,
 )
 from app.document_framework.services.gst_numbering import (
     GST_NUMBERED_TYPES,
     gst_number_problem,
     short_year,
+    two_digit_year,
 )
 
 #: The only fields of a module-owned lifecycle state an administrator may edit.
@@ -469,14 +480,16 @@ class DocumentFrameworkService:
                 separator=data.separator,
                 format_pattern=data.format_pattern,
             )
+        fields = data.model_dump()
+        self._settle_year_format(fields, row=None)
         self._assert_a_reset_shows_its_year(
-            auto_reset=data.auto_reset,
-            include_financial_year=data.include_financial_year,
+            auto_reset=fields["auto_reset"],
+            include_financial_year=fields["include_financial_year"],
             format_pattern=data.format_pattern,
         )
         row = DocumentNumberingRule(
             firm_id=firm_id,
-            **data.model_dump(),
+            **fields,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -570,6 +583,7 @@ class DocumentFrameworkService:
             format_pattern=values.get("format_pattern", row.format_pattern),
             current_id=row.id,
         )
+        self._settle_year_format(values, row=row)
         # Judged on what the rule will be, not on what the request mentions.
         # This update is partial, so a caller turning the year off says
         # nothing about `auto_reset` and the collision would be assembled from
@@ -598,6 +612,49 @@ class DocumentFrameworkService:
             firm_id=firm_id,
         )
         return row
+
+    @staticmethod
+    def _settle_year_format(
+        values: dict[str, object], *, row: DocumentNumberingRule | None
+    ) -> None:
+        """Make ``year_format`` and the two year flags say the same thing.
+
+        A ``year_format`` sent outranks the flags and rewrites them; ``NONE``
+        also forces ``auto_reset`` off, since a number with no year that
+        restarted each April would repeat (design section 15). Sent without
+        one, the format follows the flags -- but on an edit only when the
+        flags actually moved, so a client sending the rule back as it read
+        it does not turn ``TWO_DIGIT``, which the flags cannot spell, into
+        the full year.
+        """
+        chosen = values.get("year_format")
+        if chosen is not None:
+            include, short = flags_for_year_format(str(chosen))
+            values["include_financial_year"] = include
+            values["short_financial_year"] = short
+            if chosen == YEAR_FORMAT_NONE:
+                values["auto_reset"] = False
+            return
+        values.pop("year_format", None)
+        include = bool(
+            values.get(
+                "include_financial_year",
+                row.include_financial_year if row is not None else False,
+            )
+        )
+        short = bool(
+            values.get(
+                "short_financial_year",
+                row.short_financial_year if row is not None else False,
+            )
+        )
+        if (
+            row is not None
+            and include == row.include_financial_year
+            and short == row.short_financial_year
+        ):
+            return
+        values["year_format"] = year_format_from_flags(include, short)
 
     def delete_numbering_rule(
         self, firm_id: UUID, rule_id: UUID, actor_id: UUID
@@ -772,16 +829,18 @@ class DocumentFrameworkService:
         series existed, or under a layout the firm has since changed -- and
         the rule's counter is kept in step so its preview stays true. A
         company's series counts under its prefix and the year alone, so two
-        companies sharing a prefix share one running number.
+        companies sharing a prefix share one running number. A layout that
+        prints no year counts under the prefix alone and never restarts.
         """
         series = BillSeriesCounters(self._session)
         key = series_key(rule, series_prefix)
+        year = counter_year(rule, label)
         if key == GENERAL_SERIES:
             counter = self._sequence_for(rule, scope_signature, actor_id=actor_id)
             sequence = series.issue(
                 rule.firm_id,
                 GENERAL_SERIES,
-                label,
+                year,
                 floor=counter.next_sequence,
                 actor_id=actor_id,
             )
@@ -793,9 +852,7 @@ class DocumentFrameworkService:
                 counter.updated_by = actor_id
             shown: str | None = None
         else:
-            sequence = series.issue(
-                rule.firm_id, key, label, floor=1, actor_id=actor_id
-            )
+            sequence = series.issue(rule.firm_id, key, year, floor=1, actor_id=actor_id)
             shown = key
         return self._format_number(
             rule,
@@ -824,6 +881,7 @@ class DocumentFrameworkService:
         label = self._year_label(rule.firm_id, document_date, None)
         series = BillSeriesCounters(self._session)
         key = series_key(rule, series_prefix)
+        year = counter_year(rule, label)
         if key == GENERAL_SERIES:
             scope_signature = self._scope_signature(
                 rule,
@@ -833,12 +891,12 @@ class DocumentFrameworkService:
                 document_date=document_date,
             )
             sequence = max(
-                series.peek(rule.firm_id, GENERAL_SERIES, label),
+                series.peek(rule.firm_id, GENERAL_SERIES, year),
                 self._previewed_sequence(rule, scope_signature),
             )
             shown: str | None = None
         else:
-            sequence = series.peek(rule.firm_id, key, label)
+            sequence = series.peek(rule.firm_id, key, year)
             shown = key
         return self._format_number(
             rule,
@@ -1024,6 +1082,7 @@ class DocumentFrameworkService:
             and (a.format_pattern or "") == (b.format_pattern or "")
             and a.include_financial_year == b.include_financial_year
             and a.short_financial_year == b.short_financial_year
+            and year_format_of(a) == year_format_of(b)
             and a.include_branch_code == b.include_branch_code
             and a.include_company_code == b.include_company_code
             and a.sequence_padding == b.sequence_padding
@@ -1520,8 +1579,13 @@ class DocumentFrameworkService:
             parts.append(company_code)
         if rule.include_branch_code and branch_code:
             parts.append(branch_code)
-        if rule.include_financial_year:
-            parts.append(short_year(year) if rule.short_financial_year else year)
+        year_format = year_format_of(rule)
+        if year_format == YEAR_FORMAT_TWO_DIGIT:
+            parts.append(two_digit_year(year))
+        elif year_format == YEAR_FORMAT_SHORT:
+            parts.append(short_year(year))
+        elif year_format == YEAR_FORMAT_FULL:
+            parts.append(year)
         parts.append(str(sequence).zfill(rule.sequence_padding))
         if rule.suffix:
             parts.append(rule.suffix)

@@ -118,6 +118,10 @@ class DocumentStateResponse(DocumentFrameworkSchema):
     updated_at: datetime
 
 
+#: How a numbering rule prints the financial year (BILL_SERIES design s.15).
+YearFormat = Literal["NONE", "TWO_DIGIT", "SHORT", "FULL"]
+
+
 class _NumberingRuleFields(DocumentFrameworkSchema):
     """What a firm states about a numbering series, create or edit.
 
@@ -136,6 +140,11 @@ class _NumberingRuleFields(DocumentFrameworkSchema):
     include_financial_year: bool = False
     #: Print the year as ``26-27`` (GST-2).
     short_financial_year: bool = False
+    #: How the year prints, which outranks the two flags above when sent:
+    #: ``NONE`` (no year; the counter never restarts, so ``auto_reset`` is
+    #: forced off), ``TWO_DIGIT`` (``26``), ``SHORT`` (``26-27``) or ``FULL``
+    #: (``2026-2027``). Left out, it is what the flags spell.
+    year_format: YearFormat | None = None
     include_branch_code: bool = False
     include_company_code: bool = False
     auto_reset: bool = True
@@ -182,6 +191,7 @@ class DocumentNumberingRuleResponse(DocumentFrameworkSchema):
     separator: str
     include_financial_year: bool
     short_financial_year: bool
+    year_format: str
     include_branch_code: bool
     include_company_code: bool
     auto_reset: bool
