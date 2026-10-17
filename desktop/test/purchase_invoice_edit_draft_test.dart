@@ -139,6 +139,13 @@ class _Api extends ApiClient {
   int? sentVersion;
   String? sentTo;
   int listReads = 0;
+
+  /// How often the billable receipts were read.
+  int receiptReads = 0;
+
+  /// A receipt completed after the tab opened: listed from the second read
+  /// of `/goods-receipts` on (D-BUY-80).
+  Json? lateReceipt;
   final List<Json> previews = <Json>[];
 
   /// The path each preview went to: a draft being edited is priced as
@@ -183,9 +190,16 @@ class _Api extends ApiClient {
     }
     if (tail == '/purchase-invoices/${bill['id']}') return {'data': bill};
     if (tail == '/goods-receipts') {
+      receiptReads += 1;
+      final Json? extra = lateReceipt;
+      // From the second read on, a receipt completed after the tab opened.
+      final List<Json> rows = [
+        receipt,
+        if (extra != null && receiptReads > 1) extra,
+      ];
       return {
-        'data': [receipt],
-        'pagination': {'total_records': 1},
+        'data': rows,
+        'pagination': {'total_records': rows.length},
       };
     }
     if (tail == '/goods-receipts/id-7') return {'data': receipt};
@@ -399,6 +413,37 @@ void main() {
       expect(find.text('Edit purchase invoice'), findsNothing);
       expect(api.listReads, greaterThan(before));
       expect(find.textContaining('saved'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('New bill offers a receipt completed after the tab opened', (
+      tester,
+    ) async {
+      // D-BUY-80: the receipts were read once with the workspace, so one
+      // completed while the tab stayed open was not in the picker.
+      final _Api api = _Api()
+        ..lateReceipt = {
+          ..._receipt(),
+          'id': 'id-late',
+          'grn_number': 'GRN-0099',
+          'receipt_date': '2026-08-20',
+        };
+      await _openList(tester, api, const ['PURCHASE_VIEW', 'PURCHASE_CREATE']);
+      expect(api.receiptReads, 1);
+
+      await tester.tap(find.byKey(const ValueKey('toolbar-new')));
+      await tester.pumpAndSettle();
+      expect(api.receiptReads, 2);
+
+      // The window opened holds the receipt read just now, beside the first.
+      final PurchaseInvoiceEditorDialog window =
+          tester.widget<PurchaseInvoiceEditorDialog>(
+        find.byType(PurchaseInvoiceEditorDialog),
+      );
+      expect(
+        [for (final GoodsReceiptRecord item in window.receipts) item.grnNumber],
+        ['GRN-0007', 'GRN-0099'],
+      );
       expect(tester.takeException(), isNull);
     });
   });

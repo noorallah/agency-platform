@@ -317,6 +317,7 @@ None open (2026-10-01). D-GOLIVE-1 (#870), D-GOLIVE-2 (#884) and D-GOLIVE-3
 | Id | Found | Summary | Severity | Evidence | Where |
 | --- | --- | --- | --- | --- | --- |
 | D-BUY-79 | 2026-10-17 | **A reader's empty Buy register said 'no permission'** (Low). Seven registers (rebates, debit notes, payment runs, landed costs, principal claims, supplier gifts, supplier schemes) now say 'None recorded yet.' to a user who cannot write; writers keep the hint. Payments is NOT hidden: a Viewer holds PAYMENT_VIEW and the list answers 200 (the SC-PY-022 failure was the flow run under the wrong handle; read-only is `qro`). | #1720 | desktop register tests |
+| D-BUY-80 | 2026-10-18 | **A receipt completed while the Bills tab stayed open was not in the bill picker** (Low). The page read the billable receipts once at open, so New bill (and Edit on a draft) offered only what was billable then. Found by SC-PB-017. The receipts are now read again each time the bill window opens; a failed read keeps the list already held. Products and stages are still read once. | #1728 | `purchase_invoice_edit_draft_test.dart` |
 
 None open (2026-10-02). D-TEST-2 and D-UI-2 are under Fixed.
 
