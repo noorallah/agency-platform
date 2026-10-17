@@ -79,3 +79,51 @@ not fixed here.
   current main and re-run `--soak 15` to settle it. The
   messages are named, so they are not counted as failures here.
 - A purchase invoice and payment leg, and a year close, are not in the soak.
+
+## Re-run after the D-CONC-6 fix (#1687), 2026-10-17
+
+Same script, same command (`run_soak.py --soak 15`), TEST01 only, against
+the backend on localhost:8000 at main `fa43390a`. The backend processes were
+created at 08:50:17, fifteen seconds after the #1687 merge (08:50:02), so
+the fix was loaded. Run tag ZWNJU, 901 s, five desks.
+
+| Action | ok | refused | 5xx |
+| --- | ---: | ---: | ---: |
+| sales order create | 862 | 0 | 0 |
+| sales order approve | 779 | 80 | 0 |
+| sales invoice create | 608 | 40 | 0 |
+| sales invoice approve | 551 | 55 | 0 |
+| receipt create | 400 | 169 | **0** |
+| purchase order create / submit / approve | 284 each | 0 | 0 |
+| goods receipt create | 284 | 0 | 0 |
+| goods receipt complete | 263 | 21 | 0 |
+| customer edit (If-Match) | 146 | 7 | 0 |
+| list reads | 885 | 0 | 0 |
+| stock reads | 96 | 0 | 0 |
+| trial balance reads | 281 | 0 | 0 |
+| **Total** | **6,007** | **372** | **0** |
+
+- **503s: 0** (round 4 had 19 on `POST /receipts`). Unnamed refusals: 0.
+  Re-sign-ins after a 401: 0.
+- Refusals are all named: 409 "This record changed since you loaded it"
+  (so approve 80, bill create 40, bill approve 55, goods receipt complete 21,
+  customer edit 7) and 169 receipt 422s (33 "allocated invoice does not
+  belong to this party ... or is already settled in full", 14 intended
+  over-allocations, and the rest the same family). No receipt answered 409
+  this time, against 16 in round 4.
+- `DeadlockDetected`: none from this run. The error log
+  (`backend/logs/server/errors-2026-10-17.log`) was last written at 08:33,
+  before the restart, and holds only round 4's entries; the server log shows
+  none. The client side agrees: no 503 anywhere.
+- Numbers unique: ok -- 862 sales orders, 608 sales invoices, 400 receipts,
+  284 purchase orders, 284 goods receipts, each read back, 0 repeated, 0
+  unnumbered.
+- No negative stock: ok -- 103 stock rows in TEST01, 0 below zero; the three
+  soak items ended at 5,740 / 5,715 / 5,732.
+- Trial balance: ok -- 45 periods read, 0 unbalanced.
+- Script verdict: "ok: no finding", exit 0.
+
+D-CONC-6 is therefore confirmed fixed on the running backend. The 409
+answers on bill create, bill approve, sales order approve and goods receipt
+complete are still seen with a restarted backend, so they are not from a
+stale process; they are named and counted as refusals.
