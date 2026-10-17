@@ -8,7 +8,7 @@ import pytest
 from fastapi import Response
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import create_engine, event, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -1572,6 +1572,31 @@ def test_closing_an_order_nothing_shipped_gives_back_its_offer() -> None:
     service.close_order(order.id, firm_scope=firm.id, actor_id=uuid4())
 
     assert [row.status for row in _claims(session, order.id)] == ["REVERSED"]
+
+
+def test_a_cancel_re_reads_the_order_under_its_lock() -> None:
+    """D-CONC-4: a second canceller hears the order is already cancelled.
+
+    Another canceller's commit is stood in for by an UPDATE the identity map
+    does not see, so the session still holds the order as APPROVED. Without
+    the locked re-read the cancel acted on that stale status and released the
+    reservation a second time.
+    """
+    session = _session_factory()()
+    firm, order, service = _order_with_an_offer(session)
+    service.approve_order(order.id, firm_scope=firm.id, actor_id=uuid4())
+    session.commit()
+    session.execute(
+        update(SalesOrder)
+        .where(SalesOrder.id == order.id)
+        .values(status=SalesOrderStatus.CANCELLED.value)
+        .execution_options(synchronize_session=False)
+    )
+    assert order.status == SalesOrderStatus.APPROVED.value
+
+    with pytest.raises(ValidationError, match="Sales order is already cancelled"):
+        service.cancel_order(order.id, firm_scope=firm.id, actor_id=uuid4())
+    assert order.status == SalesOrderStatus.CANCELLED.value
 
 
 def test_a_re_priced_draft_stamps_the_claims_it_replaces() -> None:
