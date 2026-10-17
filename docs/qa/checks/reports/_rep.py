@@ -21,7 +21,7 @@ MODULE = "reports"
 FROM, TO = "2025-04-01", "2026-12-31"
 CATALOGUE = HERE.parents[3] / "desktop/lib/ui/reports/report_catalog.dart"
 SLOW_MS = 3000
-FY_ID = "5ac919cd-638f-4a63-bf4f-37a1de65ecbf"  # TEST01 FY2026
+FY_ID = "5ac919cd-638f-4a63-bf4f-37a1de65ecbf"  # TEST01 FY2026; replaced at run time
 PRODUCT_ID = "00000000-0000-0000-0000-000000000000"  # replaced at run time
 
 
@@ -83,9 +83,11 @@ def query(entry: dict[str, Any], vendor_id: str | None) -> str:
 
 def read(api: Api, entry: dict[str, Any], vendor_id: str | None) -> tuple[int, Any, int]:
     """Read one report; return (status, body, milliseconds)."""
-    global PRODUCT_ID
+    global PRODUCT_ID, FY_ID
     if PRODUCT_ID.startswith("0000"):
         PRODUCT_ID = first_id(api, "/api/v1/products") or PRODUCT_ID
+    if entry["path"].endswith("it-block-schedule") and FY_ID.startswith("5ac9"):
+        FY_ID = first_id(api, "/api/v1/finance/financial-years") or FY_ID
     started = time.perf_counter()
     status, body = api.get(entry["path"] + query(entry, vendor_id))
     return status, body, int((time.perf_counter() - started) * 1000)
