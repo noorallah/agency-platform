@@ -25,12 +25,36 @@ Json _settings({
   String driver = 'ONE_SERIES',
   bool configured = true,
   int longest = 5,
+  bool withSeries = true,
 }) =>
     <String, dynamic>{
       'series_driver': driver,
       'drivers': <String>['ONE_SERIES', 'BY_COMPANY'],
       'longest_prefix': longest,
       'is_configured': configured,
+      if (withSeries)
+        'series': <Json>[
+          <String, dynamic>{
+            'series_prefix': 'GENERAL',
+            'company_name': null,
+            'last_issued': 12,
+            'capacity': 9999,
+            'near_limit': false,
+            'at_limit': false,
+            'warning': null,
+            'fit': 'Fits the 16-character GST limit.',
+          },
+          <String, dynamic>{
+            'series_prefix': 'ASIAN',
+            'company_name': 'Asian Paints',
+            'last_issued': 9500,
+            'capacity': 9999,
+            'near_limit': true,
+            'at_limit': false,
+            'warning': 'ASIAN has 499 numbers left this year.',
+            'fit': 'Fits with 2 characters to spare.',
+          },
+        ],
     };
 
 class _Api extends ApiClient {
@@ -160,6 +184,31 @@ void main() {
     expect(find.text('Bill series setting saved.'), findsOneWidget);
     // Saved, so the button rests again.
     expect(_saveButton(tester).onPressed, isNull);
+  });
+
+  testWidgets('each series shows its usage, its fit and any warning',
+      (tester) async {
+    await _pump(tester, _Api());
+
+    expect(_key('bill-series-row-GENERAL'), findsOneWidget);
+    expect(_key('bill-series-row-ASIAN'), findsOneWidget);
+    expect(find.text('ASIAN (Asian Paints)'), findsOneWidget);
+    expect(find.text('Last issued 12 of 9999'), findsOneWidget);
+    expect(find.text('Last issued 9500 of 9999'), findsOneWidget);
+    expect(find.text('Fits the 16-character GST limit.'), findsOneWidget);
+    expect(find.text('Fits with 2 characters to spare.'), findsOneWidget);
+    // Only the series the server warned about carries a warning.
+    expect(_key('bill-series-warning-ASIAN'), findsOneWidget);
+    expect(_key('bill-series-warning-GENERAL'), findsNothing);
+    expect(find.text('ASIAN has 499 numbers left this year.'), findsOneWidget);
+  });
+
+  testWidgets('a reply with no series lists none', (tester) async {
+    await _pump(tester, _Api(settings: _settings(withSeries: false)));
+
+    expect(find.text('One series for every bill'), findsOneWidget);
+    expect(find.text('Series in use'), findsNothing);
+    expect(find.textContaining('Last issued'), findsNothing);
   });
 
   testWidgets('a firm that never chose may save the default as its own',

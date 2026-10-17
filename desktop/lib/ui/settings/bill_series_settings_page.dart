@@ -218,6 +218,17 @@ class _BillSeriesSettingsPageState extends State<BillSeriesSettingsPage> {
                     ' fits the 16-character GST limit.',
               ),
             ],
+            if (settings != null && settings.series.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              Text('Series in use', style: theme.textTheme.titleSmall),
+              const SizedBox(height: AppSpacing.sm),
+              // Read as the server counted them; nothing is worked out here.
+              for (final BillSeriesUsage usage in settings.series)
+                _SeriesRow(
+                  key: ValueKey('bill-series-row-${usage.seriesPrefix}'),
+                  usage: usage,
+                ),
+            ],
             if (!_canEdit) ...[
               const SizedBox(height: AppSpacing.lg),
               const _Notice(
@@ -266,25 +277,74 @@ class _BillSeriesSettingsPageState extends State<BillSeriesSettingsPage> {
   }
 }
 
-class _Notice extends StatelessWidget {
-  const _Notice({super.key, required this.icon, required this.text});
+/// One series: its prefix (and company), how far it has got, whether its
+/// prefix fits, and the server's warning when it is running out.
+class _SeriesRow extends StatelessWidget {
+  const _SeriesRow({super.key, required this.usage});
 
-  final IconData icon;
-  final String text;
+  final BillSeriesUsage usage;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final String title = usage.companyName == null
+        ? usage.seriesPrefix
+        : '${usage.seriesPrefix} (${usage.companyName})';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: AppSpacing.xs),
+          _Notice(
+            icon: Icons.tag_outlined,
+            text: 'Last issued ${usage.lastIssued} of ${usage.capacity}',
+          ),
+          if (usage.fit.isNotEmpty)
+            _Notice(icon: Icons.straighten_outlined, text: usage.fit),
+          if (usage.warning != null)
+            _Notice(
+              key: ValueKey('bill-series-warning-${usage.seriesPrefix}'),
+              icon: Icons.warning_amber_outlined,
+              text: usage.warning!,
+              highlight: true,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Notice extends StatelessWidget {
+  const _Notice({
+    super.key,
+    required this.icon,
+    required this.text,
+    this.highlight = false,
+  });
+
+  final IconData icon;
+  final String text;
+
+  /// Draws the notice in the error colour, for a warning that needs acting on.
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color color = highlight
+        ? theme.colorScheme.error
+        : theme.colorScheme.onSurfaceVariant;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
+        Icon(icon, size: 16, color: color),
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(
             text,
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            style: theme.textTheme.bodySmall?.copyWith(color: color),
           ),
         ),
       ],
