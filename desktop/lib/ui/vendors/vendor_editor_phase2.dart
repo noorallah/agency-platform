@@ -41,7 +41,31 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
           kind: AppNotificationKind.warning);
       return;
     }
-    unawaited(submit<Json>(_payload(), widget.onSave));
+    // Said here: the server's answer to an empty form is only "The request
+    // validation failed." (MST-VN-010).
+    if (_name.text.trim().isEmpty) {
+      _refuse('Vendor name is required.');
+      return;
+    }
+    final Future<void> Function(Json payload)? onSave = widget.onSave;
+    unawaited(submit<Json>(
+      _payload(),
+      onSave == null
+          ? null
+          : (Json payload) async {
+              try {
+                await onSave(payload);
+              } on ApiException catch (error) {
+                // The banner shows the message alone; name every field the
+                // refusal names, a malformed GSTIN among them.
+                throw ApiException(
+                  refusalMessage(error),
+                  statusCode: error.statusCode,
+                  code: error.code,
+                );
+              }
+            },
+    ));
   }
 
   Widget _phase2Page(BuildContext context) {

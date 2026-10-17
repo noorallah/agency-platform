@@ -96,7 +96,7 @@ def _principal(user_id: UUID, permissions: set[str]) -> Principal:
     )
 
 
-def _vendor_data(code: str = "VEN-001", gstin: str = "GSTIN-001") -> VendorCreate:
+def _vendor_data(code: str = "VEN-001", gstin: str = "29AAACV0001A1Z5") -> VendorCreate:
     """Build a valid vendor creation payload."""
     return VendorCreate.model_validate(
         {
@@ -154,6 +154,24 @@ def test_vendor_schema_normalizes_and_validates_nested_defaults() -> None:
         VendorCreate.model_validate(invalid)
 
 
+def test_a_vendor_gstin_of_the_wrong_shape_is_refused() -> None:
+    """A malformed GSTIN is refused on the vendor and its tax rows; blank is none.
+
+    The screen-flow check saved a supplier with GSTIN ``12ABC`` (MST-VN-011b).
+    """
+    payload = _vendor_data().model_dump(mode="json")
+    for model in (VendorCreate, VendorUpdate):
+        with pytest.raises(ValueError, match="A GSTIN is 15 characters"):
+            model.model_validate({**payload, "gstin": "12ABC"})
+        with pytest.raises(ValueError, match="A GSTIN is 15 characters"):
+            model.model_validate({**payload, "tax": [{"gstin": "12ABC"}]})
+
+    good = VendorCreate.model_validate({**payload, "gstin": " 29abcde1234f1z5 "})
+    assert good.gstin == "29ABCDE1234F1Z5"
+    assert VendorCreate.model_validate({**payload, "gstin": "  "}).gstin is None
+    assert VendorCreate.model_validate({**payload, "gstin": None}).gstin is None
+
+
 def test_vendor_service_enforces_uniqueness_scope_and_soft_delete_restore() -> None:
     """Codes are unique per firm and a soft delete is reversible."""
     factory = _session_factory()
@@ -171,7 +189,7 @@ def test_vendor_service_enforces_uniqueness_scope_and_soft_delete_restore() -> N
         service.create(_vendor_data(), firm_id=first_firm.id, actor_id=actor_id)
 
     second = service.create(
-        _vendor_data("VEN-001", "GSTIN-XYZ"),
+        _vendor_data("VEN-001", "29AAACV0001A2Z5"),
         firm_id=second_firm.id,
         actor_id=actor_id,
     )
@@ -258,10 +276,10 @@ def test_bulk_vendor_operations_are_audited() -> None:
     actor_id = uuid4()
     service = VendorService(session)
     first = service.create(
-        _vendor_data("VEN-B1", "GSTIN-B1"), firm_id=firm.id, actor_id=actor_id
+        _vendor_data("VEN-B1", "29AAACV0001A3Z5"), firm_id=firm.id, actor_id=actor_id
     )
     second = service.create(
-        _vendor_data("VEN-B2", "GSTIN-B2"), firm_id=firm.id, actor_id=actor_id
+        _vendor_data("VEN-B2", "29AAACV0001A4Z5"), firm_id=firm.id, actor_id=actor_id
     )
 
     service.bulk_status(
@@ -379,13 +397,13 @@ def test_a_vendor_with_an_open_bill_cannot_be_deleted() -> None:
     actor_id = uuid4()
     service = VendorService(session)
     owed = service.create(
-        _vendor_data("VEN-OW", "GSTIN-OW"), firm_id=firm.id, actor_id=actor_id
+        _vendor_data("VEN-OW", "29AAACV0001A5Z5"), firm_id=firm.id, actor_id=actor_id
     )
     drafted = service.create(
-        _vendor_data("VEN-DR", "GSTIN-DR"), firm_id=firm.id, actor_id=actor_id
+        _vendor_data("VEN-DR", "29AAACV0001A6Z5"), firm_id=firm.id, actor_id=actor_id
     )
     square = service.create(
-        _vendor_data("VEN-SQ", "GSTIN-SQ"), firm_id=firm.id, actor_id=actor_id
+        _vendor_data("VEN-SQ", "29AAACV0001A7Z5"), firm_id=firm.id, actor_id=actor_id
     )
     for vendor, number, status, total in (
         (owed, "PI-1", "APPROVED", Decimal("1180.00")),

@@ -126,18 +126,42 @@ Future<void> _pump(
   _GeoApi api, {
   bool platformAdmin = false,
   bool phase2 = false,
+  Size size = const Size(1600, 1200),
 }) async {
-  tester.view.physicalSize = const Size(1600, 1200);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
+  final Widget page = GeographyMasterPage(
+    api: api,
+    permissions: _permissions(platformAdmin: platformAdmin),
+  );
+  final ValueNotifier<Widget?> statusLeft = ValueNotifier<Widget?>(null);
+  addTearDown(statusLeft.dispose);
   await tester.pumpWidget(MaterialApp(
     // Above the navigator, so a dialog the page opens is phase 2's too.
     builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
-      body: GeographyMasterPage(
-        api: api,
-        permissions: _permissions(platformAdmin: platformAdmin),
-      ),
+      body: !phase2
+          ? page
+          // The phase 2 window's bottom bar, as the shell lays it out: the
+          // page's line at the left, the product and connection at the right.
+          : Phase2StatusScope(
+              left: statusLeft,
+              alive: () => true,
+              child: Column(children: [
+                Expanded(child: page),
+                Row(children: [
+                  Expanded(
+                    child: ValueListenableBuilder<Widget?>(
+                      valueListenable: statusLeft,
+                      builder: (context, line, _) =>
+                          line ?? const SizedBox.shrink(),
+                    ),
+                  ),
+                  const SizedBox(width: 300),
+                ]),
+              ]),
+            ),
     ),
   ));
   await tester.pumpAndSettle();
@@ -243,6 +267,48 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.requested.last, startsWith('countries'));
   });
+
+  testWidgets('a search that matches nothing says so, not "none here yet"',
+      (tester) async {
+    // MST-GE-002: "zzqx-none" read as an empty master.
+    final api = _GeoApi();
+    await _pump(tester, api);
+    await tester.enterText(find.byType(TextField).first, 'zzqx-none');
+    await tester.pumpAndSettle();
+
+    expect(find.text('No countries match "zzqx-none"'), findsOneWidget);
+    expect(find.text('No countries here yet'), findsNothing);
+  });
+
+  for (final bool platformAdmin in <bool>[false, true]) {
+    testWidgets(
+        'a selected row fits at 800x600 in phase 2 '
+        '(platform admin: $platformAdmin)', (tester) async {
+      // MST-GE-004: "A RenderFlex overflowed by 43 pixels on the right".
+      final api = _GeoApi();
+      await _pump(
+        tester,
+        api,
+        phase2: true,
+        platformAdmin: platformAdmin,
+        size: const Size(800, 600),
+      );
+      await tester.tap(find.text('India').first);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      final Finder row = find.text('India').last;
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 40));
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tamil Nadu').first);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('a refused save keeps the editor open with what was typed',
       (tester) async {

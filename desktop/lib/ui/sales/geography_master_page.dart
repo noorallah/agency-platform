@@ -322,14 +322,23 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
         : _loading && _rows.isEmpty
             ? const TableLoadingSkeleton()
             : _visible.isEmpty
-                ? StandardEmptyState(
-                    type: EmptyStateType.noRecords,
-                    title: 'No ${_level.plural.toLowerCase()} here yet',
-                    message: _canWrite
-                        ? 'Add one with New.'
-                        : 'Geography is shared reference data. A platform '
-                            'administrator maintains it.',
-                  )
+                ? _search.text.trim().isNotEmpty && _rows.isNotEmpty
+                    // A search that matches nothing is not an empty master
+                    // (MST-GE-002).
+                    ? StandardEmptyState(
+                        type: EmptyStateType.noSearchResults,
+                        title: 'No ${_level.plural.toLowerCase()} match '
+                            '"${_search.text.trim()}"',
+                        message: 'Clear the search to see them all.',
+                      )
+                    : StandardEmptyState(
+                        type: EmptyStateType.noRecords,
+                        title: 'No ${_level.plural.toLowerCase()} here yet',
+                        message: _canWrite
+                            ? 'Add one with New.'
+                            : 'Geography is shared reference data. A platform '
+                                'administrator maintains it.',
+                      )
                 : LoadingOverlay(
                     loading: _loading,
                     child: EnterpriseDataGrid<GeoPlaceRecord>(

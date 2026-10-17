@@ -4201,7 +4201,10 @@ class WorkspaceStatusBar extends StatelessWidget {
         ],
         if (message != null) ...[
           const SizedBox(width: 18),
-          Text(message!),
+          // The bar shares the line with the product and the connection; a
+          // long message ends in "..." rather than running past the window
+          // (MST-GE-004, Places at 800x600 with a row selected).
+          Flexible(child: Text(message!, overflow: TextOverflow.ellipsis)),
         ],
       ]));
       return const SizedBox.shrink();

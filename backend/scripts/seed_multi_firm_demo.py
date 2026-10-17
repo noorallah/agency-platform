@@ -1284,7 +1284,7 @@ def _seed_vendors(
                 status=VendorStatus.ACTIVE,
                 business_profile_id=profile.id,
                 gst_registration=True,
-                gstin=_gstin(firm.code, index),
+                gstin=_vendor_gstin(index),
                 pan=_pan(index + 500),
                 license_number=f"LIC-{firm.code}-{index:02d}",
                 registration_number=f"REG-{firm.code}-{index:02d}",
@@ -1325,7 +1325,7 @@ def _seed_vendors(
                 ],
                 tax=[
                     VendorTaxInput(
-                        gstin=_gstin(firm.code, index),
+                        gstin=_vendor_gstin(index),
                         pan=_pan(index + 500),
                         # Four letters, five digits and a letter: the shape
                         # `check_tan_if_set` asks for.
@@ -3068,6 +3068,14 @@ def _phone(seed: int) -> str:
 
 def _pan(seed: int) -> str:
     return f"ABCDE{seed:04d}F"
+
+
+def _vendor_gstin(seed: int) -> str:
+    """Return a supplier GSTIN in the real shape, built on the supplier's PAN.
+
+    A vendor is refused a GSTIN of any other shape, so this is not ``_gstin``.
+    """
+    return f"29{_pan(seed + 500)}{seed % 9 + 1}Z5"
 
 
 def _gstin(prefix: str, seed: int) -> str:
