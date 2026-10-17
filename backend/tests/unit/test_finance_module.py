@@ -503,6 +503,58 @@ def test_posting_updates_balances_by_normal_side_and_is_auditable() -> None:
     assert "finance.journal_entry.posted" in set(posted_audits)
 
 
+def test_the_locked_balance_is_reread_not_taken_from_the_identity_map() -> None:
+    """D-CONC-5: vouchers posted into one period at once got one 200, two 409.
+
+    The balance rows were read without a lock, so the second poster kept the
+    version it had read before the first committed and its UPDATE was refused
+    as "changed since you loaded it". Posting now locks the rows with
+    ``populate_existing``; here a second session posts into the same accounts
+    while the first still holds its copies of the balance rows.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    session.commit()
+
+    def _post(target: Session, reference: str, amount: str) -> None:
+        """Create and post one cash sale on ``target`` and commit it."""
+        engine = JournalEntryEngine(target)
+        entry = engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 10),
+            reference_number=reference,
+            description="Cash sale",
+            lines=_sale_lines(book, amount),
+            actor_id=actor_id,
+        )
+        engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+        target.commit()
+
+    _post(session, "JV-0001", "100.00")
+    # Held, so the identity map (weakly referenced) keeps this session's
+    # copies; another request then posts and they fall a version behind.
+    held = session.scalars(select(LedgerBalance)).all()
+    assert len(held) == 2
+    other = factory()
+    _post(other, "JV-0002", "200.00")
+    other.close()
+
+    _post(session, "JV-0003", "300.00")
+
+    closing = {
+        balance.ledger_account_id: balance.closing_balance
+        for balance in session.scalars(select(LedgerBalance)).all()
+    }
+    assert closing[book.cash.id] == Decimal("600.00")
+    assert closing[book.sales.id] == Decimal("600.00")
+
+
 def test_reversal_cancels_the_original_and_zeroes_the_ledger() -> None:
     """A reversal mirrors the original entry and nets balances back to zero."""
     factory = _session_factory()
