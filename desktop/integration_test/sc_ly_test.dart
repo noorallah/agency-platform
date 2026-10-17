@@ -24,7 +24,16 @@ void main() {
     Future<bool> openLoyalty() async {
       await closeOpenEditor(tester);
       try {
-        await openSetUp(tester, 'masters/loyalty');
+        await closeOpenEditor(tester);
+        await tester
+            .tap(find.byKey(const ValueKey<String>('menu-area-settings')));
+        await pumpFor(tester, const Duration(seconds: 1));
+        await tapKey(tester, 'setup-section-Pricing');
+        await pumpFor(tester, const Duration(milliseconds: 600));
+        await tapKey(tester, 'setup-subject-pricing');
+        await pumpFor(tester, const Duration(seconds: 2));
+        await tapKey(tester, 'subject-tab-masters/loyalty');
+        await pumpFor(tester, const Duration(seconds: 3));
         return true;
       } on TestFailure {
         return false;
