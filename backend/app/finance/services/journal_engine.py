@@ -234,6 +234,7 @@ class JournalEntryEngine:
         # Re-check at posting time: the period may have closed since creation.
         self._require_open_period(entry.accounting_period_id, firm_id=firm_id)
 
+        self._lock_balances(entry, firm_id=firm_id, actor_id=actor_id)
         posted_at = utc_now()
         for line in entry.lines:
             self._post_line(
@@ -802,6 +803,109 @@ class JournalEntryEngine:
             )
         return total_debit, built
 
+    def _lock_balances(
+        self, entry: JournalEntry, *, firm_id: UUID, actor_id: UUID
+    ) -> None:
+        """Lock every balance row the entry will move, in one fixed order.
+
+        Two independent vouchers posted into the same period at once both
+        read a balance row unlocked, and the second UPDATE found the version
+        moved and was refused as "changed since you loaded it" -- one 200 and
+        the rest 409 though nothing they loaded had changed (D-CONC-5). The
+        rows are now locked first: this period's row and every later period's
+        row for each account the entry touches, which is everything
+        ``_post_line`` and ``_carry_into_later_periods`` write.
+
+        The order is fixed -- account id, then period start -- so two entries
+        sharing accounts take their locks in the same sequence and cannot
+        deadlock. ``populate_existing`` re-reads a row already in the identity
+        map, or the waiter would be granted the lock and keep the version it
+        read before it (the D-CONC-1 shape). A missing row for this period is
+        created under a savepoint; losing that race to another poster re-reads
+        the winner's row under the lock instead.
+        """
+        account_ids = sorted({line.ledger_account_id for line in entry.lines})
+        if not account_ids:
+            return
+        period = self._session.get(AccountingPeriod, entry.accounting_period_id)
+        if period is None:
+            return
+        self._session.scalars(
+            select(LedgerBalance)
+            .join(
+                AccountingPeriod,
+                AccountingPeriod.id == LedgerBalance.accounting_period_id,
+            )
+            .where(
+                LedgerBalance.firm_id == firm_id,
+                LedgerBalance.ledger_account_id.in_(account_ids),
+                AccountingPeriod.firm_id == firm_id,
+                AccountingPeriod.starts_on >= period.starts_on,
+            )
+            .order_by(
+                LedgerBalance.ledger_account_id,
+                AccountingPeriod.starts_on,
+                LedgerBalance.id,
+            )
+            .with_for_update(of=LedgerBalance)
+            .execution_options(populate_existing=True)
+        ).all()
+        for account_id in account_ids:
+            self._current_balance(entry, account_id, firm_id=firm_id, actor_id=actor_id)
+
+    def _current_balance(
+        self,
+        entry: JournalEntry,
+        account_id: UUID,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> LedgerBalance:
+        """Return this period's balance row for an account, locked.
+
+        Creates it when the account has not been posted to in the period yet.
+        """
+        statement = (
+            select(LedgerBalance)
+            .where(
+                LedgerBalance.ledger_account_id == account_id,
+                LedgerBalance.accounting_period_id == entry.accounting_period_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        balance = self._session.scalar(statement)
+        if balance is not None:
+            return balance
+        opening = self._opening_balance(
+            account_id, entry.accounting_period_id, firm_id=firm_id
+        )
+        balance = LedgerBalance(
+            firm_id=firm_id,
+            ledger_account_id=account_id,
+            accounting_period_id=entry.accounting_period_id,
+            opening_balance=opening,
+            period_debit=ZERO,
+            period_credit=ZERO,
+            closing_balance=opening,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        # The savepoint opens before the add: begin_nested flushes pending
+        # work first, which would otherwise push this INSERT outside it.
+        savepoint = self._session.begin_nested()
+        self._session.add(balance)
+        try:
+            self._session.flush()
+        except IntegrityError:
+            savepoint.rollback()
+            winner = self._session.scalar(statement)
+            if winner is None:
+                raise
+            return winner
+        savepoint.commit()
+        return balance
+
     def _post_line(
         self,
         entry: JournalEntry,
@@ -812,30 +916,9 @@ class JournalEntryEngine:
         posted_at: object,
     ) -> None:
         """Apply one journal line to its ledger balance and posting trail."""
-        balance = self._session.scalar(
-            select(LedgerBalance).where(
-                LedgerBalance.ledger_account_id == line.ledger_account_id,
-                LedgerBalance.accounting_period_id == entry.accounting_period_id,
-            )
+        balance = self._current_balance(
+            entry, line.ledger_account_id, firm_id=firm_id, actor_id=actor_id
         )
-        if balance is None:
-            opening = self._opening_balance(
-                line.ledger_account_id, entry.accounting_period_id, firm_id=firm_id
-            )
-            balance = LedgerBalance(
-                firm_id=firm_id,
-                ledger_account_id=line.ledger_account_id,
-                accounting_period_id=entry.accounting_period_id,
-                opening_balance=opening,
-                period_debit=ZERO,
-                period_credit=ZERO,
-                closing_balance=opening,
-                created_by=actor_id,
-                updated_by=actor_id,
-            )
-            self._session.add(balance)
-            self._session.flush()
-
         balance.period_debit = quantize_money(balance.period_debit + line.debit_amount)
         balance.period_credit = quantize_money(
             balance.period_credit + line.credit_amount
