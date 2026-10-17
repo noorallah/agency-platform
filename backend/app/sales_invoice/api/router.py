@@ -92,6 +92,7 @@ from app.trade_licences.api.override import (
     LicenceOverrideReason,
     authorised_override,
 )
+from app.trade_licences.services.licence_check import no_expiry_warning
 
 router = APIRouter(
     prefix="/api/v1/sales-invoices",
@@ -280,7 +281,11 @@ def create_sales_invoice(
         actor_id=scope.actor_id,
         may_choose=_may_choose(scope),
     )
-    return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
+    warning = no_expiry_warning(db, scope.firm_id, row.customer_id, row.invoice_date)
+    return ApiResponse(
+        data=service.invoice_response(row, show_cost=_sees_cost(scope)),
+        message=None if warning is None else str(warning["message"]),
+    )
 
 
 class WalkInCustomerResponse(BaseModel):

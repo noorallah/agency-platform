@@ -15,6 +15,7 @@ import pytest
 from pydantic import ValidationError as SchemaError
 from sqlalchemy import select
 
+from app.common.audit.models import AuditLog
 from app.common.scope import ResolvedFirmScope
 from app.core.exceptions import AuthorizationError, ConflictError, ValidationError
 from app.document_framework.models import DocumentLifecycleEvent
@@ -22,8 +23,10 @@ from app.inventory.models import InventoryTransaction
 from app.products.models import ProductCategory
 from app.products.schemas import ProductCategoryUpdate
 from app.products.services import ProductService
+from app.sales_invoice.api.router import create_sales_invoice
 from app.sales_invoice.schemas import SalesInvoiceStatus
 from app.sales_invoice.services import SalesInvoiceService
+from app.sales_order.api.router import create_sales_order
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
 from app.trade_licences.api.override import authorised_override
@@ -375,6 +378,114 @@ def test_a_counter_bill_is_checked_once_at_its_own_approval(
         draft.id, firm_scope=pharma.firm.id, actor_id=pharma.actor_id
     )
     assert approved.status == SalesInvoiceStatus.APPROVED.value
+
+
+# -- a drug licence with no expiry date (owner decision 2026-10-17) ------------
+
+_NO_EXPIRY = (
+    "Drug licence, wholesale DL-C for {name} has no expiry date; please add it."
+)
+
+
+def _caller(pharma: _Pharma) -> object:
+    """Return a scope as a create route receives it, holding every code."""
+    return SimpleNamespace(
+        firm_id=pharma.firm.id,
+        actor_id=pharma.actor_id,
+        principal=SimpleNamespace(has_permission=lambda code: True),
+    )
+
+
+def _created(pharma: _Pharma, document_id: UUID) -> DocumentLifecycleEvent:
+    """Return the CREATED event on a document's timeline."""
+    event = pharma.session.scalar(
+        select(DocumentLifecycleEvent).where(
+            DocumentLifecycleEvent.source_document_id == document_id,
+            DocumentLifecycleEvent.action == "CREATED",
+        )
+    )
+    assert event is not None
+    return event
+
+
+def test_a_new_order_warns_of_a_drug_licence_with_no_expiry(
+    pharma: _Pharma,
+) -> None:
+    """Recorded at creation, returned as the message, and never blocking."""
+    pharma.policy(LicenceEnforcement.BLOCK)
+    pharma.hold()
+    pharma.hold(customer=True, valid_to=None)
+    expected = _NO_EXPIRY.format(name=pharma.customer.display_name)
+
+    response = create_sales_order(
+        SalesOrderCreate(
+            customer_id=pharma.customer.id,
+            branch_id=pharma.branch.id,
+            warehouse_id=pharma.warehouse.id,
+            order_date=ORDER_DATE,
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=pharma.product.id,
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        _caller(pharma),  # type: ignore[arg-type]
+        pharma.session,
+    )
+    assert response.message == expected
+    order_id = response.data.id
+    details = _created(pharma, order_id).details_json
+    assert details is not None
+    warning = details["licence_expiry_warning"]
+    assert isinstance(warning, dict)
+    assert warning["message"] == expected
+    audit = pharma.session.scalar(
+        select(AuditLog).where(
+            AuditLog.entity_id == order_id, AuditLog.action == "sales_order.created"
+        )
+    )
+    assert audit is not None and audit.after_data is not None
+    assert audit.after_data["licence_expiry_warning"] == warning
+
+    # The licence still covers the sale, so even BLOCK approves it.
+    approved = SalesOrderService(pharma.session).approve_order(
+        order_id, firm_scope=pharma.firm.id, actor_id=pharma.actor_id
+    )
+    assert approved.status == "APPROVED"
+
+
+def test_a_new_bill_warns_and_one_with_its_date_does_not(pharma: _Pharma) -> None:
+    """A counter bill says it; a licence with its valid-to says nothing."""
+    pharma.stages(quotation=False, sales_order=False, delivery_note=False)
+    pharma.hold(customer=True, valid_to=None)
+    response = create_sales_invoice(
+        _caller(pharma),  # type: ignore[arg-type]
+        pharma.session,
+        pharma.bare_bill(),
+    )
+    assert response.message == _NO_EXPIRY.format(name=pharma.customer.display_name)
+    details = _created(pharma, response.data.id).details_json
+    assert details is not None
+    assert "licence_expiry_warning" in details
+
+    licence = pharma.session.scalar(
+        select(TradeLicence).where(TradeLicence.customer_id == pharma.customer.id)
+    )
+    assert licence is not None
+    licence.valid_to = date(2027, 3, 31)
+    pharma.session.commit()
+    quiet = create_sales_invoice(
+        _caller(pharma),  # type: ignore[arg-type]
+        pharma.session,
+        pharma.bare_bill(),
+    )
+    assert quiet.message is None
+    details = _created(pharma, quiet.data.id).details_json
+    assert details is not None
+    assert "licence_expiry_warning" not in details
 
 
 def test_the_purchase_check_asks_the_vendor(pharma: _Pharma) -> None:

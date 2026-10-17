@@ -89,6 +89,69 @@ _COVERING = frozenset(
 )
 
 
+#: The licence types whose missing expiry date a new sale warns about.
+_DRUG_TYPE_PREFIX = "DRUG_"
+
+
+def no_expiry_warning(
+    session: Session, firm_id: UUID, customer_id: UUID, on: date
+) -> dict[str, object] | None:
+    """Say which of a customer's drug licences have no expiry date recorded.
+
+    A new sales order or invoice asks this (owner decision 2026-10-17). A
+    drug licence with no valid-to still *covers* a sale (``_COVERING``), so
+    the check never refuses; this only tells the person to add the date.
+    It warns whatever the firm's licence enforcement is, judges each licence
+    on the document's own date, and refuses nothing. Returns None when
+    there is nothing to say.
+    """
+    # No autoflush: the document is still being staged, and a flush here
+    # would raise its number clash from this read instead of from the
+    # service's own conflict handling.
+    with session.no_autoflush:
+        rows = session.execute(
+            select(TradeLicence, TradeLicenceType)
+            .join(TradeLicenceType, TradeLicenceType.id == TradeLicence.licence_type_id)
+            .where(
+                TradeLicence.firm_id == firm_id,
+                TradeLicence.is_deleted.is_(False),
+                TradeLicence.customer_id == customer_id,
+                TradeLicenceType.code.startswith(_DRUG_TYPE_PREFIX),
+            )
+            .order_by(TradeLicenceType.code, TradeLicence.licence_number)
+        ).all()
+        missing = [
+            (licence, licence_type)
+            for licence, licence_type in rows
+            if standing_of(licence, licence_type, on=on)[0]
+            is LicenceStanding.NO_EXPIRY_RECORDED
+        ]
+        if not missing:
+            return None
+        customer_name = (
+            session.scalar(
+                select(Customer.display_name).where(Customer.id == customer_id)
+            )
+            or "the customer"
+        )
+    return {
+        "licences": [
+            {
+                "licence_id": str(licence.id),
+                "licence_type_code": licence_type.code,
+                "licence_type_name": licence_type.name,
+                "licence_number": licence.licence_number,
+            }
+            for licence, licence_type in missing
+        ],
+        "message": " ".join(
+            f"{licence_type.name} {licence.licence_number} for {customer_name} "
+            "has no expiry date; please add it."
+            for licence, licence_type in missing
+        ),
+    }
+
+
 class LicenceDocument(StrEnum):
     """The documents the check runs on."""
 

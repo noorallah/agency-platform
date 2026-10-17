@@ -8,6 +8,7 @@ is only what is valid on the document's date.
 
 from datetime import date, timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError as SchemaError
@@ -18,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
 from app.customers.models import Customer
+from app.trade_licences.models import TradeLicence
 from app.trade_licences.schemas import (
     LicenceHolderType,
     LicenceStanding,
@@ -25,6 +27,7 @@ from app.trade_licences.schemas import (
     TradeLicenceWrite,
 )
 from app.trade_licences.services import TradeLicenceService
+from app.trade_licences.services.licence_check import no_expiry_warning
 from tests.unit.test_purchase_chain_synthesis import _Firm
 
 TODAY = date(2026, 9, 30)
@@ -213,3 +216,58 @@ def test_only_what_is_valid_on_the_day_prints(shop: _Shop) -> None:
     assert shop.service.valid_numbers(firm_id=shop.firm.id, on=TODAY) == [
         ("FSSAI licence or registration", "FSSAI-OK")
     ]
+
+
+# -- a drug licence with no expiry date (owner decision 2026-10-17) ------------
+
+
+def _held(shop: _Shop, code: str, number: str, **fields: object) -> TradeLicence:
+    """Store a customer licence directly, as the old-register copy and imports do."""
+    row = TradeLicence(
+        firm_id=shop.firm.id,
+        licence_type_id=shop.types[code].id,
+        holder_type="CUSTOMER",
+        customer_id=shop.customer.id,
+        licence_number=number,
+        **fields,
+    )
+    shop.session.add(row)
+    shop.session.commit()
+    return row
+
+
+def test_a_drug_licence_with_no_expiry_is_named(shop: _Shop) -> None:
+    """Each drug licence missing its date is named; the rest are not."""
+    _held(shop, "DRUG_RETAIL", "20-777")
+    _held(shop, "DRUG_WHOLESALE", "20B-55")
+    _held(shop, "DRUG_SCHEDULE_X", "20C-1", valid_to=TODAY + timedelta(days=90))
+    _held(shop, "FSSAI", "FS-1")  # expires, but is not a drug licence
+    _held(shop, "OTHER", "OT-1")
+    gone = _held(shop, "DRUG_RETAIL", "20-DELETED")
+    gone.is_deleted = True
+    shop.session.commit()
+
+    warning = no_expiry_warning(shop.session, shop.firm.id, shop.customer.id, TODAY)
+    assert warning is not None
+    assert warning["message"] == (
+        "Drug licence, retail 20-777 for City Chemists has no expiry date; "
+        "please add it. Drug licence, wholesale 20B-55 for City Chemists has "
+        "no expiry date; please add it."
+    )
+    licences = warning["licences"]
+    assert isinstance(licences, list)
+    assert [item["licence_number"] for item in licences] == ["20-777", "20B-55"]
+
+
+def test_nothing_to_say_is_none(shop: _Shop) -> None:
+    """Dated, not yet started, or another firm's customer: no warning."""
+    assert (
+        no_expiry_warning(shop.session, shop.firm.id, shop.customer.id, TODAY) is None
+    )
+    _held(shop, "DRUG_RETAIL", "20-OK", valid_to=TODAY + timedelta(days=10))
+    _held(shop, "DRUG_WHOLESALE", "20B-LATER", valid_from=TODAY + timedelta(days=1))
+    assert (
+        no_expiry_warning(shop.session, shop.firm.id, shop.customer.id, TODAY) is None
+    )
+    _held(shop, "DRUG_RETAIL", "20-UNDATED")
+    assert no_expiry_warning(shop.session, uuid4(), shop.customer.id, TODAY) is None

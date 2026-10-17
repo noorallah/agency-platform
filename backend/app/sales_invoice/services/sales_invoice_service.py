@@ -193,6 +193,7 @@ from app.tax.services.tax_rule_service import TaxRuleService
 from app.trade_licences.services.licence_check import (
     LicenceCheckService,
     LicenceDocument,
+    no_expiry_warning,
 )
 from app.uom.services import (
     Pack,
@@ -892,6 +893,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
         self._replace_accounting_events(row, actor_id=actor_id, firm_id=firm_id)
+        # A drug licence with no expiry date warns, never blocks (owner
+        # decision 2026-10-17).
+        expiry_warning = no_expiry_warning(
+            self._session, firm_id, row.customer_id, row.invoice_date
+        )
+        warned: dict[str, object] = (
+            {} if expiry_warning is None else {"licence_expiry_warning": expiry_warning}
+        )
         self._record_event(
             firm_id=firm_id,
             document_type=document_type,
@@ -900,6 +909,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             from_state=None,
             to_state=row.status,
             actor_id=actor_id,
+            details=warned or None,
         )
         record_audit(
             self._session,
@@ -908,7 +918,11 @@ class SalesInvoiceService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={"invoice_number": row.invoice_number, "status": row.status},
+            after_data={
+                "invoice_number": row.invoice_number,
+                "status": row.status,
+                **warned,
+            },
         )
         self._flush_or_conflict("Sales invoice number already exists in this firm.")
         return row
