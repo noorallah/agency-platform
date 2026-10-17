@@ -140,8 +140,10 @@ def test_users_are_still_searchable_from_inside_a_firm(
         page = SearchService(tenant_session).search(
             query=f"Search Probe {suffix}",
             # Firm-scoped, because that is the request shape that breaks: with
-            # no firm the session in hand is the platform store already.
-            principal=_principal({"FIRM_VIEW"}, firm_id=uuid4()),
+            # no firm the session in hand is the platform store already. The
+            # caller's firm is the probe itself, since a firm caller finds
+            # only its own firm (D-IDN-16).
+            principal=_principal({"FIRM_VIEW"}, firm_id=firm.id),
             category="all",
             page=1,
             page_size=20,

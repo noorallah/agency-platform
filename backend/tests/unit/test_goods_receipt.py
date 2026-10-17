@@ -645,7 +645,9 @@ def test_an_order_with_a_live_receipt_cannot_be_cancelled() -> None:
     )
     orders = PurchaseService(session)
 
-    with pytest.raises(ValidationError, match="cannot be cancelled while goods receipt"):
+    with pytest.raises(
+        ValidationError, match="cannot be cancelled while goods receipt"
+    ):
         orders.cancel_order(
             fixture.order.id,
             firm_scope=fixture.firm.id,
