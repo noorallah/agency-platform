@@ -441,5 +441,17 @@ The owner chose digits: *"increase the invoice number to more digits"*.
 - (e) prefix change mid-year, change back, the 16-character check and a year
   rollover with no repeated number, in tests; docs; a drive on a NEW test firm.
 
+**(b) is built (2026-10-17).** `document_numbering_rules.year_format`
+(migration `20261017_0397`) holds `NONE`, `TWO_DIGIT`, `SHORT` or `FULL`; the
+fourth keeps a rule that prints `2026-2027` printing it. The two year flags
+stay and are kept in step; existing rows were backfilled from them, so every
+firm prints as before. Sending `NONE` forces `auto_reset` off, and a sales
+bill whose number prints no year counts under its prefix alone (an empty
+`financial_year` on `bill_series_counters`), starting past the highest
+number the prefix reached in any year. `TWO_DIGIT` prints `26` and is still
+counted per full year label. The 16-character check reads the format, so a
+prefix of up to 3, 6 or 9 characters fits with six digits under `SHORT`,
+`TWO_DIGIT` or `NONE`. New firms' defaults are unchanged until (c).
+
 **Open for the owner.** None; the build order puts it after the Buying sweep
 and the Viewer-menu fix.

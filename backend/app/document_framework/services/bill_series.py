@@ -11,7 +11,9 @@
   each, not a rewrite.
 * **Which number.** The counter is keyed on firm, prefix and financial year
   (``bill_series_counters``), read ``with_for_update``. Two bills racing for
-  one series queue on its row; two companies sharing a prefix share it.
+  one series queue on its row; two companies sharing a prefix share it. A
+  layout that prints no year keys on the prefix alone, under
+  :data:`NO_YEAR`, so its counter never restarts (design section 15).
 * **Which length.** A prefix is judged at save against the firm's sales-bill
   layout, so the longest number it can print fits CGST rule 46(b).
 
@@ -28,7 +30,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -45,6 +47,11 @@ from app.document_framework.models.bill_series import (
     GENERAL_SERIES,
     ONE_SERIES,
 )
+from app.document_framework.models.document_framework import (
+    YEAR_FORMAT_NONE,
+    YEAR_FORMAT_SHORT,
+    year_format_of,
+)
 from app.document_framework.services.gst_numbering import gst_number_problem
 
 if TYPE_CHECKING:
@@ -55,6 +62,11 @@ BILL_SERIES_DOCUMENT_TYPE = "SALES_INVOICE"
 
 #: The widest prefix the column holds; the 16-character check decides.
 PREFIX_COLUMN_LENGTH = 10
+
+#: The ``financial_year`` a series that prints no year counts under: one
+#: counter for the life of the prefix, since a yearly restart would print
+#: ``ASIAN/00000001`` again every April (design section 15).
+NO_YEAR = ""
 
 _PREFIX = re.compile(r"^[A-Z0-9]+$")
 
@@ -133,6 +145,19 @@ def series_key(rule: DocumentNumberingRule, series_prefix: str | None) -> str:
     if key in {GENERAL_SERIES, (rule.prefix or "").strip().upper()}:
         return GENERAL_SERIES
     return key
+
+
+def counter_year(rule: DocumentNumberingRule, label: str) -> str:
+    """Return the ``financial_year`` a bill of ``rule`` counts under.
+
+    The full label when the number prints a year in any form, so the series
+    restarts each year as it always has; :data:`NO_YEAR` when it prints none.
+    """
+    if rule.format_pattern:
+        prints = "{financial_year" in rule.format_pattern
+    else:
+        prints = year_format_of(rule) != YEAR_FORMAT_NONE
+    return label if prints else NO_YEAR
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +267,7 @@ def sales_bill_layout(session: Session, firm_id: UUID) -> DocumentNumberingRule:
         format_pattern=None,
         include_financial_year=True,
         short_financial_year=True,
+        year_format=YEAR_FORMAT_SHORT,
         include_branch_code=False,
         include_company_code=False,
         auto_reset=True,
@@ -326,6 +352,20 @@ class BillSeriesCounters:
             )
         return self._session.scalar(statement)
 
+    def _highest(self, firm_id: UUID, prefix: str) -> int:
+        """Return the highest ``next_sequence`` the prefix holds in any year.
+
+        A series that stops printing its year carries on past every number
+        it reached while it did, rather than starting again at 1.
+        """
+        highest = self._session.scalar(
+            select(func.max(BillSeriesCounter.next_sequence)).where(
+                BillSeriesCounter.firm_id == firm_id,
+                BillSeriesCounter.prefix == prefix,
+            )
+        )
+        return int(highest or 1)
+
     def issue(
         self,
         firm_id: UUID,
@@ -346,7 +386,8 @@ class BillSeriesCounters:
         Args:
             firm_id: The firm.
             prefix: The series, ``GENERAL`` or a company prefix.
-            year: The full financial-year label, ``2026-2027``.
+            year: The full financial-year label, ``2026-2027``, or
+                :data:`NO_YEAR` for a series that prints no year.
             floor: The lowest number this issue may take -- GENERAL passes
                 the rule's own counter so it never goes back behind it.
             actor_id: The user raising the bill.
@@ -357,6 +398,8 @@ class BillSeriesCounters:
         """
         row = self._row(firm_id, prefix, year, lock=True)
         if row is None:
+            if year == NO_YEAR:
+                floor = max(floor, self._highest(firm_id, prefix))
             fresh = BillSeriesCounter(
                 firm_id=firm_id,
                 prefix=prefix,
@@ -391,7 +434,9 @@ class BillSeriesCounters:
     def peek(self, firm_id: UUID, prefix: str, year: str) -> int:
         """Return the number the series would issue next, writing nothing."""
         row = self._row(firm_id, prefix, year, lock=False)
-        return row.next_sequence if row is not None else 1
+        if row is not None:
+            return row.next_sequence
+        return self._highest(firm_id, prefix) if year == NO_YEAR else 1
 
 
 class BillSeriesSettingsWrite(BaseModel):
@@ -571,6 +616,7 @@ __all__ = [
     "BILL_SERIES_DOCUMENT_TYPE",
     "BY_COMPANY",
     "GENERAL_SERIES",
+    "NO_YEAR",
     "ONE_SERIES",
     "SERIES_DRIVERS",
     "BillSeriesCounters",
@@ -582,6 +628,7 @@ __all__ = [
     "assert_prefix_fits",
     "company_names_by_prefix",
     "company_prefixes_in_use",
+    "counter_year",
     "longest_prefix",
     "normalise_prefix",
     "sales_bill_layout",

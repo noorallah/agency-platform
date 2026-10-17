@@ -23,6 +23,28 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UTCDateTime, UUIDType
 
+#: No year in the number; the counter never restarts.
+YEAR_FORMAT_NONE = "NONE"
+#: The two digits of the financial year's start, ``26``.
+YEAR_FORMAT_TWO_DIGIT = "TWO_DIGIT"
+#: ``26-27`` (GST-2).
+YEAR_FORMAT_SHORT = "SHORT"
+#: ``2026-2027``.
+YEAR_FORMAT_FULL = "FULL"
+YEAR_FORMATS = (
+    YEAR_FORMAT_NONE,
+    YEAR_FORMAT_TWO_DIGIT,
+    YEAR_FORMAT_SHORT,
+    YEAR_FORMAT_FULL,
+)
+
+
+def year_format_from_flags(include_financial_year: bool, short: bool) -> str:
+    """Return the year format the two older flags spell."""
+    if not include_financial_year:
+        return YEAR_FORMAT_NONE
+    return YEAR_FORMAT_SHORT if short else YEAR_FORMAT_FULL
+
 
 class DocumentTypeDefinition(BaseEntity):
     """Define one reusable document family."""
@@ -113,6 +135,19 @@ class DocumentNumberingRule(BaseEntity):
     short_financial_year: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # How the year prints: NONE, TWO_DIGIT (``26``), SHORT (``26-27``) or
+    # FULL (``2026-2027``). Kept beside the two flags above, which still say
+    # the same thing for every layout they can express; a row written with
+    # only the flags takes the format they spell (BILL_SERIES design s.15).
+    year_format: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=lambda context: year_format_from_flags(
+            bool(context.get_current_parameters().get("include_financial_year")),
+            bool(context.get_current_parameters().get("short_financial_year")),
+        ),
+        server_default="NONE",
+    )
     include_branch_code: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -140,6 +175,24 @@ class DocumentNumberingRule(BaseEntity):
         Boolean, nullable=False, default=True, server_default="true"
     )
     configuration: Mapped[dict[str, object] | None] = mapped_column(JSON)
+
+
+def year_format_of(rule: DocumentNumberingRule) -> str:
+    """Return how ``rule`` prints the year, from the flags if it is unsaved."""
+    return rule.year_format or year_format_from_flags(
+        rule.include_financial_year, rule.short_financial_year
+    )
+
+
+def flags_for_year_format(year_format: str) -> tuple[bool, bool]:
+    """Return ``(include_financial_year, short_financial_year)`` for a format.
+
+    ``TWO_DIGIT`` is a year the flags cannot spell, so it is "a year, not
+    short"; the format column is what prints it.
+    """
+    if year_format == YEAR_FORMAT_NONE:
+        return False, False
+    return True, year_format == YEAR_FORMAT_SHORT
 
 
 class DocumentLifecycleEvent(BaseEntity):
