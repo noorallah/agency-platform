@@ -18,6 +18,10 @@ refused with a 4xx and a message (never a 500), no document number repeated.
     f  one product saved by three users with the same If-Match: one 200
     g  two delivery notes of the same ordered pieces dispatched at once:
        stock leaves once (no more than was ordered)
+    h  one customer's loyalty points redeemed on 3 bills at once: balance
+       never negative, no 500
+    i  3 manual vouchers posted while another user closes their period:
+       none lands in a closed period, no 500
 
 Exits non-zero when any scenario fails; prints one line per finding.
 """
@@ -607,6 +611,224 @@ def scenario_g(firm: Firm) -> Result:
     return res
 
 
+LY = "/api/v1/loyalty"
+FIN = "/api/v1/finance"
+
+
+def points_of(firm: Firm, customer: dict) -> Decimal:
+    """Return the customer's loyalty balance in points."""
+    return D(must(firm.admin.get(f"{LY}/{customer['id']}"), "balance")["points"])
+
+
+def scenario_h(firm: Firm) -> Result:
+    """Three redemptions of one customer's points on three bills at once."""
+    res = Result("h", "3 redemptions of one customer's points on 3 bills at once")
+    tag = suffix(5)
+    product = firm.product(tag)
+    buyer = firm.customer(tag)
+    held = must(firm.admin.get(f"{LY}/settings"), "loyalty settings")
+    bills = []
+    with firm.counter():
+        for _ in range(3):
+            bill = must(firm.admin.post(SI, firm.bill_body(buyer, product)), "bill")
+            must(firm.admin.post(f"{SI}/{bill['id']}/approve", {}), "bill approve")
+            bills.append(bill)
+    try:
+        # Only the switch is changed; the rate stays the firm's own.
+        must(firm.admin.put(f"{LY}/settings", {"is_enabled": True}), "scheme on")
+        must(
+            firm.admin.post(
+                f"{LY}/adjust",
+                {"customer_id": buyer["id"], "points": "150", "reason": "race"},
+            ),
+            "credit points",
+        )
+        res.ok(points_of(firm, buyer) == D("150"), "start balance 150")
+        users = ["admin", "admin_b", "admin_c"]
+        for round_no, spend in ((1, "100"), (2, "50")):
+            before = points_of(firm, buyer)
+            answers = race(
+                [
+                    (
+                        lambda u=u, b=b: firm.users[u].post(
+                            f"{LY}/redeem",
+                            {"sales_invoice_id": b["id"], "points": spend},
+                        )
+                    )
+                    for u, b in zip(users, bills, strict=True)
+                ]
+            )
+            wins = [a for a in answers if a[0] in (200, 201)]
+            res.ok(
+                len(wins) == 1,
+                f"round {round_no}: exactly one redemption wins",
+                summarise(answers),
+            )
+            no_server_errors(res, answers)
+            for status, body in answers:
+                if 400 <= status < 500:
+                    res.ok(bool(message(body).strip()), f"a {status} names a reason")
+            after = points_of(firm, buyer)
+            res.ok(after >= 0, f"round {round_no}: balance not negative", after)
+            res.ok(
+                after == before - D(spend),
+                f"round {round_no}: balance fell by one redemption only",
+                f"{before} -> {after}",
+            )
+            res.note(
+                f"round {round_no} spend {spend}: {summarise(answers)}; "
+                f"{before} -> {after}"
+            )
+        path = f"{LY}/entries?customer_id={buyer['id']}&page_size=50"
+        entries = rows_of(firm.admin.get(path))
+        redeemed = [e for e in entries if str(e["kind"]).upper().startswith("REDEEM")]
+        res.ok(len(redeemed) == 2, "two redemption entries exist", len(redeemed))
+    finally:
+        firm.admin.put(f"{LY}/settings", {"is_enabled": held["is_enabled"]})
+    return res
+
+
+def scenario_i(firm: Firm) -> Result:
+    """Three vouchers posted while another user closes their period."""
+    res = Result("i", "3 vouchers posted while another user closes their period")
+    admin = firm.admin
+    gen = by_code(admin, f"{FIN}/journal-types", "GEN")
+    jv = by_code(admin, f"{FIN}/voucher-types", "JV")
+    rent = by_code(admin, f"{FIN}/ledger-accounts", "6000")
+    power = by_code(admin, f"{FIN}/ledger-accounts", "6200")
+    for round_no in range(1, 6):
+        tag = suffix(5)
+        periods = rows_of(admin.get(f"{FIN}/accounting-periods"))
+        # Older than every period the firm has, so it can be closed first.
+        year = min(date.fromisoformat(p["starts_on"]) for p in periods).year - 1
+        fy = must(
+            admin.post(
+                f"{FIN}/financial-years",
+                {
+                    "code": f"CC{tag}",
+                    "name": f"Concurrency year {tag}",
+                    "starts_on": f"{year}-04-01",
+                    "ends_on": f"{year + 1}-03-31",
+                },
+            ),
+            "year",
+        )
+        period = must(
+            admin.post(
+                f"{FIN}/accounting-periods",
+                {
+                    "financial_year_id": fy["id"],
+                    "period_number": 1,
+                    "code": f"C{tag}",
+                    "name": f"Concurrency month {tag}",
+                    "starts_on": f"{year}-04-01",
+                    "ends_on": f"{year}-04-30",
+                },
+            ),
+            "period",
+        )
+        drafts = []
+        for n in range(3):
+            body = {
+                "journal_type_id": gen["id"],
+                "voucher_type_id": jv["id"],
+                "accounting_period_id": period["id"],
+                "journal_date": f"{year}-04-15",
+                "reference_number": f"JV-CC{tag}-{n}",
+                "description": "concurrency",
+                "lines": [
+                    {"ledger_account_id": rent["id"], "debit_amount": "10.00"},
+                    {"ledger_account_id": power["id"], "credit_amount": "10.00"},
+                ],
+            }
+            drafts.append(must(admin.post(f"{FIN}/journal-entries", body), "voucher"))
+        stamp: dict[str, datetime] = {}
+
+        def close() -> Answer:
+            """Close the period as a third desk, noting when it answered."""
+            answer = firm.users["admin_c"].call(
+                "PATCH",
+                f"{FIN}/accounting-periods/{period['id']}",
+                {"status": "CLOSED"},
+            )
+            stamp["closed"] = datetime.now(UTC)
+            return answer
+
+        calls: list[Callable[[], Answer]] = [
+            (
+                lambda u=u, d=d: firm.users[u].post(
+                    f"{FIN}/journal-entries/{d['id']}/post", {}
+                )
+            )
+            for u, d in zip(("admin", "admin_b", "admin"), drafts, strict=True)
+        ]
+        calls.append(close)
+        answers = race(calls)
+        posts, closing = answers[:3], answers[3]
+        no_server_errors(res, answers)
+        for status, body in answers:
+            if 400 <= status < 500:
+                res.ok(bool(message(body).strip()), f"a {status} names a reason")
+        rows = rows_of(
+            admin.get(f"{FIN}/accounting-periods?financial_year_id={fy['id']}")
+        )
+        res.ok(
+            closing[0] == 200 and rows[0]["status"] == "CLOSED",
+            f"round {round_no}: the close lands",
+            summarise([closing]),
+        )
+        closed_at = stamp.get("closed")
+        late = landed = 0
+        for answer, draft in zip(posts, drafts, strict=True):
+            seen = must(admin.get(f"{FIN}/journal-entries/{draft['id']}"), "read")
+            posted = str(seen["status"]).upper() == "POSTED"
+            res.ok(
+                posted == (answer[0] == 200),
+                "status agrees with the answer",
+                seen["status"],
+            )
+            if answer[0] == 200:
+                landed += 1
+                when = datetime.fromisoformat(
+                    str(seen["posted_at"]).replace("Z", "+00:00")
+                )
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=UTC)
+                if closed_at and when > closed_at:
+                    late += 1
+        res.ok(
+            late == 0, f"round {round_no}: none posted after the close answered", late
+        )
+        # Once closed, a further post is refused by name.
+        status, body = admin.post(
+            f"{FIN}/journal-entries",
+            {
+                "journal_type_id": gen["id"],
+                "voucher_type_id": jv["id"],
+                "accounting_period_id": period["id"],
+                "journal_date": f"{year}-04-16",
+                "reference_number": f"JV-CC{tag}-S",
+                "lines": [
+                    {"ledger_account_id": rent["id"], "debit_amount": "1.00"},
+                    {"ledger_account_id": power["id"], "credit_amount": "1.00"},
+                ],
+            },
+        )
+        res.ok(
+            400 <= status < 500 and "closed" in message(body).lower(),
+            "a voucher into the closed period is refused by name",
+            f"{status} {message(body)[:80]}",
+        )
+        res.note(
+            f"round {round_no}: posts {summarise(posts)}; close {summarise([closing])}; "
+            f"landed {landed}, after close {late}"
+        )
+        admin.call(
+            "PATCH", f"{FIN}/accounting-periods/{period['id']}", {"status": "OPEN"}
+        )
+    return res
+
+
 SCENARIOS: dict[str, Callable[[Firm], Result]] = {
     "a": scenario_a,
     "b": scenario_b,
@@ -615,6 +837,8 @@ SCENARIOS: dict[str, Callable[[Firm], Result]] = {
     "e": scenario_e,
     "f": scenario_f,
     "g": scenario_g,
+    "h": scenario_h,
+    "i": scenario_i,
 }
 
 
