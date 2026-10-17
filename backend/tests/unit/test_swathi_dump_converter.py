@@ -117,9 +117,15 @@ def test_state_is_written_and_blank_group_is_named(
     dump = tmp_path / "d.sql"
     dump.write_text(DUMP, encoding="utf-8")
     module.convert(dump, tmp_path / "out", "Andhra Pradesh")
-    for name in ("customers.csv", "suppliers.csv"):
-        rows = _read(tmp_path / "out" / name)
-        assert {r["State"] for r in rows} == {"Andhra Pradesh"}
+    rows = _read(tmp_path / "out" / "customers.csv")
+    assert {r["State"] for r in rows} == {"Andhra Pradesh"}
+    # A supplier's state comes from its GSTIN, never from the firm's own.
+    assert all(
+        r["State"] == module.state_from_gstin(r["GSTIN"])
+        for r in _read(tmp_path / "out" / "suppliers.csv")
+    )
+    assert module.state_from_gstin("36AAAAA0000A1Z5") == "Telangana"
+    assert module.state_from_gstin("") == ""
     assert all(r["Group"] for r in _read(tmp_path / "out" / "ledger_accounts.csv"))
 
 

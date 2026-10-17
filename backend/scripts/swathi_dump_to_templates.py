@@ -9,8 +9,11 @@ Usage::
 
     python scripts/swathi_dump_to_templates.py DUMP.sql OUTPUT_DIR [STATE]
 
-``STATE`` is the one state name written on every customer and supplier row,
-because the dump holds none; left out, the column is blank.
+``STATE`` is the state name written on every **customer** row, because the dump
+holds none; left out, the column is blank. A **supplier** may be from any state,
+so its State comes from the first two digits of its GSTIN (the GST state code);
+one with no usable GSTIN is left blank and its code is written to
+``suppliers_state_questions.txt`` for the customer to answer -- never guessed.
 
 Files written (one per import kind, headings as the templates give them):
 ``principals.csv``, ``brands.csv``, ``routes.csv``, ``salesmen.csv``,
@@ -37,6 +40,28 @@ UNASSIGNED_GROUP = "UNASSIGNED"
 PL_GROUP = "P & L ACCOUNTS"
 PL_INCOME_GROUP = "P & L ACCOUNTS (INCOME)"
 PL_INCOME_WORDS = ("RECEIVED", "RECD", "INCOME", "COMMISSION RECEIPT", "GAIN")
+
+#: GST state codes (first two digits of a GSTIN) -> state name.
+GST_STATES = {
+    "01": "Jammu and Kashmir", "02": "Himachal Pradesh", "03": "Punjab",
+    "04": "Chandigarh", "05": "Uttarakhand", "06": "Haryana", "07": "Delhi",
+    "08": "Rajasthan", "09": "Uttar Pradesh", "10": "Bihar", "11": "Sikkim",
+    "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
+    "15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam",
+    "19": "West Bengal", "20": "Jharkhand", "21": "Odisha",
+    "22": "Chhattisgarh", "23": "Madhya Pradesh", "24": "Gujarat",
+    "26": "Dadra and Nagar Haveli and Daman and Diu", "27": "Maharashtra",
+    "29": "Karnataka", "30": "Goa", "31": "Lakshadweep", "32": "Kerala",
+    "33": "Tamil Nadu", "34": "Puducherry",
+    "35": "Andaman and Nicobar Islands", "36": "Telangana",
+    "37": "Andhra Pradesh", "38": "Ladakh",
+}  # fmt: skip
+
+
+def state_from_gstin(gstin: str) -> str:
+    """Return the state a GSTIN's first two digits name, or blank."""
+    return GST_STATES.get(gstin[:2], "") if len(gstin) == 15 else ""
+
 
 _CREATE = re.compile(r"CREATE TABLE `(\w+)` \((.*?)\n\)", re.S)
 _COLUMN = re.compile(r"^\s*`(\w+)`", re.M)
@@ -362,13 +387,20 @@ def convert(dump: Path, out_dir: Path, state: str = "") -> dict[str, int]:
     for filename, (builder, headings) in OUTPUTS.items():
         rows = builder(tables)
         for row in rows:
-            if "State" in row:
+            if "State" in row and "Type" in row:
                 row["State"] = state
+            elif "State" in row:
+                row["State"] = state_from_gstin(row["GSTIN"])
         with (out_dir / filename).open("w", newline="", encoding="utf-8-sig") as fh:
             writer = csv.DictWriter(fh, fieldnames=headings, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
         counts[filename] = len(rows)
+        if filename == "suppliers.csv":
+            open_codes = [r["Code"] for r in rows if not r["State"]]
+            (out_dir / "suppliers_state_questions.txt").write_text(
+                "\n".join(open_codes), encoding="utf-8"
+            )
     return counts
 
 
