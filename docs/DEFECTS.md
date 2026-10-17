@@ -440,6 +440,14 @@ Item 30m parts 1b and 2a; results in `docs/qa/CONCURRENCY_CHECK_ROUND_2_2026-10-
 | --- | --- | --- | --- |
 | D-CONC-4 | Low | A sales order cancelled by three users at once: the loser who got furthest answers 422 "Reserved quantity cannot become negative." (an inventory-internal reason for a person who only pressed Cancel); the other loser gets the generic 409. No 500, order cancelled once, reservation back to 0. It should hear that the order is already cancelled. | Live |
 
+### Concurrency round 3 -- loyalty redeem and period close raced over HTTP, 2026-10-17
+
+Item 30m part 2b; results in `docs/qa/CONCURRENCY_CHECK_ROUND_3_2026-10-17.md`, scenarios h and i of `docs/qa/checks/concurrency/run_concurrency.py`.
+
+| Id | Severity | Summary | Evidence |
+| --- | --- | --- | --- |
+| D-CONC-5 | Low-Medium | Independent journal vouchers posted into the same period at once: one wins, the others get a 409 ("request conflicts" or "This record changed since you loaded it") though nothing they loaded changed. Nothing lost; retry works. Likely the ledger balance rows are written without a lock (same shape as D-CONC-1). | Live |
+
 ### Buying round 1 -- found driving order to receipt to bill to return over HTTP, 2026-10-15
 
 Cases TC-BUY-001 to 102 (twenty-six of them) and seven probes; results in `docs/qa/BUYING_API_CHECK_ROUND_1_2026-10-15.md`, kept scripts in `docs/qa/checks/buying/` (33 checks). Nothing is open: D-BUY-77 is under Fixed and D-BUY-78 under Not a defect.
