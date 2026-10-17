@@ -35,7 +35,6 @@ Full write-up: `docs/qa/CONCURRENCY_CHECK_ROUND_4_2026-10-17.md`.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-BUY-79 | Low | A Viewer's Buy menu offers Payments (list answers 403) and seven registers (rebates, debit notes, payment runs, landed costs, principal claims, supplier gifts, supplier schemes) whose empty state reads as 'no permission'. Owner 2026-10-17: hide Payments for a user who cannot list it; an empty register says 'None recorded yet' for a user who cannot write. Fix in flight, branch fix/viewer-buy-menu. | Buying screen round 2026-10-17 (SC-PY-022) |
 
 ### Buying -- found writing the Buying data trail, 2026-09-18
 
@@ -43,6 +42,7 @@ Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+| D-BUY-79 | Low | A Viewer's Buy menu offers Payments (list answers 403) and seven registers (rebates, debit notes, payment runs, landed costs, principal claims, supplier gifts, supplier schemes) whose empty state reads as 'no permission'. Owner 2026-10-17: hide Payments for a user who cannot list it; an empty register says 'None recorded yet' for a user who cannot write. Fix in flight, branch fix/viewer-buy-menu. | Buying screen round 2026-10-17 (SC-PY-022) |
 
 Found driving all 92 buying cases over HTTP on 2026-10-05, twice, and re-checking the fixes in a third round. D-BUY-56 to D-BUY-64 are under Fixed and D-BUY-60 under Not a defect. D-BUY-44 to D-BUY-55 (round 1) and D-BUY-41, D-CMP-23, D-UI-11, D-UI-12, D-BUY-42 and D-BUY-43 are under Fixed.
 
