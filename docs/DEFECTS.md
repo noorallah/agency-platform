@@ -42,7 +42,6 @@ Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-BUY-79 | Low | A Viewer's Buy menu offers Payments (list answers 403) and seven registers (rebates, debit notes, payment runs, landed costs, principal claims, supplier gifts, supplier schemes) whose empty state reads as 'no permission'. Owner 2026-10-17: hide Payments for a user who cannot list it; an empty register says 'None recorded yet' for a user who cannot write. Fix in flight, branch fix/viewer-buy-menu. | Buying screen round 2026-10-17 (SC-PY-022) |
 
 Found driving all 92 buying cases over HTTP on 2026-10-05, twice, and re-checking the fixes in a third round. D-BUY-56 to D-BUY-64 are under Fixed and D-BUY-60 under Not a defect. D-BUY-44 to D-BUY-55 (round 1) and D-BUY-41, D-CMP-23, D-UI-11, D-UI-12, D-BUY-42 and D-BUY-43 are under Fixed.
 
@@ -317,6 +316,7 @@ None open (2026-10-01). D-GOLIVE-1 (#870), D-GOLIVE-2 (#884) and D-GOLIVE-3
 
 | Id | Found | Summary | Severity | Evidence | Where |
 | --- | --- | --- | --- | --- | --- |
+| D-BUY-79 | 2026-10-17 | **A reader's empty Buy register said 'no permission'** (Low). Seven registers (rebates, debit notes, payment runs, landed costs, principal claims, supplier gifts, supplier schemes) now say 'None recorded yet.' to a user who cannot write; writers keep the hint. Payments is NOT hidden: a Viewer holds PAYMENT_VIEW and the list answers 200 (the SC-PY-022 failure was the flow run under the wrong handle; read-only is `qro`). | #1720 | desktop register tests |
 
 None open (2026-10-02). D-TEST-2 and D-UI-2 are under Fixed.
 

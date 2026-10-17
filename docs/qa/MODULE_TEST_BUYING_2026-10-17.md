@@ -90,3 +90,5 @@ The 401s and the cash refusal of the first round are gone; SC-PB-035/036 (stale 
 
 ### Summary
 Real application defects: none certain. Open for a ruling: the 0.02 inventory difference above, PO tradeadmin exit 79, GR New for PU/PM, and menu-versus-server disagreement for Warehouse (Purchase Orders) and Viewer (Payments).
+
+**Correction 2026-10-17 (run 76):** SC-PY-022 was run under handle `viewer`, which is not Purchase Manager (`qpmgr`); the read-only handle is `qro`. A Viewer holds PAYMENT_VIEW and `GET /payments` answers 200, so Payments is rightly offered. Not an app defect; D-BUY-79 is fixed in #1720 (registers only).
