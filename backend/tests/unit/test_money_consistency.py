@@ -589,6 +589,97 @@ def test_stock_that_moved_with_no_journal_is_found(
     assert _stock_rows(found) == [("2026-08", Decimal("1050.00"), Decimal("1150.00"))]
 
 
+def _valued_at(
+    monkeypatch: pytest.MonkeyPatch,
+    total: str,
+    items: list[tuple[str, str]],
+) -> None:
+    """Have the stock valuation report these (quantity, rate) items and total."""
+    from app.inventory.services.stock_valuation import (
+        StockValuationRow,
+        StockValuationService,
+    )
+
+    def item(quantity: str, rate: str) -> StockValuationRow:
+        return StockValuationRow(
+            row_type="ITEM",
+            product_code="P",
+            product_name="P",
+            category="",
+            unit="",
+            quantity=Decimal(quantity),
+            rate=Decimal(rate),
+            value=ZERO_VALUE,
+        )
+
+    rows = [item(quantity, rate) for quantity, rate in items]
+    rows.append(
+        StockValuationRow(
+            row_type="TOTAL",
+            product_code="",
+            product_name="Grand total",
+            category="",
+            unit="",
+            quantity=None,
+            rate=None,
+            value=Decimal(total),
+        )
+    )
+
+    def valuation(*_: object, **__: object) -> list[StockValuationRow]:
+        """Return the rows the test set."""
+        return rows
+
+    monkeypatch.setattr(StockValuationService, "valuation", valuation)
+
+
+ZERO_VALUE = Decimal("0")
+
+#: Two items held at averages of four places: D-STK-20 allows 0.01 + 2 x 0.01.
+_UNEVEN = [("7", "50.0276"), ("3", "61.3333")]
+
+
+def test_stock_within_the_d_stk_20_allowance_is_not_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, firm = _stocked_firm(monkeypatch)
+    _valued_at(monkeypatch, "1050.03", _UNEVEN)
+
+    assert _stock_rows(check_money_consistency(session, firm.id)) == []
+
+
+def test_stock_beyond_the_d_stk_20_allowance_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, firm = _stocked_firm(monkeypatch)
+    _valued_at(monkeypatch, "1050.04", _UNEVEN)
+
+    found = check_money_consistency(session, firm.id)
+
+    assert _stock_rows(found) == [("2026-08", Decimal("1050.00"), Decimal("1050.04"))]
+    note = next(row.note for row in found if row.check == STOCK_VS_INVENTORY)
+    assert "D-STK-20" in note
+    assert "0.03" in note
+
+
+def test_stock_at_two_decimal_averages_keeps_the_single_paisa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, firm = _stocked_firm(monkeypatch)
+    # Two-place averages widen nothing, nor does an uneven item with no units.
+    _valued_at(
+        monkeypatch,
+        "1050.02",
+        [("7", "50.00"), ("3", "61.3000"), ("0", "9.3333")],
+    )
+
+    found = check_money_consistency(session, firm.id)
+
+    assert _stock_rows(found) == [("2026-08", Decimal("1050.00"), Decimal("1050.02"))]
+    note = next(row.note for row in found if row.check == STOCK_VS_INVENTORY)
+    assert "D-STK-20" not in note
+
+
 def _taxed_month(books: _Books) -> None:
     """Sell 100 + CGST 9 + SGST 9, and buy 200 + IGST 36, in April."""
     sale = books.sales_invoice("SI-T", "118.00")
