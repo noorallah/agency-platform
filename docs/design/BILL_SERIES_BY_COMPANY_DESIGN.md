@@ -377,10 +377,12 @@ GENERAL. That is why section 6 proposes no manual override.
    keeps its own series. The drive that proves this is
    `backend/scripts/drive_bill_series.py`; its cases and results are in
    `docs/qa/BILL_SERIES_BY_COMPANY_CASES.md`.
-5. A new firm pads bill numbers to six digits, which leaves room for a
-   three-letter prefix only. Settings shows the length that fits; shorten the
-   padding on the sales bill series to make room for a longer one (four digits
-   fit five letters with the short year).
+5. A firm set up before 2026-10-17 pads bill numbers to six digits with the
+   short year, which leaves room for a three-letter prefix only. Settings
+   shows the length that fits; shorten the padding on the sales bill series
+   to make room for a longer one (four digits fit five letters with the short
+   year). A firm set up since prints no year and eight digits, which fits a
+   prefix of up to seven letters (section 15).
 
 ## 15. More digits, no year printed -- Decided 2026-10-17 (owner)
 
@@ -452,6 +454,23 @@ number the prefix reached in any year. `TWO_DIGIT` prints `26` and is still
 counted per full year label. The 16-character check reads the format, so a
 prefix of up to 3, 6 or 9 characters fits with six digits under `SHORT`,
 `TWO_DIGIT` or `NONE`. New firms' defaults are unchanged until (c).
+
+**(c) is built (2026-10-17).** `DocumentTypeSpec` gained `year_format` and
+`separator`, defaulting to what every type printed before; only the
+`SALES_INVOICE` spec sets them (`NONE`, `/`, 8 digits). So the series a
+firm's first sales bill creates prints `SI/00000001`, or `ASIAN/00000001`
+under a company's prefix, with `auto_reset` off and one counter per prefix
+for its life. Nothing rewrites a series that already exists: a firm set up
+before keeps `SI-26-27-000001` until its administrator changes it, and no
+migration was needed. The 16-character check is unchanged and decides the
+fit: prefix + `/` + 8 digits leaves room for **7** characters, so a
+company prefix of 8 to 10 characters is refused at save on a new firm
+(the "up to 10 digits behind a five-letter prefix" in the decision is about
+the padding, not the prefix). The firm's own `SI` prints 11 characters.
+GSTR-1 Table 13 now reads the series behind a `/` as well as a `-`, so
+`SI/00000001` and `SI/00000002` declare one range rather than two, and the
+volume seeder (`scripts/seed_volume_firm.py`) counts a no-year series once
+across 1 April.
 
 **Open for the owner.** None; the build order puts it after the Buying sweep
 and the Viewer-menu fix.

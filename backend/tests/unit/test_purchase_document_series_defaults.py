@@ -79,7 +79,9 @@ def test_the_sales_invoice_series_stays_within_gst_length() -> None:
     _, rule = service._ensure_document_setup(firm_id=firm.id, actor_id=uuid4())
     assert rule.include_company_code is False
     assert rule.include_branch_code is False
-    assert rule.short_financial_year is True
+    # A new firm's bill prints no year at all: SI/00000001 (backlog 157 s.15).
+    assert rule.year_format == "NONE"
+    assert rule.include_financial_year is False
 
 
 # -- one default prefix, one document (D-BUY-46, D-BUY-57, D-BUY-58) ---------

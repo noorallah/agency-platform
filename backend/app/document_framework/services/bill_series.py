@@ -50,6 +50,7 @@ from app.document_framework.models.bill_series import (
 from app.document_framework.models.document_framework import (
     YEAR_FORMAT_NONE,
     YEAR_FORMAT_SHORT,
+    flags_for_year_format,
     year_format_of,
 )
 from app.document_framework.services.gst_numbering import gst_number_problem
@@ -257,20 +258,24 @@ def sales_bill_layout(session: Session, firm_id: UUID) -> DocumentNumberingRule:
     from app.sales_invoice.services.sales_invoice_service import SalesInvoiceService
 
     spec = SalesInvoiceService.DOCUMENT
+    # As `_ensure_document_setup` will build it: the spec's year format, else
+    # the short year every GST document defaults to.
+    year_format = spec.year_format or YEAR_FORMAT_SHORT
+    include, short = flags_for_year_format(year_format)
     return DocumentNumberingRule(
         firm_id=firm_id,
         code=spec.numbering_code,
         name=spec.numbering_name,
         prefix=spec.prefix,
         suffix=None,
-        separator="-",
+        separator=spec.separator,
         format_pattern=None,
-        include_financial_year=True,
-        short_financial_year=True,
-        year_format=YEAR_FORMAT_SHORT,
+        include_financial_year=include,
+        short_financial_year=short,
+        year_format=year_format,
         include_branch_code=False,
         include_company_code=False,
-        auto_reset=True,
+        auto_reset=include,
         manual_allowed=False,
         sequence_padding=spec.sequence_padding,
         next_sequence=1,

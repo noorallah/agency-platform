@@ -393,12 +393,9 @@ def test_sales_invoice_created_from_sales_order_reaches_draft() -> None:
     # gap plan item 3.3 surfaced (docs/BACKLOG.md 18.3). The line's product
     # and tax profile are still ids; that is the rest of 18.3.
     assert response.customer_name == "Customer CUS-001"
-    # The firm's financial year starts 1 April, and the invoice is dated
-    # 2026-08-04, so the number must carry the shared financial year. This
-    # module previously emitted a bare calendar year while purchase orders in
-    # the same period emitted 2026-2027. A tax invoice prints it as 26-27, to
-    # stay inside the 16 characters rule 46(b) allows (GST-2).
-    assert response.invoice_number.startswith("SI-26-27-")
+    # A new firm's tax invoice prints no year and eight digits, inside the 16
+    # characters rule 46(b) allows (GST-2, backlog 157 section 15).
+    assert response.invoice_number == "SI/00000001"
     assert len(response.invoice_number) <= 16
     assert response.grand_total == Decimal("400.0000")
     assert service.summary(firm_scope=firm.id).total == 1

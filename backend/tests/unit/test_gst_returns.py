@@ -439,6 +439,21 @@ def test_the_document_series_records_what_was_issued() -> None:
     assert docs[0]["count"] == 2
 
 
+def test_a_series_numbered_behind_a_slash_is_one_series() -> None:
+    """A new firm's bills print ``SI/00000001``; each is not its own series."""
+    books = _Books(_session_factory()())
+    books.invoice("SI/00000001")
+    books.invoice("SI/00000002")
+    books.invoice("ASIAN/00000001")
+
+    docs = sorted(books.gstr1()["docs"], key=lambda row: str(row["prefix"]))
+
+    assert [(row["prefix"], row["from"], row["to"]) for row in docs] == [
+        ("ASIAN", "ASIAN/00000001", "ASIAN/00000001"),
+        ("SI", "SI/00000001", "SI/00000002"),
+    ]
+
+
 def test_the_summary_return_matches_the_detail() -> None:
     """3B is derived from the documents, not parsed out of GSTR-1's JSON.
 

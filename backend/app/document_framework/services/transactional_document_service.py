@@ -34,12 +34,14 @@ from app.document_framework.models import (
     DocumentStateDefinition,
     DocumentTypeDefinition,
 )
+from app.document_framework.models.document_framework import YEAR_FORMAT_NONE
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
     DocumentNumberingRuleCreate,
     DocumentStateCreate,
     DocumentTypeCreate,
 )
+from app.document_framework.schemas.document_framework import YearFormat
 from app.document_framework.services.document_framework_service import (
     DocumentFrameworkService,
 )
@@ -77,6 +79,12 @@ class DocumentTypeSpec:
     #: False for a series that is not about a year -- a master's code (MST-5)
     #: carries no financial year and never starts again at one.
     yearly: bool = True
+    #: How the default series prints the year; ``None`` keeps the long-standing
+    #: choice -- the short year on a GST document, the full year elsewhere.
+    #: ``NONE`` prints no year and never restarts (design section 15).
+    year_format: YearFormat | None = None
+    #: What joins the parts of the default series' numbers.
+    separator: str = "-"
     rule_code: str = field(default="")
     rule_name: str = field(default="")
 
@@ -340,8 +348,11 @@ class TransactionalDocumentService:
         if numbering_rule is None:
             # A GST document's default prints ``SI-26-27-000001``: the full
             # year, a firm or a branch code would take it past the 16
-            # characters rule 46(b) allows (GST-2).
+            # characters rule 46(b) allows (GST-2). A spec naming its year
+            # format outranks both: the sales bill prints none, so its counter
+            # never restarts (design section 15).
             gst = spec.code in GST_NUMBERED_TYPES
+            prints_year = spec.yearly and spec.year_format != YEAR_FORMAT_NONE
             numbering_rule = self._documents.create_numbering_rule(
                 firm_id,
                 DocumentNumberingRuleCreate(
@@ -350,12 +361,13 @@ class TransactionalDocumentService:
                     name=spec.numbering_name,
                     prefix=spec.prefix,
                     suffix=None,
-                    separator="-",
-                    include_financial_year=spec.yearly,
+                    separator=spec.separator,
+                    include_financial_year=prints_year,
                     short_financial_year=gst,
+                    year_format=spec.year_format,
                     include_branch_code=spec.include_branch_code and not gst,
                     include_company_code=spec.include_company_code and not gst,
-                    auto_reset=spec.yearly,
+                    auto_reset=prints_year,
                     manual_allowed=False,
                     sequence_padding=spec.sequence_padding,
                     next_sequence=1,

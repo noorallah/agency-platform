@@ -83,6 +83,7 @@ from app.core.database import all_models  # noqa: F401  -- every table registere
 from app.core.database.base import Base
 from app.core.utils.dates import financial_year_label
 from app.core.utils.money import quantize_ledger, quantize_money
+from app.document_framework.services.bill_series import NO_YEAR, counter_year
 from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
 )
@@ -309,6 +310,10 @@ class FirmContext:
     end: date
     place_of_supply: str = f"{STATE_NAME} ({STATE_CODE})"
     firm_code: str = PERF01.code
+    #: Series keys whose numbers print no year and never restart -- a new
+    #: firm's sales bill, ``SI/00000001`` (backlog 157 section 15). Their
+    #: ``prefixes`` hold one entry, under ``NO_YEAR``.
+    no_year: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -466,8 +471,12 @@ class TradeSimulator:
         }
 
     def _number(self, key: str, on: date) -> str:
-        """Issue the next number of a series for a date's financial year."""
-        label = fy_label(on)
+        """Issue the next number of a series for a date's financial year.
+
+        A series that prints no year counts once for its life, so a new year
+        carries on rather than printing number 1 again.
+        """
+        label = NO_YEAR if key in self.ctx.no_year else fy_label(on)
         self.counters[(key, label)] += 1
         sequence = self.counters[(key, label)]
         return f"{self.ctx.prefixes[key][label]}{sequence:0{self.ctx.padding[key]}d}"
@@ -2521,6 +2530,7 @@ def read_context(
     prefixes: dict[str, dict[str, str]] = {}
     padding: dict[str, int] = {}
     document_types: dict[str, UUID] = {}
+    no_year: set[str] = set()
     years: list[date] = []
     year = fy_start(start)
     while year <= end:
@@ -2537,7 +2547,12 @@ def read_context(
         document_types[key] = document_type.id
         padding[key] = rule.sequence_padding
         prefixes[key] = {}
-        for first_day in years:
+        # A series that prints no year has one counter for its life: number 1
+        # is reserved once, and every year carries on from it.
+        once = counter_year(rule, fy_label(years[0])) == NO_YEAR
+        if once:
+            no_year.add(key)
+        for first_day in years[:1] if once else years:
             number = series._documents.reserve_number(
                 rule.id,
                 firm_id=firm_id,
@@ -2549,7 +2564,8 @@ def read_context(
             )
             if not number.endswith("1".rjust(rule.sequence_padding, "0")):
                 raise SystemExit(f"Series {key} did not start at 1: {number}.")
-            prefixes[key][fy_label(first_day)] = number[: -rule.sequence_padding]
+            label = NO_YEAR if once else fy_label(first_day)
+            prefixes[key][label] = number[: -rule.sequence_padding]
     return FirmContext(
         firm_id=firm_id,
         actor_id=actor_id,
@@ -2569,6 +2585,7 @@ def read_context(
         start=start,
         end=end,
         firm_code=firm_code,
+        no_year=frozenset(no_year),
     )
 
 

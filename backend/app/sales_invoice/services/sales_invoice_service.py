@@ -358,6 +358,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         category="FINANCE",
         module="sales_invoice",
         prefix="SI",
+        # A new firm's bills print no year: SI/00000001, or ASIAN/00000001
+        # under a company's series, and the counter never restarts. Existing
+        # firms keep the rule they already have (design section 15).
+        year_format="NONE",
+        separator="/",
+        sequence_padding=8,
         states=(
             DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
             DocumentStateSpec("APPROVED", "Approved", 2),

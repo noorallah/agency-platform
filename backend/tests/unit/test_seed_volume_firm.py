@@ -25,6 +25,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
+from app.document_framework.services.bill_series import NO_YEAR
 from scripts.seed_volume_firm import (
     SERIES_KEYS,
     FirmContext,
@@ -90,13 +91,18 @@ def _context() -> FirmContext:
         periods=_months(START, END),
         slabs=[slab, TaxSlab(Decimal("5"), uuid4(), "GST_5_LOCAL", uuid4(), uuid4())],
         prefixes={
-            key: {label: f"{key}-{label}-" for label in labels} for key in SERIES_KEYS
-        },
-        padding={key: 6 for key in SERIES_KEYS},
+            key: {label: f"{key}-{label}-" for label in labels}
+            for key in SERIES_KEYS
+            if key != "SI"
+        }
+        # A new firm's sales bill prints no year: one counter across 1 April.
+        | {"SI": {NO_YEAR: "SI/"}},
+        padding={key: 8 if key == "SI" else 6 for key in SERIES_KEYS},
         document_types={key: uuid4() for key in SERIES_KEYS},
         uom_id=None,
         start=START,
         end=END,
+        no_year=frozenset({"SI"}),
     )
 
 
@@ -322,6 +328,7 @@ def test_document_numbers_are_unique_and_follow_the_series(
         .all()
     )
     assert len(numbers) == len(set(numbers))
-    assert all(number.startswith("SI-") for number in numbers)
+    # A new firm's bills print no year: SI/00000001 (backlog 157 s.15).
+    assert all(number.startswith("SI/") for number in numbers)
     issued = sum(used for (key, _), used in simulator.counters.items() if key == "SI")
     assert issued == len(numbers)
