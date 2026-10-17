@@ -15,6 +15,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.commission.models import CommissionPayout, CommissionPayoutStatus
 from app.credit_note.models import CreditNote
 from app.customers.models import CustomerReceivableTransaction
 from app.customers.schemas.customer import (
@@ -24,14 +25,19 @@ from app.customers.schemas.customer import (
 from app.customers.services.customer_service import CustomerService
 from app.finance.models import JournalEntry, JournalLine
 from app.finance.services import money_consistency
-from app.finance.services.control_accounts import ControlAccountPurpose
+from app.finance.services.control_accounts import (
+    ControlAccountPurpose,
+    ControlAccountService,
+)
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine, JournalLineData
 from app.finance.services.money_consistency import (
+    COMMISSION_VS_PAYOUTS,
     DOCUMENT_WITHOUT_JOURNAL,
     GST_VS_RETURN,
     JOURNAL_UNBALANCED,
     JOURNAL_WITHOUT_DOCUMENT,
+    LOYALTY_VS_LEDGER,
     PAYABLES_BILLS,
     PAYABLES_LEDGER,
     RECEIVABLES_BILLS,
@@ -43,8 +49,10 @@ from app.finance.services.money_consistency import (
     check_money_consistency,
 )
 from app.firms.models import Firm
+from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
 from app.purchase_invoice.models import PurchaseInvoice
 from app.sales_invoice.models import SalesInvoice
+from app.salesmen.models import Salesman
 from app.settlements.models import Settlement
 from app.settlements.schemas import (
     SettlementAllocationWrite,
@@ -914,3 +922,282 @@ def test_a_firm_with_no_tds_or_tcs_accounts_is_not_checked() -> None:
     )
 
     assert found == []
+
+
+# ---- 8. loyalty payable against the points held ------------------------------
+
+
+def _points(
+    books: _Books,
+    kind: LoyaltyEntryKind,
+    points: str,
+    amount: str,
+    on: date,
+    *,
+    expires_on: date | None = None,
+    post: bool = True,
+) -> LoyaltyEntry:
+    """Write one loyalty movement and post it the way the service does."""
+    entry = LoyaltyEntry(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        kind=kind.value,
+        points=Decimal(points),
+        amount=Decimal(amount),
+        earned_on=on,
+        expires_on=expires_on,
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(entry)
+    books.session.flush()
+    if post:
+        posted = DocumentPostingService(books.session).post_loyalty(
+            firm_id=books.firm.id,
+            entry_id=entry.id,
+            reference=f"LOY-{entry.id.hex[:8]}",
+            on=on,
+            amount=Decimal(amount),
+            earning=Decimal(points) > 0,
+            actor_id=books.actor_id,
+        )
+        entry.journal_entry_id = None if posted is None else posted.id
+    books.session.commit()
+    return entry
+
+
+def _loyal(books: _Books) -> None:
+    """Earn 100 points at 50.00, spend 20 (10.00), and let a 20.00 batch lapse.
+
+    The lapsed batch is past its date and not yet swept, so Loyalty Payable
+    still carries it: 50.00 + 20.00 - 10.00 = 60.00.
+    """
+    _points(books, LoyaltyEntryKind.EARNED, "100", "50.00", date(2026, 4, 10))
+    _points(
+        books,
+        LoyaltyEntryKind.EARNED,
+        "40",
+        "20.00",
+        date(2026, 4, 20),
+        expires_on=date(2026, 5, 31),
+    )
+    _points(books, LoyaltyEntryKind.REDEEMED, "-20", "10.00", date(2026, 5, 2))
+
+
+def _loyalty_rows(found: list[Difference]) -> list[tuple[str, Decimal, Decimal]]:
+    return [
+        (row.document_ref, row.expected, row.actual)
+        for row in found
+        if row.check == LOYALTY_VS_LEDGER
+    ]
+
+
+def test_loyalty_payable_agrees_with_the_points_held() -> None:
+    books = _books()
+    _loyal(books)
+
+    assert _loyalty_rows(_check(books)) == []
+
+
+def test_the_points_held_are_read_at_cost() -> None:
+    """The clean case is not clean because nothing was read."""
+    books = _books()
+    _loyal(books)
+
+    assert money_consistency._loyalty_held(books.session, books.firm.id) == Decimal(
+        "60.00"
+    )
+
+
+def test_points_earned_with_no_journal_are_found() -> None:
+    books = _books()
+    _loyal(books)
+    _points(books, LoyaltyEntryKind.EARNED, "30", "15.00", WHEN, post=False)
+
+    rows = _loyalty_rows(_check(books))
+
+    assert [(expected, actual) for _, expected, actual in rows] == [
+        (Decimal("60.00"), Decimal("75.00"))
+    ]
+    assert "LOYALTY_PAYABLE" in rows[0][0]
+
+
+def _hand_journal(
+    books: _Books, purpose: ControlAccountPurpose, reference: str, amount: str
+) -> None:
+    """Credit an account by hand against the bank, as an opening balance is."""
+    context = DocumentPostingService(books.session).context_for(books.firm.id, WHEN)
+    engine = JournalEntryEngine(books.session)
+    entry = engine.create_entry(
+        firm_id=books.firm.id,
+        journal_type_id=context.journal_type_id,
+        voucher_type_id=context.voucher_type_id,
+        accounting_period_id=context.accounting_period_id,
+        journal_date=WHEN,
+        reference_number=reference,
+        description="Typed by hand",
+        lines=[
+            JournalLineData(
+                ledger_account_id=books.account(ControlAccountPurpose.BANK),
+                debit_amount=Decimal(amount),
+            ),
+            JournalLineData(
+                ledger_account_id=books.account(purpose),
+                credit_amount=Decimal(amount),
+            ),
+        ],
+        actor_id=books.actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+
+def test_a_hand_journal_on_loyalty_payable_is_not_counted() -> None:
+    books = _books()
+    _loyal(books)
+    _hand_journal(books, ControlAccountPurpose.LOYALTY_PAYABLE, "JV-LOY-1", "12.00")
+
+    assert _loyalty_rows(_check(books)) == []
+
+
+# ---- 9. commission payable against the payouts -------------------------------
+
+
+def _payout(
+    books: _Books, salesman: Salesman, month: int, amount: str, status: str
+) -> CommissionPayout:
+    """Write a payout and post what its status would have posted."""
+    start = date(2026, month, 1)
+    row = CommissionPayout(
+        firm_id=books.firm.id,
+        salesman_id=salesman.id,
+        period_start=start,
+        period_end=date(2026, month, 28),
+        earned_amount=Decimal(amount),
+        payable_amount=Decimal(amount),
+        status=status,
+        accrued_on=date(2026, month, 28),
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(row)
+    books.session.flush()
+    posting = DocumentPostingService(books.session)
+    reference = f"COM-{month}"
+    if status != CommissionPayoutStatus.DRAFT.value:
+        accrual = posting.post_commission_accrual(
+            firm_id=books.firm.id,
+            payout_id=row.id,
+            reference=reference,
+            accrued_on=row.accrued_on,
+            amount=Decimal(amount),
+            actor_id=books.actor_id,
+        )
+        row.journal_entry_id = accrual.id
+    if status == CommissionPayoutStatus.PAID.value:
+        paid = posting.post_commission_payment(
+            firm_id=books.firm.id,
+            payout_id=row.id,
+            reference=f"{reference}-PAY",
+            paid_on=row.accrued_on,
+            amount=Decimal(amount),
+            money_account_id=books.account(ControlAccountPurpose.BANK),
+            actor_id=books.actor_id,
+        )
+        row.payment_journal_entry_id = paid.id
+    if status == CommissionPayoutStatus.CANCELLED.value:
+        assert row.journal_entry_id is not None
+        JournalEntryEngine(books.session).reverse_entry(
+            row.journal_entry_id,
+            firm_id=books.firm.id,
+            reference_number=f"{reference}-REV",
+            journal_date=row.accrued_on,
+            actor_id=books.actor_id,
+        )
+    books.session.commit()
+    return row
+
+
+def _commissioned(books: _Books) -> Salesman:
+    """One salesman: April paid, May approved, June cancelled, a draft for July."""
+    salesman = Salesman(
+        firm_id=books.firm.id,
+        name="Salesman One",
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(salesman)
+    books.session.commit()
+    _payout(books, salesman, 4, "200.00", CommissionPayoutStatus.PAID.value)
+    _payout(books, salesman, 5, "300.00", CommissionPayoutStatus.APPROVED.value)
+    _payout(books, salesman, 6, "150.00", CommissionPayoutStatus.CANCELLED.value)
+    return salesman
+
+
+def _commission_rows(found: list[Difference]) -> list[tuple[str, Decimal, Decimal]]:
+    return [
+        (row.document_ref, row.expected, row.actual)
+        for row in found
+        if row.check == COMMISSION_VS_PAYOUTS
+    ]
+
+
+def test_commission_payable_agrees_with_the_payouts() -> None:
+    books = _books()
+    _commissioned(books)
+
+    assert _commission_rows(_check(books)) == []
+
+
+def test_an_approved_payout_with_no_journal_is_found() -> None:
+    books = _books()
+    salesman = _commissioned(books)
+    stray = _payout(books, salesman, 3, "80.00", CommissionPayoutStatus.DRAFT.value)
+    stray.status = CommissionPayoutStatus.APPROVED.value  # approved, never posted
+    books.session.commit()
+
+    rows = _commission_rows(_check(books))
+
+    assert [(expected, actual) for _, expected, actual in rows] == [
+        (Decimal("300.00"), Decimal("380.00"))
+    ]
+    assert "COMMISSION_PAYABLE" in rows[0][0]
+
+
+def test_a_hand_journal_on_commission_payable_is_not_counted() -> None:
+    books = _books()
+    _commissioned(books)
+    _hand_journal(books, ControlAccountPurpose.COMMISSION_PAYABLE, "JV-COM-1", "40.00")
+
+    assert _commission_rows(_check(books)) == []
+
+
+def test_loyalty_and_commission_are_skipped_without_their_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    books = _books()
+    _loyal(books)
+    _points(books, LoyaltyEntryKind.EARNED, "30", "15.00", WHEN, post=False)
+    salesman = _commissioned(books)
+    stray = _payout(books, salesman, 3, "80.00", CommissionPayoutStatus.DRAFT.value)
+    stray.status = CommissionPayoutStatus.APPROVED.value
+    books.session.commit()
+    mapping = ControlAccountService.mapping
+    unmapped = {
+        ControlAccountPurpose.LOYALTY_PAYABLE.value,
+        ControlAccountPurpose.COMMISSION_PAYABLE.value,
+    }
+
+    def _without(self: ControlAccountService, firm_id: UUID) -> dict[str, UUID]:
+        return {
+            purpose: account
+            for purpose, account in mapping(self, firm_id).items()
+            if purpose not in unmapped
+        }
+
+    monkeypatch.setattr(ControlAccountService, "mapping", _without)
+
+    found = _check(books)
+
+    assert _loyalty_rows(found) == []
+    assert _commission_rows(found) == []
