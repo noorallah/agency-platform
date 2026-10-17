@@ -1,0 +1,62 @@
+--- LOCAL bill PI-RCM01-HO-2026-2027-000001 (LR-LOCAL-001)
+PASS LOCAL bill approved: APPROVED
+PASS LOCAL no tax payable to transporter (tax_total 0, grand_total = owed = 10000): tax_total=0.0000 grand_total=10000.0000 owed=10000.00
+PASS LOCAL self-assessed heads {'CGST': 250, 'SGST': 250}: {'CGST': '250.0000', 'SGST': '250.0000'}
+PASS LOCAL RSI- self-invoice number: RSI-26-27-000001
+    2100 Trade Payables Dr 0.00 Cr 10000.00
+    5000 Purchases Dr 10000.00 Cr 0.00
+    1320 Input CGST Dr 250.00 Cr 0.00
+    1330 Input SGST Dr 250.00 Cr 0.00
+    2270 Reverse Charge CGST Payable Dr 0.00 Cr 250.00
+    2280 Reverse Charge SGST Payable Dr 0.00 Cr 250.00
+PASS LOCAL journal balanced: 10500.00
+PASS LOCAL Dr 10000 to one account that is not stock: ['5000 Purchases']
+PASS LOCAL Dr input tax total 500: {'1320 Input CGST': '250.00', '1330 Input SGST': '250.00'}
+PASS LOCAL Cr transporter payable 10000: {'2100 Trade Payables': '10000.00', '2270 Reverse Charge CGST Payable': '250.00', '2280 Reverse Charge SGST Payable': '250.00'}
+PASS LOCAL Cr RCM payable total 500: {'2270 Reverse Charge CGST Payable': '250.00', '2280 Reverse Charge SGST Payable': '250.00'}
+--- INTER bill PI-RCM01-HO-2026-2027-000002 (LR-INTER-001)
+PASS INTER bill approved: APPROVED
+PASS INTER no tax payable to transporter (tax_total 0, grand_total = owed = 10000): tax_total=0.0000 grand_total=10000.0000 owed=10000.00
+PASS INTER self-assessed heads {'IGST': 500}: {'IGST': '500.0000'}
+PASS INTER RSI- self-invoice number: RSI-26-27-000002
+    2100 Trade Payables Dr 0.00 Cr 10000.00
+    5000 Purchases Dr 10000.00 Cr 0.00
+    1310 Input IGST Dr 500.00 Cr 0.00
+    2260 Reverse Charge IGST Payable Dr 0.00 Cr 500.00
+PASS INTER journal balanced: 10500.00
+PASS INTER Dr 10000 to one account that is not stock: ['5000 Purchases']
+PASS INTER Dr input tax total 500: {'1310 Input IGST': '500.00'}
+PASS INTER Cr transporter payable 10000: {'2100 Trade Payables': '10000.00', '2260 Reverse Charge IGST Payable': '500.00'}
+PASS INTER Cr RCM payable total 500: {'2260 Reverse Charge IGST Payable': '500.00'}
+PASS no stock movement for either freight bill: 0 rows
+PASS two different RSI numbers
+--- GSTR-3B Oct 2026
+{'taxable_value': 20000.0, 'integrated_tax': 500.0, 'central_tax': 250.0, 'state_tax': 250.0, 'cess': 0.0} {'integrated_tax': 500.0, 'central_tax': 250.0, 'state_tax': 250.0, 'cess': 0.0}
+PASS 3.1(d) taxable 20000, CGST 250 SGST 250 IGST 500: {'taxable_value': 20000.0, 'integrated_tax': 500.0, 'central_tax': 250.0, 'state_tax': 250.0, 'cess': 0.0}
+PASS 4(A)(3) CGST 250 SGST 250 IGST 500: {'integrated_tax': 500.0, 'central_tax': 250.0, 'state_tax': 250.0, 'cess': 0.0}
+PASS not double-counted in 4(A)(5): {'integrated_tax': 0.0, 'central_tax': 0.0, 'state_tax': 0.0, 'cess': 0.0, 'bill_count': 0, 'bills_without_components': 0}
+--- GST payment
+{"cash_total": "1000.00", "heads": [{"head": "IGST", "liability": "0.00", "credit_brought_forward": "0.00", "credit_available": "500.00", "paid_by_credit": "0.00", "cash": "0.00", "credit_used": "0.00", "carried_forward": "500.00", "reverse_charge": "500.00", "paid_from_deposits": "0.00"}, {"head": "CGST", "liability": "0.00", "credit_brought_forward": "0.00", "credit_available": "250.00", "paid_by_credit": "0.00", "cash": "0.00", "credit_used": "0.00", "carried_forward": "250.00", "reverse_charge": "250.00", "paid_from_deposits": "0.00"}, {"head": "SGST", "liability": "0.00", "credit_brought_forward": "0.00", "credit_available": "250.00", "paid_by_credit": "0.00", "cash": "0.00", "credit_used": "0.00", "carried_forward": "250.00", "reverse_charge": "250.00", "paid_from_deposits": "0.00"}, {"head": "CESS", "liability": "0.00", "credit_brought_forward": "0.00", "credit_available": "0.00",
+PASS preview: cash = 1000 (RCM, cash only): 1000.00
+PASS GST payment recorded
+    2260 Reverse Charge IGST Payable Dr 500.00 Cr 0.00
+    2270 Reverse Charge CGST Payable Dr 250.00 Cr 0.00
+    2280 Reverse Charge SGST Payable Dr 250.00 Cr 0.00
+    1000 Cash Dr 0.00 Cr 1000.00
+PASS payment journal credits Cash 1000: [('1000 Cash', '1000.00')]
+PASS payment journal debits RCM payable 1000: [('2260 Reverse Charge IGST Payable', '500.00'), ('2270 Reverse Charge CGST Payable', '250.00'), ('2280 Reverse Charge SGST Payable', '250.00')]
+--- debit note off the LOCAL bill, taxable 4000
+201 {'success': True, 'data': {'id': 'f263061b-1c83-415e-9311-5215c6365bcb', 'firm_id': '87f8344b-987e-46de-bfdf-4ed10ad32260', 'vendor_id': '9170933a-4018-4eb3-92e1-f01b7272ffde', 'vendor_name': 'Swift Roadways Tamil Nadu (unregistered GTA)', 'branch_id': '38bf5aff-cdc3-457a-ab79-c5363bf726ae', 'purchase_invoice_id': '7ee1a887-f396-4cc9-aaff-036bc398daef', 'purchase_invoice_number': 'PI-RCM01-HO-2026-2027-000001', 'supplier_invoice_number': 'LR-LOCAL-001', 'debit_note_number': 'DBN-RCM01-HO-2026-20
+PASS debit note carries no tax of its own: None
+PASS debit note approved
+    2100 Trade Payables Dr 4000.00 Cr 0.00
+    5400 Purchase Price Variance Dr 0.00 Cr 4000.00
+    2270 Reverse Charge CGST Payable Dr 100.00 Cr 0.00
+    2280 Reverse Charge SGST Payable Dr 100.00 Cr 0.00
+    1320 Input CGST Dr 0.00 Cr 100.00
+    1330 Input SGST Dr 0.00 Cr 100.00
+PASS 3.1(d) now taxable 16000, CGST 150 SGST 150 IGST 500: {'taxable_value': 16000.0, 'integrated_tax': 500.0, 'central_tax': 150.0, 'state_tax': 150.0, 'cess': 0.0}
+PASS 4(A)(3) now CGST 150 SGST 150 IGST 500: {'integrated_tax': 500.0, 'central_tax': 150.0, 'state_tax': 150.0, 'cess': 0.0}
+preview after note: 800.00
+
+31/31 passed

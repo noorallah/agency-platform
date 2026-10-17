@@ -413,6 +413,42 @@ more than 30 days old from `thirty_day_rule_from` and lists what is pending
 
 `GET /api/v1/gst-returns/calendar` (`app/gst_returns/services/tax_calendar.py`) lists, for each of the last three months the firm traded in, GSTR-1 (due the 11th), GSTR-3B (the 20th) and, where tax was collected at source, the TCS deposit (the 7th), each as done, due or late. It reads the same figures the returns do and stores only the fact that a return was filed (`gst_return_filings`), because the portal is where filing happens. Monthly filers only.
 
+## How to switch on reverse charge (transport / GTA)
+
+Proved over HTTP on a clean firm on 2026-10-17 (`docs/qa/RCM_GTA_CHECK_ROUND_1_2026-10-17.md`;
+the screens were not driven). Nothing is on by default; a firm that buys freight
+from a goods transport agency that charges it no GST does this once:
+
+1. **Apply the GST template** to the firm (the Set up panel, or
+   `POST /api/v1/firms/{id}/apply-tax-template`). A firm that already has GST gets
+   the reverse-charge set added by code: the profiles `RCM_GTA_5` and
+   `RCM_LEGAL_18` and the four `RCM_*` rules, the rules INACTIVE.
+2. **Activate the rules**: `RCM_GTA_5_LOCAL` and `RCM_GTA_5_INTERSTATE` (legal
+   services: the `RCM_LEGAL_18_*` pair), by saving each with status ACTIVE
+   (`PUT /api/v1/tax-framework/rules/{id}`). Saving makes a new version: the
+   saved one is ACTIVE and the earlier version of the same code stays in the
+   list INACTIVE, which is expected.
+3. **Make the service item** (type Service) with tax profile group `RCM_GTA_5`
+   and SAC 996511, for example "Freight inward (GTA)". The rules match the item's
+   profile group, so assign it to nothing else.
+4. **Make the transporter a supplier** with GST registration "Unregistered" and
+   a billing address that has a state. The state against the firm's decides the
+   case: the same state charges CGST + SGST (2.5 + 2.5), another state charges
+   IGST 5. A transporter with a GSTIN is placed by the GSTIN's state code.
+5. **Enter the freight as a purchase bill** with that item. The bill's total is
+   the freight alone (no tax payable to the supplier), `reverse_charge_tax_total`
+   carries the self-assessed tax, and approval issues the self-invoice number
+   `RSI-yy-yy-nnnnnn` from its own series.
+
+What to expect, so it can be checked: the journal debits Purchases (an expense,
+not stock; a service moves no stock) and input tax per head, and credits the
+supplier and the reverse-charge payable per head. GSTR-3B shows the freight and
+tax in 3.1(d) and the credit in 4(A)(3). The GST payment adds the reverse-charge
+tax to the **cash** challan; no credit can pay it. A debit note or return against
+the bill takes its share of the tax off again. A firm that has not done steps 1
+to 3 is billed exactly as before. The postings are in
+`docs/LEDGER_POSTING_RULES.md`, "Reverse charge on a purchase bill".
+
 ## Where the code is
 
 | Concern | File |
