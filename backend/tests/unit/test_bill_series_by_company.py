@@ -5,9 +5,11 @@ this file holds items 1, 3 to 10 -- 7 as the migration's backfill run on a
 store as it looked before. Item 2, the race, needs a real lock and lives in
 `tests/integration/test_bill_series_race.py`.
 
-The sales bill's default layout is ``SI-26-27-000001``: a short year and six
-digits. With it a company prefix of up to three characters fits the sixteen
-CGST rule 46(b) allows, so the prefixes here are short.
+Most tests run on a firm set up before section 15 (c), whose sales-bill layout
+is ``SI-26-27-000001``: a short year and six digits. With it a company prefix
+of up to three characters fits the sixteen CGST rule 46(b) allows, so the
+prefixes here are short. A firm set up since prints no year and eight digits,
+``SI/00000001``; the ``new_shop`` tests at the end hold that.
 """
 
 import importlib.util
@@ -55,12 +57,39 @@ ACTOR = uuid4()
 class _Shop:
     """A counter firm selling the goods of a few companies."""
 
-    def __init__(self) -> None:
-        """Build the firm with every stage of the chain left to the services."""
+    def __init__(self, *, existing: bool = True) -> None:
+        """Build the firm with every stage of the chain left to the services.
+
+        ``existing`` gives it the sales-bill series a firm set up before
+        section 15 (c) holds; without it the firm has no series until its
+        first bill makes one.
+        """
         self.setup = _Firm(_session_factory()())
         self.setup.stages(quotation=False, sales_order=False, delivery_note=False)
         self.session = self.setup.session
         self.firm_id = self.setup.firm.id
+        if existing:
+            self._older_layout()
+
+    def _older_layout(self) -> None:
+        """Turn the firm's sales-bill series into ``SI-26-27-000001``."""
+        rule = self.bill_rule()
+        DocumentFrameworkService(self.session).update_numbering_rule(
+            self.firm_id,
+            rule.id,
+            DocumentNumberingRuleUpdate(
+                document_type_id=rule.document_type_id,
+                code=rule.code,
+                name=rule.name,
+                prefix=rule.prefix,
+                separator="-",
+                year_format="SHORT",
+                auto_reset=True,
+                sequence_padding=6,
+            ),
+            ACTOR,
+        )
+        self.session.commit()
 
     def company(self, code: str, prefix: str | None) -> Principal:
         """Add a company, with or without a bill series prefix."""
@@ -157,8 +186,16 @@ class _Shop:
 
 @pytest.fixture
 def shop() -> Iterator[_Shop]:
-    """Yield a fresh firm for one test."""
+    """Yield a firm set up before section 15 (c), for one test."""
     built = _Shop()
+    yield built
+    built.session.close()
+
+
+@pytest.fixture
+def new_shop() -> Iterator[_Shop]:
+    """Yield a firm set up today, with no sales-bill series yet."""
+    built = _Shop(existing=False)
     yield built
     built.session.close()
 
@@ -414,13 +451,16 @@ def test_the_preview_names_the_number_the_saved_bill_gets(shop: _Shop) -> None:
     assert mixed.number == shop.bill(asian, pidi).invoice_number
 
 
-def test_the_preview_writes_nothing_for_a_firm_that_never_billed(shop: _Shop) -> None:
+def test_the_preview_writes_nothing_for_a_firm_that_never_billed(
+    new_shop: _Shop,
+) -> None:
     """A firm with no series yet is shown the one its first bill makes."""
-    preview = BillSeriesService(shop.session).preview(
-        shop.firm_id, [shop.setup.product.id], on=date(2026, 8, 4)
+    preview = BillSeriesService(new_shop.session).preview(
+        new_shop.firm_id, [new_shop.setup.product.id], on=date(2026, 8, 4)
     )
-    assert preview.number == "SI-26-27-000001"
-    assert shop.session.scalars(select(DocumentNumberingRule)).all() == []
+    assert preview.number == "SI/00000001"
+    assert new_shop.session.scalars(select(DocumentNumberingRule)).all() == []
+    assert new_shop.bill(new_shop.setup.product).invoice_number == preview.number
 
 
 # -- 7. the backfill ----------------------------------------------------------
@@ -657,3 +697,97 @@ def test_the_year_format_backfill_keeps_every_rule_printing_as_before(
     shop.session.refresh(rule)
 
     assert rule.year_format == "SHORT"
+
+
+# -- 15 (c). a new firm's default ---------------------------------------------
+def test_a_new_firm_s_sales_bills_print_no_year_and_eight_digits(
+    new_shop: _Shop,
+) -> None:
+    """``SI/00000001``, and ``ASIAN/00000001`` under a company's series."""
+    asian = new_shop.product("A1", new_shop.company("ASIAN", "ASIAN"))
+    new_shop.by_company()
+
+    general = new_shop.bill(new_shop.setup.product)
+    company = new_shop.bill(asian)
+    rule = new_shop.bill_rule()
+
+    assert general.invoice_number == "SI/00000001"
+    assert company.invoice_number == "ASIAN/00000001"
+    assert (rule.year_format, rule.separator, rule.sequence_padding) == (
+        "NONE",
+        "/",
+        8,
+    )
+    assert rule.auto_reset is False
+    assert rule.include_financial_year is False
+
+
+def test_a_new_firm_s_counter_carries_on_across_a_new_year(new_shop: _Shop) -> None:
+    """No yearly restart, so 1 April never prints a number twice."""
+    rule = new_shop.bill_rule()
+
+    numbers = [
+        _issue(new_shop, rule, date(2027, 3, 30), "ASIAN"),
+        _issue(new_shop, rule, date(2027, 4, 2), "ASIAN"),
+        _issue(new_shop, rule, date(2027, 3, 31), None),
+        _issue(new_shop, rule, date(2027, 4, 1), None),
+    ]
+
+    assert numbers == [
+        "ASIAN/00000001",
+        "ASIAN/00000002",
+        "SI/00000001",
+        "SI/00000002",
+    ]
+    assert len(set(numbers)) == len(numbers)
+
+
+def test_a_new_firm_takes_a_prefix_of_seven_and_refuses_ten(new_shop: _Shop) -> None:
+    """Prefix, ``/`` and eight digits: seven letters fill the sixteen exactly."""
+    brands = BrandService(new_shop.session)
+    assert longest_prefix(new_shop.session, new_shop.firm_id) == 7
+
+    with pytest.raises(ValidationError, match="up to 7 characters"):
+        brands.save_principal(
+            PrincipalWrite(code="ASIAN", name="Asian", bill_series_prefix="ASIANPAINT"),
+            firm_id=new_shop.firm_id,
+            actor_id=ACTOR,
+        )
+    new_shop.session.rollback()
+
+    saved = brands.save_principal(
+        PrincipalWrite(code="ASIAN", name="Asian", bill_series_prefix="ASIANPT"),
+        firm_id=new_shop.firm_id,
+        actor_id=ACTOR,
+    )
+    assert saved.bill_series_prefix == "ASIANPT"
+
+
+def test_a_firm_set_up_before_keeps_its_layout(shop: _Shop) -> None:
+    """The new default is only for a series not made yet; nothing is rewritten."""
+    rule = shop.bill_rule()
+
+    assert shop.bill(shop.setup.product).invoice_number == "SI-26-27-000001"
+    assert (rule.year_format, rule.separator, rule.sequence_padding) == (
+        "SHORT",
+        "-",
+        6,
+    )
+    assert rule.auto_reset is True
+
+
+@pytest.mark.parametrize(
+    "service_type", [SalesReturnService, CreditNoteService, ProformaService]
+)
+def test_other_documents_of_a_new_firm_keep_their_default(
+    new_shop: _Shop, service_type: type[SalesReturnService]
+) -> None:
+    """Only the sales bill's default moved; the rest still print the year."""
+    _, rule = service_type(new_shop.session)._ensure_document_setup(
+        firm_id=new_shop.firm_id, actor_id=ACTOR
+    )
+
+    assert rule.separator == "-"
+    assert rule.sequence_padding == 6
+    assert rule.year_format != "NONE"
+    assert rule.auto_reset is True

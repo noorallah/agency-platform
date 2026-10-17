@@ -2687,7 +2687,10 @@ class GstReturnService:
         )
         for invoice_id, number, status, invoice_date in rows:
             text = number or ""
-            prefix = text.rsplit("-", 1)[0] if "-" in text else text
+            # The series is what comes before the running number, behind a
+            # "-" or, as a new firm's bills print it, a "/" (SI/00000001).
+            cut = max(text.rfind("-"), text.rfind("/"))
+            prefix = text[:cut] if cut > 0 else text
             row = series.setdefault(
                 prefix,
                 {
