@@ -11,7 +11,9 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.credit_note.models import CreditNote
 from app.customers.models import CustomerReceivableTransaction
@@ -33,10 +35,12 @@ from app.finance.services.money_consistency import (
     PAYABLES_LEDGER,
     RECEIVABLES_BILLS,
     RECEIVABLES_LEDGER,
+    STOCK_VS_INVENTORY,
     TRIAL_BALANCE,
     Difference,
     check_money_consistency,
 )
+from app.firms.models import Firm
 from app.purchase_invoice.models import PurchaseInvoice
 from app.sales_invoice.models import SalesInvoice
 from app.settlements.schemas import (
@@ -512,6 +516,65 @@ def test_a_journal_whose_document_is_gone_is_named() -> None:
     orphans = _april(found, JOURNAL_WITHOUT_DOCUMENT)
     assert [row.document_ref for row in orphans] == ["Journal SI-1"]
     assert "deleted" in orphans[0].note
+
+
+def _stocked_firm(monkeypatch: pytest.MonkeyPatch) -> tuple[Session, Firm]:
+    """Bring opening stock in at cost: Dr Inventory 1,050.00, stock the same."""
+    from tests.unit.test_stock_valuation import _stocked
+
+    monkeypatch.setattr(money_consistency, "firm_today", lambda *_: date(2026, 8, 15))
+    return _stocked()
+
+
+def _stock_rows(found: list[Difference]) -> list[tuple[str, Decimal, Decimal]]:
+    return [
+        (row.period, row.expected, row.actual)
+        for row in found
+        if row.check == STOCK_VS_INVENTORY
+    ]
+
+
+def test_stock_and_the_inventory_account_agree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, firm = _stocked_firm(monkeypatch)
+
+    found = check_money_consistency(session, firm.id)
+
+    assert _stock_rows(found) == []
+
+
+def test_stock_that_moved_with_no_journal_is_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.inventory.models import InventoryTransaction
+    from app.products.models import Product
+
+    session, firm = _stocked_firm(monkeypatch)
+    rice = session.scalars(select(Product).where(Product.code == "RICE")).one()
+    moved = session.scalars(
+        select(InventoryTransaction).where(InventoryTransaction.product_id == rice.id)
+    ).first()
+    assert moved is not None
+    # Two more units counted onto the shelf, and nothing posted for them.
+    copied = {
+        attr.key: getattr(moved, attr.key)
+        for attr in sa_inspect(InventoryTransaction).column_attrs
+        if attr.key not in ("id", "version", "created_at", "updated_at")
+    }
+    copied.update(
+        quantity=Decimal("2"),
+        current_quantity_delta=Decimal("2"),
+        owned_quantity_delta=None,
+        reference_number="STOCK-ONLY-1",
+    )
+    session.add(InventoryTransaction(**copied))
+    session.commit()
+
+    found = check_money_consistency(session, firm.id)
+
+    # The books hold 1,050.00; the shelf now holds two more at 50.00.
+    assert _stock_rows(found) == [("2026-08", Decimal("1050.00"), Decimal("1150.00"))]
 
 
 def test_months_outside_the_range_are_not_read() -> None:

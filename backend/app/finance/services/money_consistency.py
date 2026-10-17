@@ -46,13 +46,19 @@ Checks, per month (an accounting period of the firm):
    a settlement naming a journal that does not stand; and a journal whose
    document is missing, deleted, or cancelled while the journal was never
    reversed.
+5. **Stock agrees with the books.** The stock valuation's grand total
+   (``StockValuationService.valuation``, the *Stock valuation* report:
+   quantity owned times the moving-average cost, or each lot's value for a
+   firm costing by lot) equals the Inventory control account's balance, as
+   at today only.
 
 ``check_money_consistency`` returns one ``Difference`` per disagreement;
 ``scripts/check_money_consistency.py`` prints them for a firm or every firm.
 
 TODO, later parts of item 30 (not built here):
 
-* Stock value against the inventory control account, per month.
+* Stock value against the inventory control account at each month's end;
+  check 5 asks it as at today only.
 * GST: output and input tax accounts against GSTR-1 / GSTR-3B for the month.
 * TCS collected against TCS payable; TDS deducted against TDS payable and
   the challans paid.
@@ -109,6 +115,12 @@ PAYABLES_LEDGER = "PAYABLES_LEDGER_VS_SUPPLIERS"
 PAYABLES_BILLS = "PAYABLES_SUPPLIER_VS_BILLS"
 DOCUMENT_WITHOUT_JOURNAL = "DOCUMENT_WITHOUT_JOURNAL"
 JOURNAL_WITHOUT_DOCUMENT = "JOURNAL_WITHOUT_DOCUMENT"
+STOCK_VS_INVENTORY = "STOCK_VALUE_VS_INVENTORY_ACCOUNT"
+
+#: The stock valuation rounds each item to the paisa before adding them up,
+#: so the grand total may stand a paisa away from the account without either
+#: being wrong.
+STOCK_TOLERANCE = Decimal("0.01")
 
 
 @dataclass(frozen=True)
@@ -156,6 +168,7 @@ def check_money_consistency(
     controls = ControlAccountService(session).mapping(firm_id)
     receivable = controls.get(ControlAccountPurpose.ACCOUNTS_RECEIVABLE.value)
     payable = controls.get(ControlAccountPurpose.ACCOUNTS_PAYABLE.value)
+    inventory = controls.get(ControlAccountPurpose.INVENTORY.value)
     for period in months:
         label = f"{period.starts_on:%Y-%m}"
         found += _trial_balance(session, firm_id, period, label)
@@ -169,6 +182,8 @@ def check_money_consistency(
             found += _receivables_against_bills(session, firm_id, today)
         if payable is not None:
             found += _payables_against_bills(session, firm_id, today)
+        if inventory is not None:
+            found += _stock_vs_inventory_account(session, firm_id, inventory, today)
     found += _documents_without_journals(session, firm_id, months)
     found += _journals_without_documents(session, firm_id, months)
     return found
@@ -821,6 +836,51 @@ def _journals_without_documents(
                 )
             )
     return found
+
+
+# ---- 5. stock --------------------------------------------------------------
+
+
+def _stock_vs_inventory_account(
+    session: Session, firm_id: UUID, account_id: UUID, today: date
+) -> list[Difference]:
+    """Check the stock valuation's grand total against the Inventory account.
+
+    The total is the *Stock valuation* report's own, so a difference here is
+    the one that report shows on its last row: stock that moved at a cost no
+    journal carried, or a journal on the account no stock movement made.
+    """
+    from app.inventory.services.stock_valuation import StockValuationService
+
+    stock = next(
+        (
+            row.value
+            for row in StockValuationService(session).valuation(firm_id, on=today)
+            if row.row_type == "TOTAL"
+        ),
+        ZERO,
+    )
+    code, ledger = _account_balance(session, firm_id, account_id, today)
+    stock = _money(stock)
+    if abs(stock - ledger) <= STOCK_TOLERANCE:
+        return []
+    return [
+        Difference(
+            STOCK_VS_INVENTORY,
+            f"{today:%Y-%m}",
+            f"Account {code}",
+            ledger,
+            stock,
+            "the Inventory account against the stock valuation's grand total, "
+            f"as at {today.isoformat()} -- "
+            + (
+                "stock valued above the books: a movement no journal carried"
+                if stock > ledger
+                else "the books above the stock: a journal on the account no "
+                "stock movement made"
+            ),
+        )
+    ]
 
 
 __all__ = ["Difference", "check_money_consistency"]
