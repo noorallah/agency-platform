@@ -18,5 +18,6 @@ for e in entries:
         print(f"FAIL {e['path']} SLOW {ms} ms")
         bad += 1
     c.passed += ok
+c.ok(bad == 0, "every report reads clean", bad)
 print(f"tally: {len(entries)} reports, {bad} not clean")
 c.done()
