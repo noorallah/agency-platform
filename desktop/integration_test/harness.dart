@@ -186,6 +186,20 @@ Future<void> openSetUp(WidgetTester tester, String path,
   await tester.tap(tile);
   await pumpFor(tester, const Duration(milliseconds: 500));
   final Finder card = find.byKey(ValueKey<String>('setup-card-$path'));
+  // A section that opens as one screen (Pricing, since 2026-10) has a single
+  // "setup-subject-" card and a tab per step instead of a card per screen.
+  final Finder subject = find.byWidgetPredicate((Widget w) =>
+      w.key is ValueKey<String> &&
+      (w.key! as ValueKey<String>).value.startsWith('setup-subject-'));
+  if (card.evaluate().isEmpty && subject.evaluate().isNotEmpty) {
+    await tester.tap(subject.first);
+    await pumpFor(tester, const Duration(seconds: 2));
+    final Finder tab = find.byKey(ValueKey<String>('subject-tab-$path'));
+    await pumpUntil(tester, tab, waitingFor: 'subject tab $path');
+    await tester.tap(tab.first);
+    await pumpFor(tester, const Duration(seconds: 3));
+    return;
+  }
   await pumpUntil(tester, card, waitingFor: 'settings card $path');
   await tester.ensureVisible(card);
   await pumpFor(tester, const Duration(milliseconds: 300));
