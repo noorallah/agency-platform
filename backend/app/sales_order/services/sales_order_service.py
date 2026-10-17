@@ -169,6 +169,7 @@ from app.tax.services.tax_rule_service import TaxRuleService
 from app.trade_licences.services.licence_check import (
     LicenceCheckService,
     LicenceDocument,
+    no_expiry_warning,
 )
 from app.uom.schemas import ConversionRequest
 from app.uom.services import (
@@ -706,6 +707,14 @@ class SalesOrderService(TransactionalDocumentService):
             row, data.attachments, actor_id=actor_id, firm_id=firm_id
         )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
+        # A drug licence with no expiry date warns, never blocks (owner
+        # decision 2026-10-17); recorded as credit_warning is at approval.
+        expiry_warning = no_expiry_warning(
+            self._session, firm_id, row.customer_id, row.order_date
+        )
+        warned: dict[str, object] = (
+            {} if expiry_warning is None else {"licence_expiry_warning": expiry_warning}
+        )
         self._record_event(
             firm_id=firm_id,
             document_type=document_type,
@@ -714,6 +723,7 @@ class SalesOrderService(TransactionalDocumentService):
             from_state=None,
             to_state=row.status,
             actor_id=actor_id,
+            details=warned or None,
         )
         record_audit(
             self._session,
@@ -722,7 +732,11 @@ class SalesOrderService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={"order_number": row.order_number, "status": row.status},
+            after_data={
+                "order_number": row.order_number,
+                "status": row.status,
+                **warned,
+            },
         )
         self._flush_or_conflict("Sales order number already exists in this firm.")
         return row

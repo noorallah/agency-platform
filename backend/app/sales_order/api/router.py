@@ -81,6 +81,7 @@ from app.trade_licences.api.override import (
     LicenceOverrideReason,
     authorised_override,
 )
+from app.trade_licences.services.licence_check import no_expiry_warning
 
 #: How many orders one back-order read may name; more is a 422, and a caller
 #: with more than this wants the whole report.
@@ -280,7 +281,11 @@ def create_sales_order(
         actor_id=scope.actor_id,
         may_choose=_may_choose(scope),
     )
-    return ApiResponse(data=service.order_response(row, show_cost=_sees_cost(scope)))
+    warning = no_expiry_warning(db, scope.firm_id, row.customer_id, row.order_date)
+    return ApiResponse(
+        data=service.order_response(row, show_cost=_sees_cost(scope)),
+        message=None if warning is None else str(warning["message"]),
+    )
 
 
 @router.post("/preview", response_model=ApiResponse[SalesOrderPreview])
