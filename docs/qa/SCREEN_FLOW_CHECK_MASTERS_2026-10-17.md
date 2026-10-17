@@ -41,6 +41,30 @@ vendor `SUP-00003` "MST Screen Vendor" with GSTIN `12ABC` and phone `+9198123456
 | sc_mst_test, editors | tradeadmin | **9 passed, 0 failed** (final run; earlier runs failed on flow mistakes, see "Notes") |
 | sc_mst_test, editors | qro | **2 passed, 0 failed** |
 
+### Re-run after the fixes (#1709/#1710), main 9cbcb7c2, tradeadmin
+
+Same flow, same fixture firm, backend restarted on #1709, run from `D:\ws\mq`
+(updated to origin/main), one attempt per part, no start-up deaths.
+
+| Part | Result |
+| --- | --- |
+| lists | **16 passed, 0 failed** |
+| places | **8 passed, 0 failed** (1600x1000 and 800x600) |
+| editors | **9 passed, 0 failed** |
+
+| Case | Before | Now |
+| --- | --- | --- |
+| MST-VN-010 empty Save | "The request validation failed." | pass: editor stays open, nothing saved, message reads "Vendor name is required." |
+| MST-VN-011b GSTIN "12ABC" | saved as SUP-00003 | pass: refused, nothing saved, editor open. The flow's text capture only picked up the "Not set" hints, so the refusal wording itself was not recorded |
+| MST-GE-002 no-match wording | "No countries here yet" | pass: `No countries match "zzqx-none"` / "Clear the search to see them all." / 0 records |
+| MST-GE-004 select India at 800x600 | RenderFlex overflow, 43 px | pass: no overflow |
+| MST-VN-013 phone change read back | pass | pass (+919812345678 on the server) |
+
+MST-VN-013 and candidate 5 (row click in a searched list): the flow clears the
+search (`searchList(tester, '')`) before it selects the row, so the searched-list
+click is not exercised and no verdict on it was reached; it is not shown to be a
+real defect. qro was not re-run.
+
 ### Cases
 
 Vendors (MST-VN) and Products (MST-PR), both sizes unless noted:
