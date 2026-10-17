@@ -111,8 +111,16 @@ class _VendorApi extends ApiClient {
         _ => const <GeoPlaceRecord>[],
       };
 
+  /// When set, the next create is refused with it.
+  ApiException? refuseCreate;
+
   @override
   Future<Vendor> createVendor(Json data) async {
+    final ApiException? refusal = refuseCreate;
+    if (refusal != null) {
+      refuseCreate = null;
+      throw refusal;
+    }
     saved = data;
     return Vendor.fromJson(_vendorJson());
   }
@@ -253,6 +261,57 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.saved, isNotNull);
     expect(api.saved!.containsKey('code'), isFalse);
+  });
+
+  testWidgets('a refused save names the field, not only "validation failed"',
+      (tester) async {
+    // MST-VN-010: an empty Save said only "The request validation failed.";
+    // and a refusal the server names a field for kept the name to itself.
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _VendorApi api = _VendorApi();
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: VendorManagementPage(
+          api: api,
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New vendor'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('vendor-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Vendor name is required.'), findsOneWidget);
+    expect(api.saved, isNull);
+
+    api.refuseCreate = const ApiException(
+      'The request validation failed.',
+      statusCode: 422,
+      details: <Object>[
+        <String, dynamic>{
+          'field': 'body.gstin',
+          'message': 'Value error, A GSTIN is 15 characters.',
+        },
+      ],
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Vendor Name'),
+      'Supplier Two',
+    );
+    await tester.tap(find.byKey(const ValueKey('vendor-save')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('The request validation failed.\n'
+          'gstin: Value error, A GSTIN is 15 characters.'),
+      findsOneWidget,
+    );
+    expect(api.saved, isNull);
   });
 
   group('the TDS switch (backlog 113)', () {

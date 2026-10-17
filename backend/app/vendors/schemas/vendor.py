@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import validate_email, validate_phone
+from app.core.validation.common import normalize_gstin
 from app.finance.tds import TDS_SECTIONS
 from app.vendors.gst_registration import SupplierGstType
 
@@ -138,6 +139,12 @@ class VendorTaxInput(VendorSchema):
     def normalize_codes(cls, value: str | None) -> str | None:
         """Normalize codes."""
         return value.strip().upper() if value else None
+
+    @field_validator("gstin")
+    @classmethod
+    def _gstin_shape(cls, value: str | None) -> str | None:
+        """Refuse a GSTIN of the wrong shape; a blank one is no GSTIN."""
+        return normalize_gstin(value)
 
 
 class VendorAttachmentInput(VendorSchema):
@@ -309,6 +316,12 @@ class VendorWrite(VendorSchema):
         normalized = value.strip().upper()
         return normalized or None
 
+    @field_validator("gstin")
+    @classmethod
+    def _gstin_shape(cls, value: str | None) -> str | None:
+        """Refuse a GSTIN of the wrong shape; a blank one is no GSTIN."""
+        return normalize_gstin(value)
+
     @field_validator("name", "legal_name", "display_name", mode="before")
     @classmethod
     def normalize_names(cls, value: str | None) -> str | None:
@@ -450,6 +463,12 @@ class VendorTaxResponse(VendorTaxInput):
     id: UUID
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("gstin")
+    @classmethod
+    def _gstin_shape(cls, value: str | None) -> str | None:
+        """Read a stored GSTIN back as it is, so an old malformed one still lists."""
+        return value
 
 
 class VendorAttachmentResponse(VendorAttachmentInput):

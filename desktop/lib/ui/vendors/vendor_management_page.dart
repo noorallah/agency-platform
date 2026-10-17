@@ -2438,6 +2438,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         ],
       );
 
+  /// Shows [message] in the save banner without asking the server.
+  void _refuse(String message) => setState(() => saveError = message);
+
   /// Warns and answers true when the currency is typed but is not a
   /// three-letter code. Blank is rupees.
   String? _currencyProblem() {
