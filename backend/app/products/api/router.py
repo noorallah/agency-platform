@@ -522,13 +522,19 @@ def update_principal(
     scope: ProductUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PrincipalResponse]:
-    """Change a principal (MST-1)."""
+    """Change a principal (MST-1).
+
+    A bill series prefix bills are already numbered under is changed by an
+    administrator (``SETTINGS_UPDATE``, as the numbering series are): the new
+    prefix starts its own series and the old one is kept (backlog 157 s.15).
+    """
     return ApiResponse(
         data=BrandService(db).save_principal(
             data,
             firm_id=scope.firm_id,
             actor_id=scope.actor_id,
             principal_id=principal_id,
+            may_change_issued_prefix=scope.principal.has_permission("SETTINGS_UPDATE"),
         )
     )
 

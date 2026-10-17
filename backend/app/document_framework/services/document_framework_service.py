@@ -51,6 +51,7 @@ from app.document_framework.services.bill_series import (
     BillSeriesCounters,
     company_prefixes_in_use,
     counter_year,
+    series_capacity,
     series_key,
 )
 from app.document_framework.services.gst_numbering import (
@@ -831,10 +832,15 @@ class DocumentFrameworkService:
         company's series counts under its prefix and the year alone, so two
         companies sharing a prefix share one running number. A layout that
         prints no year counts under the prefix alone and never restarts.
+
+        A series never prints more digits than its padding: past the last
+        number it is refused, and a new prefix starts a new series (design
+        section 15).
         """
         series = BillSeriesCounters(self._session)
         key = series_key(rule, series_prefix)
         year = counter_year(rule, label)
+        ceiling = series_capacity(rule)
         if key == GENERAL_SERIES:
             counter = self._sequence_for(rule, scope_signature, actor_id=actor_id)
             sequence = series.issue(
@@ -843,6 +849,7 @@ class DocumentFrameworkService:
                 year,
                 floor=counter.next_sequence,
                 actor_id=actor_id,
+                ceiling=ceiling,
             )
             counter.next_sequence = sequence + 1
             rule.next_sequence = counter.next_sequence
@@ -852,7 +859,9 @@ class DocumentFrameworkService:
                 counter.updated_by = actor_id
             shown: str | None = None
         else:
-            sequence = series.issue(rule.firm_id, key, year, floor=1, actor_id=actor_id)
+            sequence = series.issue(
+                rule.firm_id, key, year, floor=1, actor_id=actor_id, ceiling=ceiling
+            )
             shown = key
         return self._format_number(
             rule,
@@ -879,25 +888,14 @@ class DocumentFrameworkService:
         a bill form shows and the number the saved bill gets agree.
         """
         label = self._year_label(rule.firm_id, document_date, None)
-        series = BillSeriesCounters(self._session)
         key = series_key(rule, series_prefix)
-        year = counter_year(rule, label)
-        if key == GENERAL_SERIES:
-            scope_signature = self._scope_signature(
-                rule,
-                financial_year_label=label,
-                branch_code=branch_code,
-                company_code=company_code,
-                document_date=document_date,
-            )
-            sequence = max(
-                series.peek(rule.firm_id, GENERAL_SERIES, year),
-                self._previewed_sequence(rule, scope_signature),
-            )
-            shown: str | None = None
-        else:
-            sequence = series.peek(rule.firm_id, key, year)
-            shown = key
+        sequence = self.next_bill_sequence(
+            rule,
+            series_prefix=series_prefix,
+            document_date=document_date,
+            branch_code=branch_code,
+            company_code=company_code,
+        )
         return self._format_number(
             rule,
             sequence=sequence,
@@ -905,7 +903,39 @@ class DocumentFrameworkService:
             branch_code=branch_code,
             company_code=company_code,
             document_date=document_date,
-            prefix=shown,
+            prefix=None if key == GENERAL_SERIES else key,
+        )
+
+    def next_bill_sequence(
+        self,
+        rule: DocumentNumberingRule,
+        *,
+        series_prefix: str | None,
+        document_date: date,
+        branch_code: str | None = None,
+        company_code: str | None = None,
+    ) -> int:
+        """Return the counter value a sales bill of the series would take now.
+
+        Writes nothing. The preview prints it, and the bill-series settings
+        judge from it how much of a series is used (design section 15).
+        """
+        label = self._year_label(rule.firm_id, document_date, None)
+        series = BillSeriesCounters(self._session)
+        key = series_key(rule, series_prefix)
+        year = counter_year(rule, label)
+        if key != GENERAL_SERIES:
+            return series.peek(rule.firm_id, key, year)
+        scope_signature = self._scope_signature(
+            rule,
+            financial_year_label=label,
+            branch_code=branch_code,
+            company_code=company_code,
+            document_date=document_date,
+        )
+        return max(
+            series.peek(rule.firm_id, GENERAL_SERIES, year),
+            self._previewed_sequence(rule, scope_signature),
         )
 
     def _sequence_for(

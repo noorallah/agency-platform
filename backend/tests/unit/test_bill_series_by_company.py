@@ -25,7 +25,8 @@ from alembic.operations import Operations
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import delete, select, update
 
-from app.core.exceptions import ValidationError
+from app.common.audit.models import AuditLog
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.credit_note.services.credit_note_service import CreditNoteService
 from app.document_framework.models import (
     BillSeriesCounter,
@@ -791,3 +792,191 @@ def test_other_documents_of_a_new_firm_keep_their_default(
     assert rule.sequence_padding == 6
     assert rule.year_format != "NONE"
     assert rule.auto_reset is True
+
+
+# -- 15 (d, e). a new prefix past the limit -----------------------------------
+def _move_prefix(
+    shop: _Shop, company: Principal, prefix: str, *, admin: bool = True
+) -> None:
+    """Change ``company``'s bill series prefix through the service."""
+    BrandService(shop.session).save_principal(
+        PrincipalWrite(code=company.code, name=company.name, bill_series_prefix=prefix),
+        firm_id=shop.firm_id,
+        actor_id=ACTOR,
+        principal_id=company.id,
+        may_change_issued_prefix=admin,
+    )
+
+
+def _counter(shop: _Shop, prefix: str) -> BillSeriesCounter:
+    """Return the one counter row of ``prefix``."""
+    row = shop.session.scalar(
+        select(BillSeriesCounter).where(BillSeriesCounter.prefix == prefix)
+    )
+    assert row is not None
+    return row
+
+
+def test_a_new_prefix_mid_year_starts_at_one_and_going_back_carries_on(
+    shop: _Shop,
+) -> None:
+    """The old prefix's counter is kept, so no number is ever printed twice."""
+    asian = shop.company("ASIAN", "AS")
+    paint = shop.product("A1", asian)
+    shop.by_company()
+    first = shop.bill(paint, on=date(2026, 8, 4))
+    second = shop.bill(paint, on=date(2026, 8, 5))
+
+    _move_prefix(shop, asian, "AT")
+    moved = shop.bill(paint, on=date(2026, 9, 1))
+    _move_prefix(shop, asian, "AS")
+    back = shop.bill(paint, on=date(2026, 9, 2))
+
+    numbers = [
+        first.invoice_number,
+        second.invoice_number,
+        moved.invoice_number,
+        back.invoice_number,
+    ]
+    assert numbers == [
+        "AS-26-27-000001",
+        "AS-26-27-000002",
+        "AT-26-27-000001",
+        "AS-26-27-000003",
+    ]
+    # Bills already issued keep their numbers.
+    shop.session.expire_all()
+    stored = shop.session.get(SalesInvoice, first.id)
+    assert stored is not None and stored.invoice_number == "AS-26-27-000001"
+    audits = shop.session.scalars(
+        select(AuditLog)
+        .where(AuditLog.action == "principal.bill_series_prefix_changed")
+        .order_by(AuditLog.created_at.asc())
+    ).all()
+    assert [(a.before_data, a.after_data) for a in audits] == [
+        ({"bill_series_prefix": "AS"}, {"bill_series_prefix": "AT"}),
+        ({"bill_series_prefix": "AT"}, {"bill_series_prefix": "AS"}),
+    ]
+
+
+def test_changing_a_prefix_bills_carry_needs_an_administrator(shop: _Shop) -> None:
+    """Before any bill the prefix is anybody's to change; after, an admin's."""
+    asian = shop.company("ASIAN", "AS")
+    paint = shop.product("A1", asian)
+    shop.by_company()
+    _move_prefix(shop, asian, "AT", admin=False)
+    shop.bill(paint)
+
+    with pytest.raises(AuthorizationError, match="only an administrator"):
+        _move_prefix(shop, asian, "AU", admin=False)
+    shop.session.rollback()
+
+    _move_prefix(shop, asian, "AU")
+    assert shop.bill(paint).invoice_number == "AU-26-27-000001"
+
+
+def test_the_new_prefix_is_held_to_sixteen_characters(new_shop: _Shop) -> None:
+    """The fit check stays: prefix, ``/`` and eight digits leave seven."""
+    asian = new_shop.company("ASIAN", "ASIAN")
+    new_shop.by_company()
+    new_shop.bill(new_shop.product("A1", asian))
+
+    with pytest.raises(ValidationError, match="up to 7 characters"):
+        _move_prefix(new_shop, asian, "ASIANPAINT")
+
+
+def test_with_no_year_a_prefix_change_across_april_repeats_nothing(
+    new_shop: _Shop,
+) -> None:
+    """Across 1 April and back to the old prefix, every number is new."""
+    asian = new_shop.company("ASIAN", "ASIAN")
+    rule = new_shop.bill_rule()
+
+    numbers = [_issue(new_shop, rule, date(2027, 3, 30), "ASIAN")]
+    _move_prefix(new_shop, asian, "ASN")
+    numbers.append(_issue(new_shop, rule, date(2027, 4, 2), "ASN"))
+    _move_prefix(new_shop, asian, "ASIAN")
+    numbers += [
+        _issue(new_shop, rule, date(2027, 4, 3), "ASIAN"),
+        _issue(new_shop, rule, date(2028, 4, 3), "ASIAN"),
+    ]
+
+    assert numbers == [
+        "ASIAN/00000001",
+        "ASN/00000001",
+        "ASIAN/00000002",
+        "ASIAN/00000003",
+    ]
+
+
+def test_the_last_number_is_issued_and_the_next_is_refused(shop: _Shop) -> None:
+    """Six digits stop at 999999; the refusal says a new prefix is the way on."""
+    rule = shop.bill_rule()
+    assert _issue(shop, rule, date(2026, 8, 4), "AS") == "AS-26-27-000001"
+    _counter(shop, "AS").next_sequence = 999999
+    shop.session.commit()
+
+    assert _issue(shop, rule, date(2026, 8, 5), "AS") == "AS-26-27-999999"
+    shop.session.commit()
+    with pytest.raises(ValidationError) as refused:
+        _issue(shop, rule, date(2026, 8, 6), "AS")
+
+    assert refused.value.message == (
+        "This series has used its last number; give the company a new prefix "
+        "to start a new series."
+    )
+    assert refused.value.message == bill_series.LIMIT_MESSAGE
+    shop.session.rollback()
+    assert _counter(shop, "AS").next_sequence == 1000000
+    # Another series is not held up by it.
+    assert _issue(shop, rule, date(2026, 8, 6), "AT") == "AT-26-27-000001"
+
+
+@pytest.mark.parametrize(
+    ("next_sequence", "near", "at"),
+    [(95_000_000, False, False), (95_000_001, True, False), (100_000_000, True, True)],
+)
+def test_settings_warn_from_95_per_cent_of_a_series(
+    new_shop: _Shop, next_sequence: int, near: bool, at: bool
+) -> None:
+    """95% of 99,999,999 is 95,000,000 issued; the limit shows the refusal."""
+    asian = new_shop.company("ASIAN", "ASIAN")
+    rule = new_shop.bill_rule()
+    _issue(new_shop, rule, date(2026, 8, 4), "ASIAN")
+    _counter(new_shop, "ASIAN").next_sequence = next_sequence
+    new_shop.session.commit()
+
+    series = BillSeriesService(new_shop.session).settings(new_shop.firm_id).series
+    row = next(item for item in series if item.series_prefix == "ASIAN")
+
+    assert row.company_name == asian.name
+    assert (row.last_issued, row.capacity) == (next_sequence - 1, 99_999_999)
+    assert (row.near_limit, row.at_limit) == (near, at)
+    if at:
+        assert row.warning == bill_series.LIMIT_MESSAGE
+    elif near:
+        assert row.warning is not None and "new prefix" in row.warning
+    else:
+        assert row.warning is None
+    general = series[0]
+    assert (general.series_prefix, general.near_limit) == ("GENERAL", False)
+
+
+def test_settings_show_how_each_series_fills_sixteen_characters(
+    new_shop: _Shop, shop: _Shop
+) -> None:
+    """Prefix, separators, year and digits, added up against the limit."""
+    new_shop.company("ASIAN", "ASIAN")
+    shop.company("ASIAN", "AS")
+
+    fresh = BillSeriesService(new_shop.session).settings(new_shop.firm_id).series
+    older = BillSeriesService(shop.session).settings(shop.firm_id).series
+
+    assert [item.fit for item in fresh] == [
+        "prefix 2 + separators 1 + digits 8 = 11 of 16 characters (SI/99999999)",
+        "prefix 5 + separators 1 + digits 8 = 14 of 16 characters (ASIAN/99999999)",
+    ]
+    assert older[1].fit == (
+        "prefix 2 + separators 2 + year 5 + digits 6 = 15 of 16 characters "
+        "(AS-26-27-999999)"
+    )

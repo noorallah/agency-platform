@@ -16,6 +16,11 @@
   :data:`NO_YEAR`, so its counter never restarts (design section 15).
 * **Which length.** A prefix is judged at save against the firm's sales-bill
   layout, so the longest number it can print fits CGST rule 46(b).
+* **Past the last number.** A series never prints more digits than its
+  padding: the issue after the last is refused with :data:`LIMIT_MESSAGE`,
+  and Settings warns from 95%. A new prefix is the way on -- it starts its
+  own counter at 1, and the old one is kept, so going back to it carries on
+  where it stopped (design section 15, decisions 4 and 5).
 
 Only ``SALES_INVOICE`` is numbered this way; returns, notes and proformas
 keep their own series (design section 9).
@@ -48,12 +53,17 @@ from app.document_framework.models.bill_series import (
     ONE_SERIES,
 )
 from app.document_framework.models.document_framework import (
+    YEAR_FORMAT_FULL,
     YEAR_FORMAT_NONE,
     YEAR_FORMAT_SHORT,
+    YEAR_FORMAT_TWO_DIGIT,
     flags_for_year_format,
     year_format_of,
 )
-from app.document_framework.services.gst_numbering import gst_number_problem
+from app.document_framework.services.gst_numbering import (
+    GST_NUMBER_LIMIT,
+    gst_number_problem,
+)
 
 if TYPE_CHECKING:
     from datetime import date
@@ -68,6 +78,24 @@ PREFIX_COLUMN_LENGTH = 10
 #: counter for the life of the prefix, since a yearly restart would print
 #: ``ASIAN/00000001`` again every April (design section 15).
 NO_YEAR = ""
+
+#: The refusal once a series has issued the last number its padding holds
+#: (design section 15, decision 5), in the owner's words.
+LIMIT_MESSAGE = (
+    "This series has used its last number; give the company a new prefix to "
+    "start a new series."
+)
+
+#: The share of a series' numbers, in per cent, from which Settings warns.
+WARN_AT_PERCENT = 95
+
+#: How many characters each year format prints.
+_YEAR_LENGTH = {
+    YEAR_FORMAT_NONE: 0,
+    YEAR_FORMAT_TWO_DIGIT: 2,
+    YEAR_FORMAT_SHORT: 5,
+    YEAR_FORMAT_FULL: 9,
+}
 
 _PREFIX = re.compile(r"^[A-Z0-9]+$")
 
@@ -159,6 +187,32 @@ def counter_year(rule: DocumentNumberingRule, label: str) -> str:
     else:
         prints = year_format_of(rule) != YEAR_FORMAT_NONE
     return label if prints else NO_YEAR
+
+
+def series_capacity(rule: DocumentNumberingRule) -> int:
+    """Return the last number ``rule``'s padding holds: 999999 for six digits."""
+    return int(10**rule.sequence_padding - 1)
+
+
+def is_near_limit(used: int, capacity: int) -> bool:
+    """Say whether ``used`` of ``capacity`` numbers is 95% or more of them."""
+    return used * 100 >= capacity * WARN_AT_PERCENT
+
+
+def prefix_has_issued(session: Session, firm_id: UUID, prefix: str) -> bool:
+    """Say whether any sales bill was numbered under ``prefix``, in any year."""
+    return (
+        session.scalar(
+            select(BillSeriesCounter.id)
+            .where(
+                BillSeriesCounter.firm_id == firm_id,
+                BillSeriesCounter.prefix == prefix,
+                BillSeriesCounter.next_sequence > 1,
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,7 +338,7 @@ def sales_bill_layout(session: Session, firm_id: UUID) -> DocumentNumberingRule:
     )
 
 
-def _longest(session: Session, rule: DocumentNumberingRule, prefix: str) -> str:
+def _longest(session: Session, rule: DocumentNumberingRule, prefix: str | None) -> str:
     """Return the longest number ``rule`` prints under ``prefix``."""
     from app.document_framework.services.document_framework_service import (
         DocumentFrameworkService,
@@ -330,6 +384,33 @@ def longest_prefix(
             break
         fits = length
     return fits
+
+
+def fit_text(
+    session: Session, rule: DocumentNumberingRule, prefix: str | None = None
+) -> str:
+    """Say how the longest number of a series fills the 16 characters.
+
+    ``prefix 5 + separators 2 + year 2 + digits 7 = 16 of 16 characters
+    (ASIAN/26/9999999)``. A rule printed from a pattern is given as a total,
+    since its literals are not parts this can name.
+    """
+    number = _longest(session, rule, prefix)
+    total = f"{len(number)} of {GST_NUMBER_LIMIT} characters ({number})"
+    if rule.format_pattern:
+        return total
+    shown = prefix if prefix is not None else (rule.prefix or "")
+    digits = max(rule.sequence_padding, len(str(rule.next_sequence or 1)))
+    year = _YEAR_LENGTH.get(year_format_of(rule), 0)
+    rest = len(number) - len(shown) - year - digits
+    codes = rule.include_company_code or rule.include_branch_code or rule.suffix
+    parts = [f"prefix {len(shown)}"]
+    if rest:
+        parts.append(f"{'separators and codes' if codes else 'separators'} {rest}")
+    if year:
+        parts.append(f"year {year}")
+    parts.append(f"digits {digits}")
+    return f"{' + '.join(parts)} = {total}"
 
 
 class BillSeriesCounters:
@@ -379,6 +460,7 @@ class BillSeriesCounters:
         *,
         floor: int,
         actor_id: UUID | None,
+        ceiling: int | None = None,
     ) -> int:
         """Return the next number of the series and move its counter past it.
 
@@ -396,9 +478,15 @@ class BillSeriesCounters:
             floor: The lowest number this issue may take -- GENERAL passes
                 the rule's own counter so it never goes back behind it.
             actor_id: The user raising the bill.
+            ceiling: The last number the series may issue -- its padding
+                filled with nines; ``None`` sets no limit.
 
         Returns:
             The number issued.
+
+        Raises:
+            ValidationError: :data:`LIMIT_MESSAGE`, if the next number is past
+                ``ceiling``. The counter is left where it was.
 
         """
         row = self._row(firm_id, prefix, year, lock=True)
@@ -430,6 +518,8 @@ class BillSeriesCounters:
             row.is_deleted = False
             row.deleted_at = None
         sequence = max(row.next_sequence, floor, 1)
+        if ceiling is not None and sequence > ceiling:
+            raise ValidationError(LIMIT_MESSAGE)
         row.next_sequence = sequence + 1
         if actor_id is not None:
             row.updated_by = actor_id
@@ -452,6 +542,32 @@ class BillSeriesSettingsWrite(BaseModel):
     series_driver: str = Field(min_length=1, max_length=30)
 
 
+class BillSeriesUsage(BaseModel):
+    """How much of one series is used, and how its numbers fit 16 characters."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: ``GENERAL`` or the company prefix.
+    series_prefix: str
+    #: The companies behind the prefix, joined; ``None`` for GENERAL or a
+    #: prefix no live company carries any more.
+    company_name: str | None
+    #: The last number the series issued, 0 for none yet.
+    last_issued: int
+    #: The last number its padding holds: 9999999 for seven digits.
+    capacity: int
+    #: 95% or more of its numbers are used.
+    near_limit: bool
+    #: Its last number is issued; the next bill of the series is refused.
+    at_limit: bool
+    #: What Settings shows when ``near_limit``: the limit message once
+    #: ``at_limit``, else how much is left. ``None`` while there is room.
+    warning: str | None
+    #: ``prefix 5 + separators 2 + year 2 + digits 7 = 16 of 16 characters
+    #: (ASIAN/26/9999999)``.
+    fit: str
+
+
 class BillSeriesSettingsResponse(BaseModel):
     """The firm's bill series setting, and what a company prefix may be."""
 
@@ -464,6 +580,9 @@ class BillSeriesSettingsResponse(BaseModel):
     #: sales-bill layout -- worked out, never written into a sentence.
     longest_prefix: int
     is_configured: bool
+    #: Every series of the present year, GENERAL first: how much of each is
+    #: used and how its numbers fit (design section 15 (d)).
+    series: list[BillSeriesUsage] = Field(default_factory=list)
 
 
 class BillSeriesPreview(BaseModel):
@@ -507,7 +626,74 @@ class BillSeriesService:
             drivers=series_drivers(),
             longest_prefix=longest_prefix(self._session, firm_id),
             is_configured=row is not None,
+            series=self.usage(firm_id),
         )
+
+    def usage(self, firm_id: UUID) -> list[BillSeriesUsage]:
+        """Return each series of the present year: GENERAL, then by prefix.
+
+        A series is listed when a live company carries its prefix or when it
+        has a counter this year -- so a prefix a company has moved off is
+        still shown, since going back to it carries on where it stopped.
+        """
+        from app.common.firm_metadata import firm_today
+        from app.document_framework.services.document_framework_service import (
+            DocumentFrameworkService,
+        )
+
+        numbers = DocumentFrameworkService(self._session)
+        rule = sales_bill_layout(self._session, firm_id)
+        today = firm_today(self._session, firm_id)
+        year = counter_year(rule, numbers._year_label(firm_id, today, None))
+        counted = self._session.scalars(
+            select(BillSeriesCounter.prefix).where(
+                BillSeriesCounter.firm_id == firm_id,
+                BillSeriesCounter.financial_year == year,
+                BillSeriesCounter.is_deleted.is_(False),
+            )
+        ).all()
+        keys = {GENERAL_SERIES}
+        keys.update(series_key(rule, prefix) for prefix in counted)
+        keys.update(
+            series_key(rule, prefix)
+            for prefix in company_prefixes_in_use(self._session, firm_id)
+        )
+        ordered = [GENERAL_SERIES, *sorted(keys - {GENERAL_SERIES})]
+        names = company_names_by_prefix(self._session, firm_id, ordered)
+        capacity = series_capacity(rule)
+        answer: list[BillSeriesUsage] = []
+        for key in ordered:
+            prefix = None if key == GENERAL_SERIES else key
+            used = (
+                numbers.next_bill_sequence(
+                    rule, series_prefix=prefix, document_date=today
+                )
+                - 1
+            )
+            near = is_near_limit(used, capacity)
+            at = used >= capacity
+            warning: str | None = None
+            if at:
+                warning = LIMIT_MESSAGE
+            elif near:
+                warning = (
+                    f"The series {key} has used {used:,} of its {capacity:,} "
+                    f"numbers, {capacity - used:,} left; give the company a "
+                    "new prefix before it runs out."
+                )
+            answer.append(
+                BillSeriesUsage(
+                    series_prefix=key,
+                    company_name=names.get(key),
+                    last_issued=used,
+                    capacity=capacity,
+                    near_limit=near,
+                    at_limit=at,
+                    warning=warning,
+                    fit=fit_text(self._session, rule, prefix),
+                )
+            )
+        return answer
 
     def save_settings(
         self, data: BillSeriesSettingsWrite, *, firm_id: UUID, actor_id: UUID
@@ -629,14 +815,20 @@ __all__ = [
     "BillSeriesService",
     "BillSeriesSettingsResponse",
     "BillSeriesSettingsWrite",
+    "BillSeriesUsage",
+    "LIMIT_MESSAGE",
     "SeriesChoice",
     "assert_prefix_fits",
     "company_names_by_prefix",
     "company_prefixes_in_use",
     "counter_year",
+    "fit_text",
+    "is_near_limit",
     "longest_prefix",
     "normalise_prefix",
+    "prefix_has_issued",
     "sales_bill_layout",
     "sales_bill_rule",
+    "series_capacity",
     "series_key",
 ]

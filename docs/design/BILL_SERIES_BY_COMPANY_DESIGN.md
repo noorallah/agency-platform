@@ -472,5 +472,28 @@ GSTR-1 Table 13 now reads the series behind a `/` as well as a `-`, so
 volume seeder (`scripts/seed_volume_firm.py`) counts a no-year series once
 across 1 April.
 
+**(d) and (e) are built (2026-10-17), with no migration.** A company's prefix
+may be changed after bills exist: `BrandService.stage_save_principal` lets it
+through when the caller holds `SETTINGS_UPDATE` (the numbering series'
+authority) and refuses anybody else with a 403, and only when bills are
+already numbered under the old prefix -- before the first bill it is
+`PRODUCT_UPDATE` as before. The change writes a
+`principal.bill_series_prefix_changed` audit row with the old and new prefix.
+Nothing else was needed for the counters: they are keyed on the prefix, so
+the new one starts at 1 and the old one's row is left as it is, and going
+back carries on from it. The principal import cannot change an issued
+prefix; the company screen can. The 16-character check still runs on the
+new prefix. A bill series now stops at its padding: the issue after
+`9999999` (seven digits) is refused with *"This series has used its last
+number; give the company a new prefix to start a new series."*
+(`LIMIT_MESSAGE`), and the counter does not move. `GET
+/bill-series-settings` gained `series`: one row per series of the present
+year (GENERAL, every prefix a company carries, every prefix with a counter),
+each with `last_issued`, `capacity`, `near_limit` (from 95%, so 9,500,000 of
+9,999,999), `at_limit`, a `warning` for Settings to show, and `fit` --
+`prefix 5 + separators 1 + digits 8 = 14 of 16 characters (ASIAN/99999999)`.
+The desktop does not show them yet. Tests: `test_bill_series_by_company.py`,
+section *15 (d, e)*.
+
 **Open for the owner.** None; the build order puts it after the Buying sweep
 and the Viewer-menu fix.
