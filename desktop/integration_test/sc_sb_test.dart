@@ -43,6 +43,12 @@ void main() {
       final Json noteB = await apiDispatchedNote(admin, quantity: 3);
       final Json noteC = await apiDispatchedNote(admin, quantity: 2);
       final Json approved = await apiApprovedInvoice(admin, quantity: 3);
+      // Every note above is raised on the customer of the newest order, which is
+      // not always Vijaya Stores: the bill steps open that customer's own bill.
+      final Json noteOwner = await admin.one(
+          'customers', '${(noteA['order'] as Json)['customer_id']}');
+      final String billCustomer =
+          '${noteOwner['name'] ?? noteOwner['display_name']}';
       final Json draftForApprove = await apiDraftInvoice(
           admin, await apiDispatchedNote(admin, quantity: 2));
       final Json draftForRace = await apiDraftInvoice(
@@ -90,7 +96,7 @@ void main() {
 
       await log.step('SC-SB-017 customer but no notes: Save is refused',
           () async {
-        await newBillFor('Vijaya Stores');
+        await newBillFor(billCustomer);
         log.saw = await expectRefusal(tester, me,
             collection: 'sales-invoices',
             openKey: 'sales-invoice-save',
@@ -100,7 +106,7 @@ void main() {
 
       await log.step('SC-SB-018 quantity 0 on the only line is refused',
           () async {
-        await newBillFor('Vijaya Stores');
+        await newBillFor(billCustomer);
         await tickNotes(tester);
         log.saw = await expectRefusal(tester, me,
             collection: 'sales-invoices',
@@ -114,7 +120,7 @@ void main() {
 
       await log.step('SC-SB-019 more than the note delivered (99999 typed)',
           () async {
-        await newBillFor('Vijaya Stores');
+        await newBillFor(billCustomer);
         await tickNotes(tester);
         log.saw = await expectRefusal(tester, me,
             collection: 'sales-invoices',
@@ -169,7 +175,7 @@ void main() {
 
       await log.step('SC-SB-032 the Cancel button on a typed-in editor asks',
           () async {
-        await newBillFor('Vijaya Stores');
+        await newBillFor(billCustomer);
         await tester.enterText(
             find.widgetWithText(TextFormField, 'their PO number').first,
             'PO-TYPED-1');
@@ -272,7 +278,7 @@ void main() {
       // -- Positive -------------------------------------------------------
       await log.step('SC-SB-004 Save and approve in one step', () async {
         final int before = await totalOf(me, 'sales-invoices');
-        await newBillFor('Vijaya Stores');
+        await newBillFor(billCustomer);
         await tickNotes(tester);
         await saveEditor(tester, 'sales-invoice-save-approve');
         await pumpFor(tester, const Duration(seconds: 2));
@@ -287,7 +293,7 @@ void main() {
       await log.step('SC-SB-005 two notes of one customer on one bill',
           () async {
         final int before = await totalOf(me, 'sales-invoices');
-        await newBillFor('Vijaya Stores');
+        await newBillFor(billCustomer);
         await tickNotes(tester, count: 2);
         final int chips = find
             .byWidgetPredicate((Widget w) {
