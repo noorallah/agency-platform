@@ -371,6 +371,7 @@ class BillSeriesSettings {
     required this.drivers,
     required this.longestPrefix,
     required this.isConfigured,
+    this.series = const <BillSeriesUsage>[],
   });
 
   static const String oneSeries = 'ONE_SERIES';
@@ -386,6 +387,10 @@ class BillSeriesSettings {
   /// False until the firm has saved a choice; it reads as one series.
   final bool isConfigured;
 
+  /// How far each series has got this year, as the server counts it; empty
+  /// when the server sent none.
+  final List<BillSeriesUsage> series;
+
   factory BillSeriesSettings.fromJson(Json json) => BillSeriesSettings(
         seriesDriver: stringValue(json['series_driver']).isEmpty
             ? oneSeries
@@ -393,6 +398,51 @@ class BillSeriesSettings {
         drivers: stringList(json['drivers']),
         longestPrefix: (json['longest_prefix'] as num?)?.toInt() ?? 0,
         isConfigured: boolValue(json['is_configured']),
+        series: (json['series'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(BillSeriesUsage.fromJson)
+            .toList(growable: false),
+      );
+}
+
+/// One series' usage: how many numbers it has issued against how many its
+/// layout can hold, and whether its prefix fits. Worked out by the server.
+class BillSeriesUsage {
+  const BillSeriesUsage({
+    required this.seriesPrefix,
+    required this.companyName,
+    required this.lastIssued,
+    required this.capacity,
+    required this.nearLimit,
+    required this.atLimit,
+    required this.warning,
+    required this.fit,
+  });
+
+  final String seriesPrefix;
+  final String? companyName;
+  final int lastIssued;
+  final int capacity;
+  final bool nearLimit;
+  final bool atLimit;
+
+  /// The server's warning, null when the series is comfortable.
+  final String? warning;
+  final String fit;
+
+  factory BillSeriesUsage.fromJson(Json json) => BillSeriesUsage(
+        seriesPrefix: stringValue(json['series_prefix']),
+        companyName: stringValue(json['company_name']).isEmpty
+            ? null
+            : stringValue(json['company_name']),
+        lastIssued: (json['last_issued'] as num?)?.toInt() ?? 0,
+        capacity: (json['capacity'] as num?)?.toInt() ?? 0,
+        nearLimit: boolValue(json['near_limit']),
+        atLimit: boolValue(json['at_limit']),
+        warning: stringValue(json['warning']).isEmpty
+            ? null
+            : stringValue(json['warning']),
+        fit: stringValue(json['fit']),
       );
 }
 
