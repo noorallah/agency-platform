@@ -43,7 +43,7 @@ c.eq((D(p["quantity"]), D(p["net"]), p["invoices"], D(p["cost"]), D(p["margin"])
 ordered = must(a.get(f"{SA}{Q}&basis=ordered"), "ordered")["grand_total"]
 # Observed: the 'ordered' basis counts the approved order (4 pieces, 472.00) AND the counter invoice
 # raised without an order (3 pieces, 354.00): 7 and 826.00. Case text says "approved orders instead of invoices".
-c.eq((D(ordered["quantity"]), D(ordered["net"])), (D("7"), D("826.00")), "ordered basis: the approved order (4, 472.00) plus the order-less counter bill (3, 354.00)")
+c.eq((D(ordered["quantity"]), D(ordered["net"])), (D("4"), D("472.00")), "ordered basis: the approved order only (4, 472.00); the counter bill's own order is not counted (D-FIN-35)")
 c.refused(a.get(f"{SA}{Q}&basis=invoiced"), 422, "not a basis", "'invoiced' is not an API basis: the value is 'billed' (case text names the screen label)")
 off = must(mgr.get(f"{SA}{Q}&basis=billed&compare_previous_year=true"), "manager")
 mg = off["grand_total"]

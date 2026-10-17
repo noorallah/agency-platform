@@ -42,9 +42,9 @@ with counter(a):
         c.eq(sales.put(RULES, {"rules": []})[0], 403, "a Sales Executive cannot change the rules")
         c.eq(a.put(RULES, {"rules": [{"level": 4, "min_amount": "0", "role_code": "FIRM_ADMIN"}]})[0], 422, "level 4 is refused (three levels at most)")
         c.eq(a.put(f"{AP}/rules/NOT_A_DOCUMENT", {"rules": []})[0], 422, "an unknown document type is refused")
-        big = sc.bill(cust, "100", approve=False)   # 11,800.00
+        big = sc.bill(cust, "100", approve=False)   # 11,800.00 with no arrangement; this firm's promo BULK5 (750.00) and standing 200.00 discount bring it to 10,679.00
         small = sc.bill(cust, "5", approve=False)   # 590.00
-        c.eq(D(big["grand_total"]), D("11800.00"), "the big bill is 11,800.00")
+        c.eq(D(big["grand_total"]), D("10679.00"), "the big bill is 10,679.00 after the firm's arrangements (BULK5 and the standing bill discount), still over the 10,000 level-2 threshold")
         c.eq([s["level"] for s in steps(big)], [1, 2], "the big bill needs two levels")
         c.eq([s["level"] for s in steps(small)], [1], "the small bill needs one")
         # approval cannot be skipped

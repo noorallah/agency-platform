@@ -13,7 +13,7 @@ st, rc = receipt(a, cust, "100.00", [(bill, "100.00")])
 c.eq(st, 201, "a 100.00 receipt is recorded")
 rcn = data(rc)["settlement_number"]
 si = bill["invoice_number"]
-dn = "DN-" + si.split("SI-", 1)[1]
+dn = next(s["source_document_number"] for s in bill["sources"] if s["source_document_type"] == "DELIVERY_NOTE")  # the note the bill continues; the DN series runs apart from the SI series
 
 
 def one(search: str) -> dict:
