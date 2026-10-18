@@ -8,7 +8,7 @@
       "incoming_quantity": "0",
       "last_discount_percent": "10.0000",
       "last_invoice_date": "2026-08-04",
-      "last_invoice_number": "SI-26-27-000001",
+      "last_invoice_number": "SI/00000001",
       "last_price": "100.0000",
       "line_number": 1,
       "outgoing_quantity": "0",
@@ -86,7 +86,7 @@
         "source_document_id": "id-7",
         "source_document_line_id": "id-8",
         "source_document_line_number": 1,
-        "source_document_number": "SI-26-27-000001",
+        "source_document_number": "SI/00000001",
         "source_document_type": "SALES_INVOICE",
         "storage_node_id": null,
         "tax_amount": "27.0000",
@@ -117,7 +117,7 @@
         "id": "id-11",
         "source_document_date": "2026-08-04",
         "source_document_id": "id-7",
-        "source_document_number": "SI-26-27-000001",
+        "source_document_number": "SI/00000001",
         "source_document_type": "SALES_INVOICE",
         "updated_at": "2026-08-04T00:00:00Z"
       }

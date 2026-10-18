@@ -142,6 +142,10 @@ _BARE_WRITER: dict[str, str] = {
         "remap_headings rewrites an uploaded file for the import that reads "
         "it next, which takes any guard off; nobody opens it"
     ),
+    "imports/services/import_mapping_service.py": (
+        "_remap_values rewrites an uploaded file's values for the import that "
+        "reads it next, the same as remap_headings; nobody opens it"
+    ),
 }
 
 

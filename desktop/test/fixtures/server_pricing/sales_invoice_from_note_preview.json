@@ -10,7 +10,7 @@
         "direction": "CREDIT",
         "event_type": "SALES_REVENUE",
         "id": "id-14",
-        "narration": "Placeholder accounting event for SI-26-27-000001",
+        "narration": "Placeholder accounting event for SI/00000001",
         "source_line_id": null,
         "updated_at": "2026-08-04T00:00:00Z"
       },
@@ -21,7 +21,7 @@
         "direction": "CREDIT",
         "event_type": "OUTPUT_TAX",
         "id": "id-15",
-        "narration": "Placeholder accounting event for SI-26-27-000001",
+        "narration": "Placeholder accounting event for SI/00000001",
         "source_line_id": null,
         "updated_at": "2026-08-04T00:00:00Z"
       },
@@ -32,7 +32,7 @@
         "direction": "DEBIT",
         "event_type": "ACCOUNTS_RECEIVABLE",
         "id": "id-16",
-        "narration": "Placeholder accounting event for SI-26-27-000001",
+        "narration": "Placeholder accounting event for SI/00000001",
         "source_line_id": null,
         "updated_at": "2026-08-04T00:00:00Z"
       }
@@ -78,13 +78,13 @@
     "held_note": null,
     "id": "id-1",
     "invoice_date": "2026-08-04",
-    "invoice_number": "SI-26-27-000001",
+    "invoice_number": "SI/00000001",
     "is_deleted": false,
     "is_held": false,
     "line_discount_total": "43.5000",
     "lines": [
       {
-        "accounting_event_reference": "SI-26-27-000001:1",
+        "accounting_event_reference": "SI/00000001:1",
         "already_invoiced_quantity": "0.0000",
         "batch_number": null,
         "batches": [],
@@ -169,6 +169,8 @@
     "round_off": "0.0000",
     "route_id": null,
     "salesman_id": null,
+    "series_company_name": null,
+    "series_prefix": "GENERAL",
     "shipping_address_id": null,
     "sources": [
       {
